@@ -1,240 +1,198 @@
-"use client";
-
-import React, { useState, useEffect, useCallback } from "react";
-import {
-  Loader2,
-  Shield,
-  Link as LinkIcon,
-  Clock,
-  Coffee,
-  Database,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Toaster } from "@/components/ui/toaster";
-import { toast } from "@/hooks/use-toast";
+'use client'
 
 /* -------------------------------------------------------------------------- */
-/* Types                                                                      */
+/*  Landing page – MeetingBrief                                              */
+/*  Uses Sonner toaster directly. No external toast wrappers or hooks.       */
 /* -------------------------------------------------------------------------- */
 
-interface BriefResponse {
-  brief: string;
-  citations: string[];
-  smallTalk: string[];
-}
+import React, { useEffect, useState } from 'react'
+import { Toaster, toast } from 'sonner'
+import { Loader2, Copy, Download } from 'lucide-react'
+import clsx from 'clsx'
 
 /* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
-export default function MeetingBriefPage(): JSX.Element {
-  /* ------------------------------ hero state ------------------------------ */
-  const [name, setName] = useState("");
-  const [company, setCompany] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [briefHtml, setBriefHtml] = useState<string | null>(null);
-  const [smallTalkQueue, setSmallTalkQueue] = useState<string[]>([]);
-  const [demoShown, setDemoShown] = useState(false);
+type ReportState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; markdown: string }
 
-  const formValid = name.trim() !== "" && company.trim() !== "";
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
 
-  /* ------------------------------ fetch util ------------------------------ */
-  const fetchBrief = useCallback(
-    async (override?: { name: string; company: string }): Promise<void> => {
-      const payload = override ?? { name, company };
-      setIsLoading(true);
-      setBriefHtml(null);
+export default function MeetingBriefLandingPage() {
+  /* ---------------------------------------------------------------------- */
+  /*  Local state                                                           */
+  /* ---------------------------------------------------------------------- */
+  const [name, setName] = useState('')
+  const [company, setCompany] = useState('')
+  const [report, setReport] = useState<ReportState>({ status: 'idle' })
+  const [runCount, setRunCount] = useState<number>(0)
 
-      try {
-        const res = await fetch("/api/meetingbrief", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: BriefResponse = await res.json();
-
-        setBriefHtml(data.brief);
-        setSmallTalkQueue(data.smallTalk);
-        toast.success("Brief generated");
-        setDemoShown(true);
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to generate brief");
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [name, company]
-  );
-
-  /* -------------------- cycle small‑talk during loading ------------------- */
+  /* ---------------------------------------------------------------------- */
+  /*  Initialise anonymous-run counter                                      */
+  /* ---------------------------------------------------------------------- */
   useEffect(() => {
-    if (!isLoading || smallTalkQueue.length === 0) return;
-    const id = setInterval(() => {
-      setSmallTalkQueue((q) => [...q.slice(1), q[0]]);
-    }, 3000);
-    return () => clearInterval(id);
-  }, [isLoading, smallTalkQueue]);
+    const stored = Number(localStorage.getItem('mb_runs') ?? '0')
+    setRunCount(stored)
+  }, [])
 
-  /* ------------------------------ UI data --------------------------------- */
-  const features = [
-    { title: "Linked citations", desc: "Every claim traces back to the source.", icon: LinkIcon },
-    { title: "Real‑time data", desc: "News, filings, social pulled live.", icon: Clock },
-    { title: "AI‑verified summaries", desc: "Multiple sources cross‑checked to prevent hallucination.", icon: Shield },
-    { title: "Secure infra", desc: "Encrypt‑in‑transit & at‑rest; SOC 2 Type II hosting.", icon: Database },
-    { title: "Small‑Talk topics", desc: "Ice‑breakers generated from fresh info.", icon: Coffee },
-  ] as const;
+  /* ---------------------------------------------------------------------- */
+  /*  Handler: generate brief                                               */
+  /* ---------------------------------------------------------------------- */
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault()
 
-  const testimonials = [
-    {
-      name: "Sarah Johnson",
-      title: "VP of Sales, TechCorp",
-      quote: "MeetingBrief saved me hours of prep before critical client calls.",
-    },
-    {
-      name: "Michael Chen",
-      title: "Investment Analyst, Capital Partners",
-      quote: "The depth of information is impressive—I'm always the most prepared person in the room.",
-    },
-    {
-      name: "Aisha Patel",
-      title: "Business Development, Innovate Inc",
-      quote: "Small‑Talk generator is a game‑changer for breaking the ice.",
-    },
-  ] as const;
+    if (runCount >= 3) {
+      toast.error('Anonymous limit reached. Create a free account to continue.')
+      return
+    }
+    if (!name.trim() || !company.trim()) {
+      toast.error('Please enter both name and company.')
+      return
+    }
 
-  /* ------------------------------- render --------------------------------- */
+    setReport({ status: 'loading' })
+
+    /* ---- Mock API call (replace with real endpoint) ------------------- */
+    setTimeout(() => {
+      const markdown = `### MeetingBrief for ${name} · ${company}
+
+**Executive Summary**
+- Example bullet one.
+- Example bullet two.
+- Example bullet three.
+
+**Notable Flags**
+- None at this time.
+
+**Interesting Facts**
+- ${name} and ${company} both appear in Fortune 500 coverage.`
+
+      setReport({ status: 'ready', markdown })
+      const next = runCount + 1
+      setRunCount(next)
+      localStorage.setItem('mb_runs', String(next))
+    }, 2800)
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /*  Derived helpers                                                       */
+  /* ---------------------------------------------------------------------- */
+  const showSpinner = report.status === 'loading'
+  const showReport = report.status === 'ready'
+  const smallTalk = [
+    'Honey never spoils—jars found in ancient tombs are still edible.',
+    'Octopuses have three hearts and blue blood.',
+    'Bananas share ~60 % of their DNA with humans.',
+    'The shortest war in history lasted 38 minutes.',
+    'New York drifts about one inch farther from London every year.'
+  ]
+
+  /* ---------------------------------------------------------------------- */
+  /*  Render                                                                */
+  /* ---------------------------------------------------------------------- */
   return (
-    <>
-      {/* ─────────────────────────── Hero ─────────────────────────── */}
-      <section className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#0b0b16] via-[#161629] to-[#12121e] px-4 py-20 text-white">
-        <div className="w-full max-w-3xl text-center">
-          <h1 className="text-5xl font-bold tracking-tight">Arrive informed—deep research made effortless</h1>
-          <p className="mt-4 text-lg text-gray-300">
-            Type a name and company, get a fully‑sourced brief in under a minute.
+    <div className="min-h-screen bg-gradient-to-b from-[#0b0b16] via-[#161629] to-[#12121e] text-white flex flex-col">
+      <Toaster richColors />
+      <main className="max-w-4xl mx-auto px-4 py-16 flex-1 flex flex-col items-center">
+        {/* ------------------------  Hero  ------------------------------ */}
+        <h1 className="text-4xl md:text-6xl font-bold text-center">
+          Know everything before you enter the room.
+        </h1>
+        <p className="mt-4 text-xl text-center">
+          Arrive informed — deep research made effortless.
+        </p>
+
+        {/* ------------------------  Form  ------------------------------ */}
+        <form
+          onSubmit={handleGenerate}
+          className="mt-10 w-full flex flex-col gap-4 md:flex-row md:gap-2"
+        >
+          <input
+            type="text"
+            placeholder="Name"
+            className="flex-1 rounded-xl bg-white/10 backdrop-blur-sm px-4 py-3 placeholder-gray-400 focus:outline-none"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={showSpinner}
+          />
+          <input
+            type="text"
+            placeholder="Company"
+            className="flex-1 rounded-xl bg-white/10 backdrop-blur-sm px-4 py-3 placeholder-gray-400 focus:outline-none"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            disabled={showSpinner}
+          />
+          <button
+            type="submit"
+            className={clsx(
+              'rounded-xl font-semibold px-6 py-3 transition-colors',
+              showSpinner
+                ? 'bg-gray-600 cursor-not-allowed'
+                : 'bg-purple-600 hover:bg-purple-700'
+            )}
+            disabled={showSpinner}
+          >
+            {showSpinner ? 'Generating…' : 'Generate Brief'}
+          </button>
+        </form>
+
+        {/* -------------  Loading: Small-Talk + spinner  ---------------- */}
+        {showSpinner && (
+          <div className="mt-12 w-full max-w-lg bg-white/5 p-6 rounded-xl">
+            <h2 className="text-lg font-semibold mb-2">Small-Talk Topics</h2>
+            <ul className="list-disc list-inside space-y-1 text-sm text-gray-300">
+              {smallTalk.map((fact) => (
+                <li key={fact}>{fact}</li>
+              ))}
+            </ul>
+            <div className="flex justify-center mt-6">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          </div>
+        )}
+
+        {/* ----------------------  Report  ------------------------------ */}
+        {showReport && (
+          <div className="mt-12 w-full max-w-3xl bg-white/5 p-6 rounded-xl space-y-6">
+            <pre className="whitespace-pre-wrap text-sm">
+              {report.markdown}
+            </pre>
+            <div className="flex gap-4 justify-end">
+              <button
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-600"
+                onClick={() => toast.info('Sign in to copy this report.')}
+              >
+                <Copy className="h-4 w-4" />
+                Copy
+              </button>
+              <button
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-600"
+                onClick={() => toast.info('Sign in to download this report.')}
+              >
+                <Download className="h-4 w-4" />
+                Download
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* -------------  Anonymous-limit notice (non-modal) ------------ */}
+        {runCount >= 3 && (
+          <p className="mt-8 text-sm text-red-400">
+            Anonymous limit reached.{' '}
+            <a href="/signup" className="underline">
+              Create a free account
+            </a>{' '}
+            to keep generating briefs.
           </p>
-
-          {!briefHtml && (
-            <div className="mt-10 space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input
-                  placeholder="e.g. Jensen Huang"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={isLoading}
-                />
-                <Input
-                  placeholder="e.g. Nvidia"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <Button
-                className="w-full bg-indigo-600 hover:bg-indigo-500"
-                disabled={!formValid || isLoading}
-                onClick={() => fetchBrief()}
-              >
-                {isLoading ? <Loader2 className="animate-spin" /> : "Generate my brief →"}
-              </Button>
-
-              {!demoShown && !isLoading && (
-                <button
-                  type="button"
-                  className="text-sm text-gray-400 underline-offset-4 hover:underline"
-                  onClick={() => fetchBrief({ name: "Jensen Huang", company: "Nvidia" })}
-                >
-                  See a sample brief instead
-                </button>
-              )}
-            </div>
-          )}
-
-          {isLoading && (
-            <div className="mt-16 flex flex-col items-center gap-6">
-              <Loader2 className="h-12 w-12 animate-spin text-indigo-600" />
-              <AnimatePresence>
-                {smallTalkQueue[0] && (
-                  <motion.p
-                    key={smallTalkQueue[0]}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    className="max-w-lg text-sm text-gray-300"
-                  >
-                    {smallTalkQueue[0]}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {briefHtml && (
-            <article
-              className="prose prose-invert mx-auto mt-16 text-left"
-              dangerouslySetInnerHTML={{ __html: briefHtml }}
-            />
-          )}
-        </div>
-      </section>
-
-      {/* ────────────────────────── Features ───────────────────────── */}
-      <section className="bg-[#0e0e18] px-4 py-20 text-white">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="text-3xl font-bold text-center">Powerful features for better meetings</h2>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map(({ title, desc, icon: Icon }) => (
-              <Card
-                key={title}
-                className="rounded-2xl border-white/10 bg-white/5 transition-colors hover:bg-white/10"
-              >
-                <CardHeader>
-                  <Icon className="h-8 w-8 text-indigo-400" />
-                  <CardTitle>{title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="text-gray-300">{desc}</CardDescription>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ──────────────────────── Testimonials ─────────────────────── */}
-      <section className="bg-gray-50 px-4 py-20">
-        <div className="mx-auto max-w-4xl text-center">
-          <h2 className="mb-12 text-3xl font-bold">Trusted by professionals</h2>
-          <div className="space-y-10">
-            {testimonials.map((t) => (
-              <figure key={t.name} className="mx-auto max-w-md">
-                <blockquote className="text-xl italic">“{t.quote}”</blockquote>
-                <figcaption className="mt-4 font-semibold">
-                  {t.name} – <span className="text-gray-600">{t.title}</span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────────────────────── Footer ────────────────────────── */}
-      <footer className="bg-gray-100 py-8 text-center text-gray-600">
-        © {new Date().getFullYear()} MeetingBrief
-      </footer>
-
-      <Toaster />
-    </>
-  );
+        )}
+      </main>
+    </div>
+  )
 }
