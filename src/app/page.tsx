@@ -1,7 +1,7 @@
 'use client'
 
 /* -------------------------------------------------------------------------- */
-/*  MeetingBrief landing page – full version                                  */
+/*  MeetingBrief landing page – light (ElevenLabs-style)                      */
 /*  Uses Sonner directly for toast notifications                              */
 /* -------------------------------------------------------------------------- */
 
@@ -111,12 +111,12 @@ export default function LandingPage() {
   const [report, setReport] = useState<ReportState>({ status: 'idle' })
   const [runCount, setRunCount] = useState(0)
 
-  /* --- initialise anonymous-use counter --------------------------------- */
+  /* initialise anonymous-use counter */
   useEffect(() => {
     setRunCount(Number(localStorage.getItem('mb_runs') ?? '0'))
   }, [])
 
-  /* --- generate brief --------------------------------------------------- */
+  /* generate brief */
   const generate = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -131,7 +131,7 @@ export default function LandingPage() {
 
     setReport({ status: 'loading' })
 
-    /* -------- mock API call – replace with real endpoint ---------------- */
+    /* mock API call – replace with real endpoint */
     setTimeout(() => {
       setReport({
         status: 'ready',
@@ -161,29 +161,29 @@ export default function LandingPage() {
   const blocked = runCount >= 3
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col bg-white text-gray-900">
       <Toaster richColors />
 
       {/* ------------------------------------------------------------------ */}
       {/*  Hero                                                              */}
       {/* ------------------------------------------------------------------ */}
-      <section className="py-32 flex flex-col items-center justify-center px-4 bg-gradient-to-b from-[#0b0b16] via-[#161629] to-[#12121e] text-white">
-        <h1 className="text-4xl md:text-6xl font-bold text-center">
+      <section className="py-20 px-4 text-center">
+        <h1 className="text-5xl md:text-6xl font-bold leading-tight">
           Know everything before you enter the room.
         </h1>
-        <p className="mt-4 text-xl text-center">
+        <p className="mt-5 text-xl text-gray-600">
           Arrive informed — deep research made effortless.
         </p>
 
-        {/* --- form -------------------------------------------------------- */}
+        {/* form */}
         <form
           onSubmit={generate}
-          className="mt-10 w-full max-w-xl flex flex-col gap-4 md:flex-row md:gap-2"
+          className="mt-10 w-full max-w-xl mx-auto flex flex-col gap-4 md:flex-row md:gap-2"
         >
           <input
             type="text"
             placeholder="Name"
-            className="flex-1 rounded-xl bg-white/10 backdrop-blur px-4 py-3 placeholder-gray-400 focus:outline-none"
+            className="flex-1 rounded-xl border border-gray-300 px-4 py-3 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={report.status === 'loading' || blocked}
@@ -191,7 +191,7 @@ export default function LandingPage() {
           <input
             type="text"
             placeholder="Company"
-            className="flex-1 rounded-xl bg-white/10 backdrop-blur px-4 py-3 placeholder-gray-400 focus:outline-none"
+            className="flex-1 rounded-xl border border-gray-300 px-4 py-3 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
             value={company}
             onChange={(e) => setCompany(e.target.value)}
             disabled={report.status === 'loading' || blocked}
@@ -199,9 +199,9 @@ export default function LandingPage() {
           <button
             type="submit"
             className={clsx(
-              'rounded-xl font-semibold px-6 py-3 transition-colors flex items-center justify-center',
+              'rounded-xl font-semibold px-6 py-3 transition-colors flex items-center justify-center text-white',
               report.status === 'loading' || blocked
-                ? 'bg-gray-600 cursor-not-allowed'
+                ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-purple-600 hover:bg-purple-700',
             )}
             disabled={report.status === 'loading' || blocked}
@@ -214,16 +214,16 @@ export default function LandingPage() {
           </button>
         </form>
 
-        {/* --- loading: spinner + small-talk ------------------------------ */}
+        {/* loading: spinner + small-talk */}
         {report.status === 'loading' && (
-          <div className="mt-12 w-full max-w-lg bg-white/5 p-6 rounded-xl">
-            <h2 className="text-lg font-semibold mb-2">Small-Talk Topics</h2>
-            <ul className="list-disc list-inside space-y-1 text-sm text-gray-300">
+          <div className="mt-12 w-full max-w-lg mx-auto bg-gray-50 border border-gray-200 p-6 rounded-xl">
+            <h2 className="text-lg font-semibold mb-2 text-gray-800">Small-Talk Topics</h2>
+            <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
               {smallTalk.map((fact) => (
                 <li key={fact}>{fact}</li>
               ))}
             </ul>
-            <div className="flex justify-center mt-6">
+            <div className="flex justify-center mt-6 text-purple-600">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           </div>
@@ -232,43 +232,46 @@ export default function LandingPage() {
         {/* scroll hint */}
         <a
           href="#social-proof"
-          className="mt-16 animate-bounce text-gray-400 hover:text-white"
+          className="mt-16 animate-bounce text-gray-400 hover:text-gray-600"
           aria-label="Scroll down"
         >
           <ChevronDown className="h-8 w-8" />
         </a>
       </section>
 
+      <div className="h-px bg-gray-100" />
+
       {/* ------------------------------------------------------------------ */}
       {/*  Report result                                                     */}
       {/* ------------------------------------------------------------------ */}
       {report.status === 'ready' && (
-        <section
-          id="report-section"
-          className="bg-[#0e0e19] text-white px-4 py-16 flex justify-center"
-        >
-          <div className="w-full max-w-3xl bg-white/5 p-6 rounded-xl space-y-6">
-            <pre className="whitespace-pre-wrap text-sm">
-              {report.markdown}
-            </pre>
-            <div className="flex gap-4 justify-end">
-              <button
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-600"
-                onClick={() => toast.info('Sign in to copy this report.')}
-              >
-                <Copy className="h-4 w-4" />
-                Copy
-              </button>
-              <button
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-600"
-                onClick={() => toast.info('Sign in to download this report.')}
-              >
-                <Download className="h-4 w-4" />
-                Download
-              </button>
+        <>
+          <section
+            id="report-section"
+            className="px-4 py-16 flex justify-center"
+          >
+            <div className="w-full max-w-3xl bg-white border border-gray-200 p-6 rounded-xl space-y-6 shadow-md">
+              <pre className="whitespace-pre-wrap text-sm">{report.markdown}</pre>
+              <div className="flex gap-4 justify-end">
+                <button
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition text-gray-700"
+                  onClick={() => toast.info('Sign in to copy this report.')}
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy
+                </button>
+                <button
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition text-gray-700"
+                  onClick={() => toast.info('Sign in to download this report.')}
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+          <div className="h-px bg-gray-100" />
+        </>
       )}
 
       {/* ------------------------------------------------------------------ */}
@@ -276,7 +279,7 @@ export default function LandingPage() {
       {/* ------------------------------------------------------------------ */}
       <section
         id="social-proof"
-        className="bg-white text-gray-900 px-4 py-20"
+        className="px-4 py-20"
       >
         <h2 className="text-center text-2xl font-semibold">
           Professionals already rely on MeetingBrief
@@ -285,10 +288,10 @@ export default function LandingPage() {
           {testimonials.map(({ name, title, quote }) => (
             <blockquote
               key={name}
-              className="bg-gray-50 rounded-2xl p-6 shadow-sm hover:shadow-md transition"
+              className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition"
             >
-              <p className="text-sm italic">“{quote}”</p>
-              <footer className="mt-4 text-sm font-semibold">
+              <p className="text-sm italic text-gray-800">“{quote}”</p>
+              <footer className="mt-4 text-sm font-semibold text-gray-900">
                 {name} · <span className="font-normal">{title}</span>
               </footer>
             </blockquote>
@@ -296,46 +299,52 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <div className="h-px bg-gray-100" />
+
       {/* ------------------------------------------------------------------ */}
       {/*  Feature grid                                                      */}
       {/* ------------------------------------------------------------------ */}
-      <section className="bg-[#161629] text-white px-4 py-20">
+      <section className="px-4 py-20">
         <div className="max-w-6xl mx-auto grid gap-10 md:grid-cols-2 lg:grid-cols-3">
           {features.map(({ icon: Icon, title, text }) => (
             <div
               key={title}
-              className="bg-white/5 p-6 rounded-2xl shadow hover:-translate-y-1 transition"
+              className="bg-white border border-gray-200 p-6 rounded-2xl shadow-md hover:shadow-lg transition"
             >
-              <Icon className="h-6 w-6 text-purple-400" />
-              <h3 className="mt-4 font-semibold">{title}</h3>
-              <p className="mt-2 text-sm text-gray-300">{text}</p>
+              <Icon className="h-6 w-6 text-purple-500" />
+              <h3 className="mt-4 font-semibold text-gray-900">{title}</h3>
+              <p className="mt-2 text-sm text-gray-700">{text}</p>
             </div>
           ))}
         </div>
       </section>
 
+      <div className="h-px bg-gray-100" />
+
       {/* ------------------------------------------------------------------ */}
       {/*  How it works                                                      */}
       {/* ------------------------------------------------------------------ */}
-      <section className="bg-white text-gray-900 px-4 py-20">
+      <section className="px-4 py-20">
         <h2 className="text-center text-2xl font-semibold">How it works</h2>
         <ol className="mt-10 max-w-4xl mx-auto space-y-6">
           {howItWorks.map(({ step, text }) => (
             <li key={step} className="flex gap-4">
               <span className="text-purple-600 font-bold">{step}</span>
-              <p className="text-sm">{text}</p>
+              <p className="text-sm text-gray-700">{text}</p>
             </li>
           ))}
         </ol>
       </section>
 
+      <div className="h-px bg-gray-100" />
+
       {/* ------------------------------------------------------------------ */}
       {/*  Secondary CTA                                                    */}
       {/* ------------------------------------------------------------------ */}
-      <section className="bg-[#0b0b16] text-white px-4 py-20 text-center">
-        <h2 className="text-3xl font-semibold">
+      <section className="px-4 py-20 text-center">
+        <h2 className="text-3xl font-semibold text-gray-900">
           Run your first brief in&nbsp;
-          <span className="text-purple-400">&lt; 60 sec</span>
+          <span className="text-purple-600">&lt; 60 sec</span>
         </h2>
         <a
           href="#"
@@ -343,16 +352,18 @@ export default function LandingPage() {
             e.preventDefault()
             window.scrollTo({ top: 0, behavior: 'smooth' })
           }}
-          className="inline-flex items-center gap-2 mt-6 px-8 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 transition"
+          className="inline-flex items-center gap-2 mt-6 px-8 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 transition text-white"
         >
           Generate now <ArrowRight className="h-4 w-4" />
         </a>
       </section>
 
+      <div className="h-px bg-gray-100" />
+
       {/* ------------------------------------------------------------------ */}
       {/*  Footer                                                            */}
       {/* ------------------------------------------------------------------ */}
-      <footer className="bg-[#0e0e19] text-gray-400 px-4 py-10 text-center text-sm">
+      <footer className="px-4 py-10 text-center text-sm text-gray-500 bg-gray-50">
         © {new Date().getFullYear()} MeetingBrief ·{' '}
         <a href="/docs" className="underline">
           Docs
