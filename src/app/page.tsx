@@ -1,49 +1,48 @@
-// src/app/page.tsx
 /* eslint-disable react/no-danger */
-"use client";
+'use client'
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState } from 'react'
+import Link from 'next/link'
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Loader2, CheckCircle2 } from "lucide-react";
-import { motion } from "framer-motion";
+} from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Loader2, CheckCircle2 } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 export default function Page() {
   /** ───────────────────────────────────────────────────────── state */
-  const [form, setForm] = useState({ name: "", organization: "" });
-  const [loading, setLoading] = useState(false);
-  const [briefHtml, setBriefHtml] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', organization: '' })
+  const [loading, setLoading] = useState(false)
+  const [briefHtml, setBriefHtml] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   /** ───────────────────────────────────────────────────────── submit */
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
 
     try {
-      const res = await fetch("/api/meetingbrief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/meetingbrief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { brief } = await res.json();
-      setBriefHtml(brief);
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const { brief } = await res.json()
+      setBriefHtml(brief)
     } catch (err) {
-      setError((err as Error).message);
+      setError((err as Error).message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   /** ───────────────────────────────────────────────────────── view */
   return (
@@ -82,8 +81,7 @@ export default function Page() {
               Instant intelligence for every conversation.
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              AI-generated dossiers with sources, small-talk hooks, and risk
-              flags — ready in seconds.
+              AI-generated dossiers with sources, small-talk hooks, and risk flags — ready in seconds.
             </p>
           </div>
 
@@ -96,35 +94,31 @@ export default function Page() {
             className="w-full max-w-xl mx-auto bg-white rounded-2xl shadow-lg p-6 flex flex-col gap-4"
           >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="name">Person</Label>
+              <label htmlFor="name" className="sr-only">
+                Person
+              </label>
               <Input
                 id="name"
                 value={form.name}
                 placeholder="Jane Doe"
-                onChange={(e) =>
-                  setForm({ ...form, name: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="org">Organization</Label>
+              <label htmlFor="org" className="sr-only">
+                Organization
+              </label>
               <Input
                 id="org"
                 value={form.organization}
                 placeholder="Acme Inc."
-                onChange={(e) =>
-                  setForm({ ...form, organization: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, organization: e.target.value })}
                 required
               />
             </div>
             <Button type="submit" disabled={loading}>
-              {loading ? (
-                <Loader2 className="animate-spin h-4 w-4" />
-              ) : (
-                "Generate Brief"
-              )}
+              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Generate Brief'}
             </Button>
           </motion.form>
 
@@ -137,10 +131,7 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-3 w-full bg-slate-200 rounded"
-                    />
+                    <div key={i} className="h-3 w-full bg-slate-200 rounded" />
                   ))}
                 </CardContent>
               </Card>
@@ -152,12 +143,9 @@ export default function Page() {
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    Brief ready{" "}
-                    <CheckCircle2 className="inline h-5 w-5 text-green-600" />
+                    Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
-                  <CardDescription>
-                    Scroll or copy as needed
-                  </CardDescription>
+                  <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent
                   className="[&_p]:mb-4 prose max-w-none"
@@ -174,28 +162,28 @@ export default function Page() {
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {[
             {
-              title: "Deep OSINT coverage",
-              desc: "LinkedIn, filings, press, podcasts & more in one pass.",
+              title: 'Deep OSINT coverage',
+              desc: 'LinkedIn, filings, press, podcasts & more in one pass.',
             },
             {
-              title: "Footnoted sources",
-              desc: "Every claim backed by a link — no hidden hallucinations.",
+              title: 'Footnoted sources',
+              desc: 'Every claim backed by a link — no hidden hallucinations.',
             },
             {
-              title: "Small-talk hooks",
-              desc: "2–3 light facts to build rapport fast.",
+              title: 'Small-talk hooks',
+              desc: '2–3 light facts to build rapport fast.',
             },
             {
-              title: "Token-efficient",
-              desc: "Typical brief costs ≈ 8¢ in usage fees.",
+              title: 'Token-efficient',
+              desc: 'Typical brief costs ≈ 8¢ in usage fees.',
             },
             {
-              title: "SOC 2 ready",
-              desc: "Runs on compliant infrastructure; Vanta-monitored.",
+              title: 'SOC 2 ready',
+              desc: 'Runs on compliant infrastructure; Vanta-monitored.',
             },
             {
-              title: "No data retained",
-              desc: "Inputs auto-purged within 24 hours.",
+              title: 'No data retained',
+              desc: 'Inputs auto-purged within 24 hours.',
             },
           ].map((f) => (
             <Card key={f.title} className="shadow-sm">
@@ -210,34 +198,16 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ─────────── USE-CASE STRIP (Sales last) */}
+      {/* ─────────── USE-CASE STRIP */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
-          <h2 className="text-3xl font-semibold text-center">
-            Built for every high-stakes meeting
-          </h2>
+          <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Investors",
-                icon: "💼",
-                blurb: "Validate founders & markets before the call.",
-              },
-              {
-                name: "Recruiters",
-                icon: "🎯",
-                blurb: "Screen execs without hours of manual Google-fu.",
-              },
-              {
-                name: "Founders",
-                icon: "🚀",
-                blurb: "Know your counterpart’s angle ahead of negotiations.",
-              },
-              {
-                name: "Sales",
-                icon: "📈",
-                blurb: "Skip the research rabbit hole and open with insight.",
-              },
+              { name: 'Investors', icon: '💼', blurb: 'Validate founders & markets before the call.' },
+              { name: 'Recruiters', icon: '🎯', blurb: 'Screen execs without hours of manual Google-fu.' },
+              { name: 'Founders', icon: '🚀', blurb: 'Know your counterpart’s angle ahead of negotiations.' },
+              { name: 'Sales', icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -259,42 +229,18 @@ export default function Page() {
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
-          <p className="text-slate-600">
-            Start free, upgrade when you need scale.
-          </p>
+          <p className="text-slate-600">Start free, upgrade when you need scale.</p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Free",
-                price: "$0",
-                meetings: "3 meetings / mo",
-                cta: "Start free",
-              },
-              {
-                name: "Starter",
-                price: "$99",
-                meetings: "20 meetings / mo",
-                cta: "Choose starter",
-              },
-              {
-                name: "Growth",
-                price: "$199",
-                meetings: "60 meetings / mo",
-                cta: "Choose growth",
-              },
-              {
-                name: "Unlimited",
-                price: "$299",
-                meetings: "Unlimited meetings",
-                cta: "Choose unlimited",
-              },
+              { name: 'Free', price: '$0', meetings: '3 meetings / mo', cta: 'Start free' },
+              { name: 'Starter', price: '$99', meetings: '20 meetings / mo', cta: 'Choose starter' },
+              { name: 'Growth', price: '$199', meetings: '60 meetings / mo', cta: 'Choose growth' },
+              { name: 'Unlimited', price: '$299', meetings: 'Unlimited meetings', cta: 'Choose unlimited' },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
                   <CardTitle>{p.name}</CardTitle>
-                  <CardDescription className="text-4xl font-bold">
-                    {p.price}
-                  </CardDescription>
+                  <CardDescription className="text-4xl font-bold">{p.price}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col gap-4">
                   <p>{p.meetings}</p>
@@ -312,20 +258,20 @@ export default function Page() {
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
             {
-              q: "How long does a brief take?",
-              a: "Typically 15–30 s for public figures; complex subjects up to 60 s.",
+              q: 'How long does a brief take?',
+              a: 'Typically 15–30 s for public figures; complex subjects up to 60 s.',
             },
             {
-              q: "What sources do you use?",
-              a: "Web search, filings, reputable news, podcasts, and social media (last 24 months).",
+              q: 'What sources do you use?',
+              a: 'Web search, filings, reputable news, podcasts, and social media (last 24 months).',
             },
             {
-              q: "Do you store my data?",
-              a: "All inputs and briefs are auto-purged within 24 hours.",
+              q: 'Do you store my data?',
+              a: 'All inputs and briefs are auto-purged within 24 hours.',
             },
             {
-              q: "Is MeetingBrief SOC 2 compliant?",
-              a: "Yes — we run on SOC 2 audited providers and monitor controls via Vanta.",
+              q: 'Is MeetingBrief SOC 2 compliant?',
+              a: 'Yes — we run on SOC 2 audited providers and monitor controls via Vanta.',
             },
           ].map((f) => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
@@ -349,5 +295,5 @@ export default function Page() {
         </div>
       </footer>
     </div>
-  );
+  )
 }
