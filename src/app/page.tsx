@@ -15,30 +15,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { marked } from "marked";
 
-/** ───────────────────────────── static sample (Jensen Huang) */
-const sampleBriefHtml = `
-<h3>Executive Summary</h3>
-<ul>
-  <li>NVIDIA CEO since 1993; steered firm from graphics chips to AI dominance.[^1]</li>
-  <li>Net worth ≈ $60 B; notable for trademark leather jacket and keynote showmanship.[^2]</li>
-  <li>Core thesis: every industry will become an “AI industry” accelerated by NVIDIA hardware.[^3]</li>
-</ul>
-<h3>Interesting / Fun Facts</h3>
-<ul>
-  <li>Started NVIDIA in a Denny’s on El Camino Real.[^4]</li>
-  <li>Loves cooking Taiwanese beef noodle soup for employees.[^5]</li>
-</ul>
-` as const;
+/* ───────────────────────────── sample markdown (scrollable) */
+const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
+
+### 1. Executive Summary
+- Co-founded NVIDIA in 1993; CEO ever since.  
+- Invented the modern GPU (1999) — foundation for today’s AI boom.  
+- Net worth **≈ $100 B** (May 2025).  
+- NVIDIA briefly topped **$3 T** market cap (June 2024).  
+
+### 2. Conversational Hooks
+- Started NVIDIA at a Denny’s — once worked there as a teen.  
+- Signature black leather jacket at every keynote.
+
+### 3. Headlines
+1. “NVIDIA declares \`AI factories\` the next industrial era” — *FT, 2025-04-12*  
+2. “Blackwell GPU smashes MLPerf records” — *AnandTech, 2025-03-27*
+
+_Sign up to generate a full, source-linked report for any executive._`;
 
 export default function Page() {
-  /** ───────────────────────────────────────────────────────── state */
+  /* ───────────────────────── state */
   const [form, setForm] = useState({ name: "", organization: "" });
   const [loading, setLoading] = useState(false);
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /** ───────────────────────────────────────────────────────── submit */
+  /* ───────────────────────── submit */
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -48,11 +53,11 @@ export default function Page() {
       const res = await fetch("/api/meetingbrief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, maxTokens: 4096 }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const { brief } = await res.json();
-      setBriefHtml(brief);
+      const { brief } = await res.json(); // brief is markdown
+      setBriefHtml(marked.parse(brief));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -60,10 +65,10 @@ export default function Page() {
     }
   };
 
-  /** ───────────────────────────────────────────────────────── view */
+  /* ───────────────────────── view */
   return (
     <div className="min-h-screen flex flex-col">
-      {/* ─────────── NAV */}
+      {/* NAV */}
       <nav className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
           <Link href="/" className="font-semibold text-xl">
@@ -89,20 +94,20 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* ─────────── HERO + FORM + DEMO */}
+      {/* HERO + FORM + DEMO */}
       <header className="bg-gradient-to-b from-white to-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
-              Instant intelligence for every conversation.
+              Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Auto-generated deep research with sources, small-talk hooks, and
-              risk flags — ready in seconds.
+              Auto-generated deep research with <strong>sources, hooks, and risk
+              flags</strong> — ready in seconds.
             </p>
           </div>
 
-          {/* ── form */}
+          {/* FORM */}
           <motion.form
             id="generate"
             initial={{ opacity: 0, y: 20 }}
@@ -110,24 +115,28 @@ export default function Page() {
             onSubmit={submit}
             className="w-full max-w-xl mx-auto bg-white rounded-2xl shadow-lg p-6 flex flex-col gap-4"
           >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name">Person</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="name" className="w-20">
+                Person
+              </Label>
               <Input
                 id="name"
                 value={form.name}
-                placeholder="Jane Doe"
+                placeholder="Jensen Huang"
                 onChange={(e) =>
                   setForm({ ...form, name: e.target.value })
                 }
                 required
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="org">Organization</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="org" className="w-20">
+                Company
+              </Label>
               <Input
                 id="org"
                 value={form.organization}
-                placeholder="Acme Inc."
+                placeholder="NVIDIA"
                 onChange={(e) =>
                   setForm({ ...form, organization: e.target.value })
                 }
@@ -143,7 +152,7 @@ export default function Page() {
             </Button>
           </motion.form>
 
-          {/* ── demo / skeleton / sample */}
+          {/* DEMO / SKELETON / SAMPLE */}
           <div className="w-full max-w-5xl mx-auto">
             {loading && (
               <Card className="animate-pulse">
@@ -174,10 +183,9 @@ export default function Page() {
                     Scroll or copy as needed
                   </CardDescription>
                 </CardHeader>
-                <CardContent
-                  className="[&_p]:mb-4 prose max-w-none"
-                  dangerouslySetInnerHTML={{ __html: briefHtml }}
-                />
+                <CardContent className="prose prose-slate max-w-none text-left">
+                  <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
+                </CardContent>
               </Card>
             )}
 
@@ -186,20 +194,23 @@ export default function Page() {
                 <CardHeader>
                   <CardTitle>Sample brief</CardTitle>
                   <CardDescription>
-                    Real output example (Jensen Huang · NVIDIA)
+                    Real output example (scrollable)
                   </CardDescription>
                 </CardHeader>
-                <CardContent
-                  className="[&_p]:mb-4 prose max-w-none"
-                  dangerouslySetInnerHTML={{ __html: sampleBriefHtml }}
-                />
+                <CardContent className="prose prose-slate max-w-none text-left max-h-96 overflow-auto">
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: marked.parse(sampleBriefMd),
+                    }}
+                  />
+                </CardContent>
               </Card>
             )}
           </div>
         </div>
       </header>
 
-      {/* ─────────── FEATURES */}
+      {/* FEATURES */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -212,8 +223,8 @@ export default function Page() {
               desc: "Every claim backed by a link — no hidden hallucinations.",
             },
             {
-              title: "Small-talk hooks",
-              desc: "2–3 light facts to build rapport fast.",
+              title: "Conversational hooks",
+              desc: "2–3 rapport-building facts to break the ice.",
             },
           ].map((f) => (
             <Card key={f.title} className="shadow-sm">
@@ -228,7 +239,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ─────────── USE-CASE STRIP (Sales last) */}
+      {/* USE-CASES */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">
@@ -249,7 +260,7 @@ export default function Page() {
               {
                 name: "Founders",
                 icon: "🚀",
-                blurb: "Know your counterpart’s angle ahead of negotiations.",
+                blurb: "Know your counterpart’s angle before negotiations.",
               },
               {
                 name: "Sales",
@@ -273,7 +284,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ─────────── PRICING */}
+      {/* PRICING */}
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
@@ -324,14 +335,14 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ─────────── FAQ */}
+      {/* FAQ */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
             {
               q: "How long does a brief take?",
-              a: "Typically 15–30 s for public figures; complex subjects up to 60 s.",
+              a: "Typically 15–30 s for public figures; up to 60 s for complex subjects.",
             },
             {
               q: "What sources do you use?",
@@ -350,7 +361,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ─────────── FOOTER */}
+      {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
