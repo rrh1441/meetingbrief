@@ -1,42 +1,41 @@
-// app/api/meetingbrief/route.ts
+// src/app/api/meetingbrief/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { buildMeetingBriefGemini } from "@/lib/MeetingBriefGeminiPipeline";
 
-// --- Robust citation normalization utility ---
+// Robust, strictly-typed citation normalization
 function normalizeCitations(
   brief: string,
   citations: { marker: string; url: string }[]
 ): string {
   if (!citations.length) return brief;
 
-  // Regex matches [^1], ^2, [^1, 2], ^3, 5], etc.
+  // Matches [^1], ^2, [^1, 2], ^3, 5], etc.
   const citationRegex = /(\[\s*\^|\^)\s*([\d\s,]+)(?=\]|\s|,|$)/g;
 
-  // Map citation number ("1", "2", ...) to superscript anchor.
-  const supLinks: { [n: string]: string } = {};
+  // Build lookup for superscript anchors
+  const supLinks: Record<string, string> = {};
   for (let i = 0; i < citations.length; ++i) {
     const n = (i + 1).toString();
-    supLinks[n] = `<sup><a class="text-blue-600 underline hover:no-underline" href="${citations[i].url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+    supLinks[n] =
+      `<sup><a class="text-blue-600 underline hover:no-underline" href="${citations[i].url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
   }
 
+  // Replace all citation clusters
   brief = brief.replace(citationRegex, (_match, _pre, numList) => {
-    // Split on comma/space and dedupe.
-    const nums = Array.from(
-      new Set(
-        numList
-          .split(/[\s,]+/)
-          .map((n: string) => n.trim())
-          .filter((n: string) => n && supLinks[n])
-      )
+    const numsSet: Set<string> = new Set(
+      numList
+        .split(/[\s,]+/)
+        .map((n: string) => n.trim())
+        .filter((n: string) => n && supLinks[n])
     );
-    // Replace with one or more superscripts (in order)
+    const nums: string[] = Array.from(numsSet);
     return nums.map((n: string) => supLinks[n]).join("");
   });
 
-  // Remove any remaining [ ^, [^, ^, ] that weren't replaced (leftover garbage)
+  // Remove any leftover [ ^, [^, ^, ]
   brief = brief.replace(/[\[\]\^,]/g, "");
 
-  // Remove accidental trailing or double superscripts
+  // Remove accidental repeated superscripts
   brief = brief.replace(/(<sup>.*?<\/sup>)+/g, (s: string) => {
     const re = /<sup><a.*?>(\d+)<\/a><\/sup>/g;
     const seen = new Set<string>();
@@ -51,7 +50,7 @@ function normalizeCitations(
     return out;
   });
 
-  // Optional: clean up extra whitespace
+  // Clean up whitespace
   return brief.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -60,7 +59,7 @@ export async function POST(req: NextRequest) {
     const { name, org } = await req.json();
     const payload = await buildMeetingBriefGemini(name, org);
 
-    // Normalize citations to clickable superscripts
+    // --- Normalize all citations before sending to frontend
     payload.brief = normalizeCitations(payload.brief, payload.citations);
 
     return NextResponse.json(payload);
