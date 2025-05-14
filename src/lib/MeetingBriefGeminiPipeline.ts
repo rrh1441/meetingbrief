@@ -4,7 +4,7 @@ import { VertexAI } from "@google-cloud/vertexai";
 
 export const runtime = "nodejs";
 
-/* ── service-account ─────────────────────────────────────────────── */
+/* ── service-account setup ────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
 if (!saJson) throw new Error("GCP_SA_JSON env var not set");
 
@@ -18,7 +18,7 @@ const vertex = new VertexAI({
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── payload type ────────────────────────────────────────────────── */
+/* ── returned-to-client payload ──────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -35,9 +35,12 @@ interface Chunk { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ── post-processors ─────────────────────────────────────────────── */
+/* ── post-processing helpers ─────────────────────────────────────── */
 function tidyHeaders(md: string): string {
-  md = md.replace(/^#+\s*Meeting Brief:\s*(.+)$/im, (_, s) => `## **Meeting Brief: ${s.trim()}**`);
+  md = md.replace(
+    /^#+\s*Meeting Brief:\s*(.+)$/im,
+    (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`
+  );
 
   md = md
     .replace(/^###\s*1\.\s*Executive Summary/i, "**Executive Summary**")
@@ -47,55 +50,54 @@ function tidyHeaders(md: string): string {
     .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
 
-  // blank line before & after headers
+  // blank line before & after every header
   md = md.replace(/(\n)?\*\*/g, "\n\n**")
-         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, (hdr: string) => `${hdr}\n\n`);
+         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, (h: string) => `${h}\n\n`);
 
   return md.trim();
 }
 
 function ensureBullets(md: string): string {
-  // Exec Summary ­– remove bullets, keep heading
+  // Exec-summary: strip bullets but keep heading
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_, block) =>
-      "**Executive Summary**\n\n" +
-      block.replace(/^[ \t]*[-*]\s+/gm, ""),
+    (_: string, block: string) =>
+      "**Executive Summary**\n\n" + block.replace(/^[ \t]*[-*]\s+/gm, "")
   );
 
-  // Add "* " to lines in list sections that miss it
+  // Add "* " where missing in other sections
   md = md.replace(
     /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
-    (_m, title, blk) => `**${title}**${blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")}`,
+    (_m: string, title: string, blk: string) =>
+      `**${title}**` + blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")
   );
 
   return md;
 }
 
-function injectFootnotes(
-  md: string,
-  citations: { marker: string }[],
-): string {
-  if (/\[\^\d+\]/.test(md) || citations.length === 0) return md; // already present or nothing to add
+interface Citation { marker: string; url: string }
+
+function injectFootnotes(md: string, citations: Citation[]): string {
+  if (/\[\^\d+\]/.test(md) || citations.length === 0) return md;
 
   let idx = 0;
 
   // bullets
-  md = md.replace(/^(?:[*\-]\s+[^\n]+)(?!\s+\[\^\d+\])/gm, (line: string) =>
-    idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
+  md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (line: string) =>
+    idx < citations.length ? `${line} ${citations[idx++].marker}` : line
   );
 
-  // exec summary sentences
+  // exec-summary sentences
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_, block) =>
+    (_: string, block: string) =>
       "**Executive Summary**\n\n" +
-      block.replace(/([.!?])(\s+|$)/g, (_match: string, punct: string, space: string) =>
-        idx < citations.length ? `${punct} ${citations[idx++].marker}${space}` : `${punct}${space}`,
-      ),
+      block.replace(/([.!?])(\s+|$)/g, (__, punct: string, gap: string) =>
+        idx < citations.length ? `${punct} ${citations[idx++].marker}${gap}` : `${punct}${gap}`
+      )
   );
 
-  // append list
+  // footnote list
   md += "\n\n---\n";
   citations.forEach(c => { md += `${c.marker}: ${c.url}\n`; });
 
@@ -105,7 +107,7 @@ function injectFootnotes(
 /* ── main helper ─────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string,
+  org: string
 ): Promise<MeetingBriefPayload> {
   const prompt = `
 SUBJECT
@@ -146,24 +148,25 @@ RULES
     responseMimeType: "text/plain",
   });
 
-  const cand   = (result.response.candidates ?? [])[0] as Candidate | undefined;
-  const rawMd  = cand?.content?.parts?.[0]?.text ?? "";
+  const cand  = (result.response.candidates ?? [])[0] as Candidate | undefined;
+  const rawMd = cand?.content?.parts?.[0]?.text ?? "";
 
-  /* ── diagnostics when VERCEL_LOGS is set ───────────────────────── */
   if (process.env.VERCEL_LOGS) {
     console.log("RAW length:", rawMd.length);
     console.log("USAGE:", result.usageMetadata);
   }
 
-  /* ── citations & results ───────────────────────────────────────── */
+  /* ── extract citations ─────────────────────────────────────────── */
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
-  const citations = chunks.map((c, i) => ({
+  const citations: Citation[] = chunks.map((c, i) => ({
     marker: `[^${i + 1}]`,
     url: c.web?.uri ?? "",
   }));
 
   const searchResults = chunks.map(c => ({
-    url: c.web?.uri ?? "", title: c.web?.title ?? "", snippet: c.web?.htmlSnippet ?? "",
+    url: c.web?.uri ?? "",
+    title: c.web?.title ?? "",
+    snippet: c.web?.htmlSnippet ?? "",
   }));
 
   /* ── post-process markdown ─────────────────────────────────────── */
@@ -172,9 +175,9 @@ RULES
   brief     = injectFootnotes(brief, citations);
 
   /* ── counters ──────────────────────────────────────────────────── */
-  const usage   = result.usageMetadata ?? {};
-  const tokens  = usage.totalTokenCount ??
-                 (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const usage    = result.usageMetadata ?? {};
+  const tokens   = usage.totalTokenCount ??
+                  (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
   const searches = cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
