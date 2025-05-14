@@ -55,45 +55,7 @@ function fixHeaderSpacing(md: string): string {
   return md;
 }
 
-// Parse out the relevant blocks and convert all bullet lists to <ul><li> in HTML
-function addBulletsAndStripDates(md: string): string {
-  md = md.replace(/\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_: string, blk: string) =>
-      "**Executive Summary**\n\n" + blk.replace(/^[\s*-]+\s+/gm, ""));
-
-  md = md.replace(
-    /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
-    (_: string, title: string, blk: string) => {
-      let out = blk
-        .replace(/^(?![*\-\s])([^\n]+)/gm, "* $1");
-      if (title === "Detailed Research Notes") {
-        out = out
-          .replace(/^\*\*[A-Za-z][^\n]*?\d{4}:?\*\*\s*/gm, "* ")
-          .replace(/^\*\*\d{4}-\d{2}-\d{2}[^\n]*\*\*\s*/gm, "* ");
-      }
-      out = out.replace(/^\n?(\* )/, "\n\n$1");
-      return `**${title}**${out}`;
-    }
-  );
-  return md;
-}
-
-interface Citation { marker: string; url: string }
-
-// Split bundled markers like [^2, [^4]] into [^2] [^4]
-function splitBundledMarkers(md: string): string {
-  return md.replace(/\[\^\d+,[^\]]+\]/g, (m: string) =>
-    m.replace(/,\s*\[\^/g, "] [^"));
-}
-
-// Normalize caret notation
-function normaliseCarets(md: string): string {
-  return md.replace(/(\s)\^(\d{1,4})(\b)/g,
-    (_: string, pre: string, n: string, post: string) =>
-      `${pre}[^${n}]${post}`);
-}
-
-// Ensure every fact gets a citation if citations exist
+// Ensure every fact gets a citation if citations exist (legacy, may not be needed with strict prompt)
 function guaranteeInlineMarkers(md: string, cit: Citation[]): string {
   if (/\[\^\d+\]/.test(md) || cit.length === 0) return md;
 
@@ -111,8 +73,8 @@ function guaranteeInlineMarkers(md: string, cit: Citation[]): string {
   return md;
 }
 
+// Remove stray carets/brackets that should not appear (conservative)
 function removeStrayCaretsAndBrackets(md: string): string {
-  // Remove [^ ] or ^ with no digits, and unlinked square brackets/carets
   md = md.replace(/\[\^\s*\]/g, "");
   md = md.replace(/\[\s*\^/, "");
   md = md.replace(/\^(\D|$)/g, "");
@@ -121,6 +83,8 @@ function removeStrayCaretsAndBrackets(md: string): string {
   md = md.replace(/(\s|^)\^(?=\s|$)/g, "$1");
   return md;
 }
+
+interface Citation { marker: string; url: string }
 
 export async function buildMeetingBriefGemini(
   name: string,
@@ -131,29 +95,33 @@ SUBJECT
 • Person  : ${name}
 • Employer: ${org}
 
-FORMAT (markdown – follow exactly)
+FORMAT (Markdown – follow exactly)
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**
-3–6 concise **factual** sentences.
+
+Each sentence must be on its own line, ending with a period and a citation marker [^N]. Do not combine multiple facts into one sentence.
 
 **Notable Highlights**
-* bullet list – awards, lawsuits, milestones
+
+* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
 
 **Interesting / Fun Facts**
-* bullet list (max 2)
+
+* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
 
 **Detailed Research Notes**
-* bullet list – timeline, activity ≤ 24 mo
+
+* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
 
 RULES
-• ≤ 1 000 words total
-• **CITATIONS ARE REQUIRED**. Every fact MUST have an inline citation marker matching exactly the pattern [^N], where N is a unique integer.
-• Never use any other citation style—no caret-alone (^N]), no number-bracket (1]), no citation bundles ([^1, ^2]), no comma-separated, grouped, or combined citations.
-• Emit only one marker per fact: [^N]. If a fact has multiple sources, select only one and use only [^N].
-• Each [^N] must match the corresponding grounding source in metadata.
-• ≥ 1 reputable source per fact (≥ 2 for negative claims)
-• Drop any fact that cannot meet the rule
+• ≤ 1 000 words total.
+• **CITATIONS ARE REQUIRED.** Every fact must end with exactly one citation marker in the format [^N], at the end of the sentence or bullet, and nowhere else.
+• Never use any other citation style (no caret-alone (^N]), no number-bracket (1]), no citation bundles ([^1, ^2]), no comma-separated, grouped, or combined citations).
+• Each [^N] must correspond to a unique source in the grounding metadata.
+• Never insert [^N] in the middle of a line—only at the very end of a sentence or bullet.
+• ≥ 1 reputable source per fact (≥ 2 for negative claims).
+• Drop any fact that cannot meet the rule.
 `.trim();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -178,10 +146,7 @@ RULES
   }));
 
   let brief = raw;
-  brief = splitBundledMarkers(brief);
-  brief = normaliseCarets(brief);
   brief = fixHeaderSpacing(brief);
-  brief = addBulletsAndStripDates(brief);
   brief = guaranteeInlineMarkers(brief, citations);
   brief = removeStrayCaretsAndBrackets(brief);
 
