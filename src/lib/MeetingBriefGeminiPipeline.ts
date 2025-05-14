@@ -2,7 +2,7 @@
 import fs from "fs";
 import { VertexAI } from "@google-cloud/vertexai";
 
-export const runtime = "nodejs"; // Vertex SDK needs full Node APIs
+export const runtime = "nodejs"; // Node APIs required for Vertex SDK
 
 /* ── service-account setup ─────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
@@ -27,7 +27,7 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── helper types for partial Vertex response ──────────────────────── */
+/* ── internal response shims (partial) ─────────────────────────────── */
 interface Part      { text?: string }
 interface Content   { parts?: Part[] }
 interface WebInfo   { uri?: string; title?: string; htmlSnippet?: string }
@@ -37,18 +37,25 @@ interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
 /* ── markdown post-processor ───────────────────────────────────────── */
 function formatBrief(md: string): string {
+  // Normalise top heading
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
     (_, subj) => `## **Meeting Brief: ${subj.trim()}**`,
   );
 
+  // Convert any numbered headings → bold headers (and capture renames)
   md = md
-    .replace(/^###\s*\d+\.\s*(.+)$/gm, "**$1**")
+    .replace(/^###\s*1\.\s*Executive Summary/i, "**Executive Summary**")
+    .replace(/^###\s*2\.\s*Notable\s+.*$/im, "**Notable Highlights**")
+    .replace(/^###\s*3\.\s*Interesting.*$/im, "**Interesting / Fun Facts**")
+    .replace(/^###\s*4\.\s*Detailed.*$/im, "**Detailed Research Notes**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm, "**$1**")
-    .replace(/^\d+\.\s*(.+)$/gm, "**$1**");
+    .replace(/^###\s*\d+\.\s*(.+)$/gm, "**$1**");
 
-  md = md.replace(/\n(?=\*\*)/g, "\n\n");
+  // Ensure blank line before & after every bold header
+  md = md.replace(/\n(?=\*\*)/g, "\n\n").replace(/\*\*\n(?!\n)/g, "**\n\n");
 
+  // Strip bullet markers in Executive Summary
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_, body) => body.replace(/^[ \t]*[-*]\s+/gm, ""),
@@ -71,25 +78,25 @@ FORMAT (markdown – follow exactly)
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**  
-3–6 concise sentences (no bullet characters)
+3–6 concise **factual** sentences (no adjectives, no opinions, no bullet characters) – each ends with a footnote like [^1]
 
-**Notable Flags**  
-• bullet list – omit section if none
+**Notable Highlights**  
+• bullet list – awards, controversies, major milestones (omit if none) – every bullet ends with a footnote
 
 **Interesting / Fun Facts**  
-• bullet list (max 2)
+• bullet list (max 2) – light rapport-building items – each ends with a footnote
 
 **Detailed Research Notes**  
-• bullet list
+• bullet list – career chronology, recent activity (≤ 24 mo), team context – every bullet ends with a footnote
 
 RULES
 • ≤ 1 000 words total  
-• Each bullet ends with a markdown footnote link like [^1]  
+• Every sentence or bullet **must** end with a markdown footnote link like [^1]  
 • ≥ 1 reputable source per fact (≥ 2 for negative claims)  
-• If the evidence rule can’t be met, drop the fact
+• If a fact cannot meet the evidence rule, drop it
 `.trim();
 
-/* SDK typings don’t yet include googleSearch; cast preview to any. */
+/* Types for tools lag behind SDK – cast to any to avoid “no-explicit-any” error. */
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
   const model = (vertex.preview as any).getGenerativeModel({
     model: "gemini-2.5-pro-preview-05-06",
