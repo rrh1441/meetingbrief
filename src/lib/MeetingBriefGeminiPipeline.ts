@@ -139,6 +139,13 @@ RULES
   const cand = (res.response.candidates ?? [])[0] as Candidate | undefined;
   const raw = cand?.content?.parts?.[0]?.text ?? "";
 
+  // --- LOG RAW OUTPUT BEFORE ANY FORMATTING ---
+  console.log("RAW GEMINI OUTPUT >>>");
+  console.log(raw);
+
+  // Optionally, save to /tmp/last_gemini.txt for local debugging (will not persist on Vercel)
+  try { fs.writeFileSync("/tmp/last_gemini.txt", raw, "utf8"); } catch {}
+
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations: Citation[] = chunks.map((c, i) => ({
     marker: `[^${i + 1}]`,
