@@ -1,4 +1,3 @@
-/* eslint-disable react/no-danger */
 "use client";
 
 import { useState } from "react";
@@ -24,13 +23,13 @@ function prettifyBrief(md: string): string {
     return `${hashes}**${n}.** `;
   });
 
-  // Insert blank line before any heading (“###” or “**1.**” we just created)
+  // Insert blank line before any heading (“###” or “**1.**”)
   md = md.replace(/\n(?=(?:\*\*\d+\.\*\*|###))/g, "\n\n");
 
-  // In Executive Summary strip leading * or - bullets
+  // In Executive Summary strip leading * or − bullets
   md = md.replace(
     /###\s*1.*?Executive Summary[\s\S]*?(?=\n###|\n\*\*2|\n\*\*\d|\n*$)/,
-    blk => blk.replace(/^[ \t]*[-*]\s+/gm, "")
+    (blk) => blk.replace(/^[ \t]*[-*]\s+/gm, "")
   );
 
   return md.trim();
@@ -220,13 +219,11 @@ export default function Page() {
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    Brief ready{" "}
-                    <CheckCircle2 className="inline h-5 w-5 text-green-600" />
+                    Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
-                  {/* eslint-disable-next-line react/no-danger */}
                   <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                 </CardContent>
               </Card>
@@ -238,12 +235,9 @@ export default function Page() {
                   <CardTitle>Real Example Brief</CardTitle>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
-                  {/* eslint-disable-next-line react/no-danger */}
                   <div
                     dangerouslySetInnerHTML={{
-                      __html: marked.parse(
-                        prettifyBrief(sampleBriefMd)
-                      ) as string,
+                      __html: marked.parse(prettifyBrief(sampleBriefMd)) as string,
                     }}
                   />
                 </CardContent>
@@ -285,31 +279,13 @@ export default function Page() {
       {/* USE-CASES */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
-          <h2 className="text-3xl font-semibold text-center">
-            Built for every high-stakes meeting
-          </h2>
+          <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Investors",
-                icon: "💼",
-                blurb: "Vet founders before they pitch.",
-              },
-              {
-                name: "Recruiters",
-                icon: "🎯",
-                blurb: "Assess executive candidates in minutes.",
-              },
-              {
-                name: "Founders",
-                icon: "🚀",
-                blurb: "Know your counterpart’s angle before negotiations.",
-              },
-              {
-                name: "Sales",
-                icon: "📈",
-                blurb: "Skip the research rabbit hole and open with insight.",
-              },
+              { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
+              { name: "Recruiters", icon: "🎯", blurb: "Assess executive candidates in minutes." },
+              { name: "Founders", icon: "🚀", blurb: "Know your counterpart’s angle before negotiations." },
+              { name: "Sales", icon: "📈", blurb: "Skip the research rabbit hole and open with insight." },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -334,37 +310,15 @@ export default function Page() {
           <p className="text-slate-600">Start free, upgrade when you need scale.</p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Free",
-                price: "$0",
-                meetings: "3 meetings / mo",
-                cta: "Start free",
-              },
-              {
-                name: "Starter",
-                price: "$99",
-                meetings: "20 meetings / mo",
-                cta: "Choose starter",
-              },
-              {
-                name: "Growth",
-                price: "$199",
-                meetings: "60 meetings / mo",
-                cta: "Choose growth",
-              },
-              {
-                name: "Unlimited",
-                price: "$299",
-                meetings: "Unlimited meetings",
-                cta: "Choose unlimited",
-              },
+              { name: "Free",      price: "$0",   meetings: "3 meetings / mo",  cta: "Start free" },
+              { name: "Starter",   price: "$99",  meetings: "20 meetings / mo", cta: "Choose starter" },
+              { name: "Growth",    price: "$199", meetings: "60 meetings / mo", cta: "Choose growth" },
+              { name: "Unlimited", price: "$299", meetings: "Unlimited meetings", cta: "Choose unlimited" },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
                   <CardTitle>{p.name}</CardTitle>
-                  <CardDescription className="text-4xl font-bold">
-                    {p.price}
-                  </CardDescription>
+                  <CardDescription className="text-4xl font-bold">{p.price}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col gap-4">
                   <p>{p.meetings}</p>
@@ -381,26 +335,14 @@ export default function Page() {
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            {
-              q: "How long does a brief take?",
-              a: "Typically 15–30 s for public figures; up to 60 s for very obscure or private subjects.",
-            },
-            {
-              q: "What data sources are used?",
-              a: "Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.",
-            },
-            {
-              q: "Is my input stored or shared?",
-              a: "No. Inputs and generated briefs are auto-purged within 24 hours and never sold or shared with third parties.",
-            },
-            {
-              q: "Do you guarantee zero hallucinations?",
-              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.",
-            },
-            {
-              q: "Can I request deletion immediately?",
-              a: "Yes — click “Delete now” on the result card or email privacy@meetingbrief.ai.",
-            },
+            { q: "How long does a brief take to generate?",
+              a: "Typically 15–30 s for public figures; up to 60 s for very obscure or private subjects." },
+            { q: "What data sources are used?",
+              a: "Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months." },
+            { q: "Is my input stored or shared?",
+              a: "No. Inputs and generated briefs can be deleted at your direction and never sold or shared with third parties." },
+            { q: "Do you guarantee zero hallucinations?",
+              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable." },
           ].map((f) => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
