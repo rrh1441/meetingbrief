@@ -35,107 +35,89 @@ interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ── header / spacing helper ────────────────────────────────────── */
-function normaliseHeaders(md: string): string {
-  md = md.replace(
-    /^#+\s*Meeting Brief:\s*(.+)$/im,
-    (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`,
-  );
-
-  md = md
+/* ---------- formatting pipeline --------------------------------- */
+function fixHeaderSpacing(md: string): string {
+  return md
+    .replace(/^#+\s*Meeting Brief:\s*(.+)$/im,
+             (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`)
     .replace(/^###\s*1\.\s*Executive Summary/i, "**Executive Summary**")
     .replace(/^###\s*2\.\s*.+$/im,           "**Notable Highlights**")
     .replace(/^###\s*3\.\s*.+$/im,           "**Interesting / Fun Facts**")
     .replace(/^###\s*4\.\s*.+$/im,           "**Detailed Research Notes**")
     .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
-    .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
-
-  // ensure exactly two newlines after every header
-  md = md.replace(/^\*\*[^\n]*\*\*(?=\n)/gm, (h: string) => `${h}\n`);
-  md = md.replace(/^\*\*[^\n]*\*\*(?!\n{2})/gm, (h: string) => `${h}\n\n`);
-
-  return md.trim();
+    .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**")
+    .replace(/^\*\*[^\n]*\*\*(?!\n\n)/gm, (h: string) => `${h}\n\n`); // 2× newline
 }
 
-/* ── bullets, date strip, negative filter ───────────────────────── */
-function shapeSections(md: string): string {
-  md = md.replace(
-    /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_: string, block: string) =>
-      "**Executive Summary**\n\n" + block.replace(/^[ \t]*[-*]\s+/gm, ""),
-  );
+function addBulletsAndStripDates(md: string): string {
+  // remove bullets from Exec-summary
+  md = md.replace(/\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
+                  (_: string, blk: string) =>
+                    "**Executive Summary**\n\n" +
+                    blk.replace(/^[\s*-]+\s+/gm, ""));
 
+  // add '* ' where missing + trim bold date prefixes
   md = md.replace(
     /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
     (_: string, title: string, blk: string) => {
-      let body = blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1");
+      let out = blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1");
 
       if (title === "Detailed Research Notes") {
-        body = body
-          .replace(/^\*\*\d{4}[^:]*:\*\*\s*/gm, "* ")
-          .replace(/^\*\*[A-Za-z]+[^:]*\d{4}:?\*\*\s*/gm, "* ");
+        out = out
+          .replace(/^\*\*[A-Za-z][^\n]*?\d{4}:?\*\*\s*/gm, "* ")
+          .replace(/^\*\*\d{4}-\d{2}-\d{2}[^\n]*\*\*\s*/gm, "* ");
       }
-
-      if (title === "Notable Highlights") {
-        body = body
-          .split("\n")
-          .filter((ln: string) => {
-            const neg = /arrest|lawsuit|felony|indict|fraud/i.test(ln);
-            const refs = (ln.match(/\[\^\d+\]/g) ?? []).length;
-            return !neg || refs >= 2;
-          })
-          .join("\n");
-      }
-
-      return `**${title}**${body}`;
-    },
-  );
+      // ensure blank line before first bullet
+      out = out.replace(/^\n?(\* )/, "\n\n$1");
+      return `**${title}**${out}`;
+    });
 
   return md;
 }
 
-/* ── footnote utilities ─────────────────────────────────────────── */
+/* ---------- citation helpers ------------------------------------ */
 interface Citation { marker: string; url: string }
 
-function normaliseCaretMarkers(md: string): string {
-  /* Gemini often emits plain caret numbers (^7). Turn them into [^7] */
-  return md.replace(/(\s)\^(\d{1,4})(\b)/g, (_, a: string, n: string, b: string) =>
-    `${a}[^${n}]${b}`,
-  );
+function splitBundledMarkers(md: string): string {
+  /* turn “[ ^2, [^4]]” → “[ ^2] [ ^4]” */
+  return md.replace(/\[\^\d+,[^\]]+\]/g, (m: string) =>
+    m.replace(/,\s*\[\^/g, "] [^"));
 }
 
-function ensureInlineMarkers(md: string, citations: Citation[]): string {
-  if (/\[\^\d+\]/.test(md) || citations.length === 0) return md;
+function normaliseCarets(md: string): string {
+  return md.replace(/(\s)\^(\d{1,4})(\b)/g,
+                    (_: string, pre: string, n: string, post: string) =>
+                      `${pre}[^${n}]${post}`);
+}
+
+function guaranteeInlineMarkers(md: string, cit: Citation[]): string {
+  if (/\[\^\d+\]/.test(md) || cit.length === 0) return md;
 
   let idx = 0;
-  md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (line: string) =>
-    idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
-  );
+  md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (ln: string) =>
+    idx < cit.length ? `${ln} ${cit[idx++].marker}` : ln);
 
-  md = md.replace(
-    /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_: string, block: string) =>
-      "**Executive Summary**\n\n" +
-      block.replace(/([.!?])(\s+|$)/g, (__, p: string, gap: string) =>
-        idx < citations.length ? `${p} ${citations[idx++].marker}${gap}` : `${p}${gap}`,
-      ),
-  );
+  md = md.replace(/\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
+                  (_: string, blk: string) =>
+                    "**Executive Summary**\n\n" +
+                    blk.replace(/([.!?])(\s+|$)/g,
+                                (_2: string, p: string, s: string) =>
+                                  idx < cit.length ? `${p} ${cit[idx++].marker}${s}` : `${p}${s}`));
 
   return md;
 }
 
-function linkifyMarkers(md: string, citations: Citation[]): string {
-  citations.forEach((c: Citation, i: number) => {
+function linkify(md: string, cit: Citation[]): string {
+  cit.forEach((c: Citation, i: number) => {
     const n = i + 1;
-    const anchor =
-      `<sup><a class="text-blue-600 underline hover:no-underline" ` +
-      `href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
-    md = md.replace(new RegExp(`\$begin:math:display$\\\\^${n}\\$end:math:display$`, "g"), anchor);
+    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" ` +
+                `href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+    md = md.replace(new RegExp(`\$begin:math:display$\\\\^${n}\\$end:math:display$`, "g"), sup);
   });
   return md;
 }
 
-/* ── main helper ────────────────────────────────────────────────── */
+/* ---------- main ------------------------------------------------- */
 export async function buildMeetingBriefGemini(
   name: string,
   org: string,
@@ -174,17 +156,13 @@ RULES
     generationConfig: { maxOutputTokens: 5000, temperature: 0.2 },
   });
 
-  const result = await model.generateContent({
+  const res = await model.generateContent({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     responseMimeType: "text/plain",
   });
 
-  const cand  = (result.response.candidates ?? [])[0] as Candidate | undefined;
-  const rawMd = cand?.content?.parts?.[0]?.text ?? "";
-
-  if (process.env.VERCEL_LOGS) {
-    console.log("RAW length:", rawMd.length);
-  }
+  const cand  = (res.response.candidates ?? [])[0] as Candidate | undefined;
+  const raw   = cand?.content?.parts?.[0]?.text ?? "";
 
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations: Citation[] = chunks.map((c, i) => ({
@@ -192,25 +170,25 @@ RULES
     url: c.web?.uri ?? "",
   }));
 
+  let brief = raw;
+  brief = splitBundledMarkers(brief);
+  brief = normaliseCarets(brief);
+  brief = fixHeaderSpacing(brief);
+  brief = addBulletsAndStripDates(brief);
+  brief = guaranteeInlineMarkers(brief, citations);
+  brief = linkify(brief, citations);
+
+  const usage   = res.usageMetadata ?? {};
+  const tokens  = usage.totalTokenCount ??
+                  (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const searches =
+    cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
+
   const searchResults = chunks.map(c => ({
     url: c.web?.uri ?? "",
     title: c.web?.title ?? "",
     snippet: c.web?.htmlSnippet ?? "",
   }));
-
-  /* ── post-process ─────────────────────────────────────────────── */
-  let brief = normaliseCaretMarkers(rawMd);
-  brief = normaliseHeaders(brief);
-  brief = shapeSections(brief);
-  brief = ensureInlineMarkers(brief, citations);
-  brief = linkifyMarkers(brief, citations);
-
-  /* ── counters ─────────────────────────────────────────────────── */
-  const usage    = result.usageMetadata ?? {};
-  const tokens   = usage.totalTokenCount ??
-                  (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches =
-    cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
 }
