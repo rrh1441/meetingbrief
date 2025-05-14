@@ -90,6 +90,7 @@ RULES
 `.trim();
 
 /* SDK typings don’t yet include googleSearch; cast preview to any. */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
   const model = (vertex.preview as any).getGenerativeModel({
     model: "gemini-2.5-pro-preview-05-06",
     tools: [{ googleSearch: {} }],
