@@ -2,28 +2,27 @@
 import fs from "fs";
 import { VertexAI } from "@google-cloud/vertexai";
 
-export const runtime = "nodejs"; // full Node APIs required
+export const runtime = "nodejs"; // Vertex SDK needs full Node APIs
 
-/* ── service-account setup ────────────────────────────────────────────── */
+/* ── service-account setup ───────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
 if (!saJson) {
   throw new Error("GCP_SA_JSON env var not set");
 }
 
 const keyPath = "/tmp/sa_key.json";
-/* Write once per cold-start (idempotent on re-use) */
 if (!fs.existsSync(keyPath)) {
   fs.writeFileSync(keyPath, saJson, "utf8");
 }
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/* ── Vertex client ────────────────────────────────────────────────────── */
+/* ── Vertex client ───────────────────────────────────────────────────── */
 const vertex = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── types ────────────────────────────────────────────────────────────── */
+/* ── types ───────────────────────────────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -32,36 +31,64 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── markdown post-processor ──────────────────────────────────────────── */
+interface ContentPart {
+  text?: string;
+}
+
+interface CandidateContent {
+  parts?: ContentPart[];
+}
+
+interface WebInfo {
+  uri?: string;
+  title?: string;
+  htmlSnippet?: string;
+}
+
+interface GroundingChunk {
+  web?: WebInfo;
+}
+
+interface GroundingMetadata {
+  groundingChunks?: GroundingChunk[];
+  webSearchQueries?: unknown[];
+}
+
+interface Candidate {
+  content?: CandidateContent;
+  groundingMetadata?: GroundingMetadata;
+}
+
+/* ── markdown post-processor ─────────────────────────────────────────── */
 function formatBrief(md: string): string {
-  // 1. Standardise top heading → ## **Meeting Brief: Name – Org**
+  // 1 Standardise top heading
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
-    (_m, subj) => `## **Meeting Brief: ${subj.trim()}**`
+    (_m, subj) => `## **Meeting Brief: ${subj.trim()}**`,
   );
 
-  // 2. Convert any numbered heading to bold text
+  // 2 Convert numbered headings to bold
   md = md
     .replace(/^###\s*\d+\.\s*(.+)$/gm, "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm, "**$1**")
     .replace(/^\d+\.\s*(.+)$/gm, "**$1**");
 
-  // 3. Ensure blank line before each bold header
+  // 3 Blank line before each bold header
   md = md.replace(/\n(?=\*\*)/g, "\n\n");
 
-  // 4. Strip bullet markers in Executive Summary
+  // 4 Strip bullet markers in Executive Summary
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_m, body) => body.replace(/^[ \t]*[-*]\s+/gm, "")
+    (_m, body) => body.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
   return md.trim();
 }
 
-/* ── helper ───────────────────────────────────────────────────────────── */
+/* ── helper ──────────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string
+  org: string,
 ): Promise<MeetingBriefPayload> {
   const prompt = `
 SUBJECT
@@ -101,36 +128,35 @@ RULES
     responseMimeType: "text/plain",
   });
 
-  const candidate: any = result.response.candidates?.[0] ?? {};
-  const raw = candidate.content?.parts?.[0]?.text ?? "";
+  const firstCandidate =
+    (result.response.candidates as Candidate[] | undefined)?.[0];
+  const raw = firstCandidate?.content?.parts?.[0]?.text ?? "";
 
   const brief = formatBrief(raw);
 
-  /* citations */
+  /* ── citations ────────────────────────────────────────────────────── */
   const citations =
-    candidate.groundingMetadata?.groundingChunks?.map(
-      (c: any, i: number) => ({
-        marker: `[^${i + 1}]`,
-        url: c.web?.uri ?? "",
-      })
-    ) ?? [];
+    firstCandidate?.groundingMetadata?.groundingChunks?.map((c, i) => ({
+      marker: `[^${i + 1}]`,
+      url: c.web?.uri ?? "",
+    })) ?? [];
 
-  /* grounded search results */
+  /* ── grounded search results ──────────────────────────────────────── */
   const searchResults =
-    candidate.groundingMetadata?.groundingChunks?.map((c: any) => ({
+    firstCandidate?.groundingMetadata?.groundingChunks?.map((c) => ({
       url: c.web?.uri ?? "",
       title: c.web?.title ?? "",
       snippet: c.web?.htmlSnippet ?? "",
     })) ?? [];
 
-  /* counts */
+  /* ── counts ───────────────────────────────────────────────────────── */
   const usage = result.usageMetadata ?? {};
   const tokens =
     usage.totalTokenCount ??
     (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
 
   const searches =
-    candidate.groundingMetadata?.webSearchQueries?.length ?? 0;
+    firstCandidate?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
 }
