@@ -2,11 +2,20 @@
 import fs from "fs";
 import { VertexAI } from "@google-cloud/vertexai";
 
-/* ── env sanity ───────────────────────────────────────────────────────── */
-const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
-if (!fs.existsSync(keyPath)) {
-  throw new Error(`Service-account key not found at ${keyPath}`);
+export const runtime = "nodejs"; // full Node APIs required
+
+/* ── service-account setup ────────────────────────────────────────────── */
+const saJson = process.env.GCP_SA_JSON;
+if (!saJson) {
+  throw new Error("GCP_SA_JSON env var not set");
 }
+
+const keyPath = "/tmp/sa_key.json";
+/* Write once per cold-start (idempotent on re-use) */
+if (!fs.existsSync(keyPath)) {
+  fs.writeFileSync(keyPath, saJson, "utf8");
+}
+process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
 /* ── Vertex client ────────────────────────────────────────────────────── */
 const vertex = new VertexAI({
@@ -25,13 +34,13 @@ export interface MeetingBriefPayload {
 
 /* ── markdown post-processor ──────────────────────────────────────────── */
 function formatBrief(md: string): string {
-  // 1. Standardise top heading   → ## **Meeting Brief: Name – Org**
+  // 1. Standardise top heading → ## **Meeting Brief: Name – Org**
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
     (_m, subj) => `## **Meeting Brief: ${subj.trim()}**`
   );
 
-  // 2. Convert any “### 1. Title” or “**1.** Title” → **Title**
+  // 2. Convert any numbered heading to bold text
   md = md
     .replace(/^###\s*\d+\.\s*(.+)$/gm, "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm, "**$1**")
@@ -40,7 +49,7 @@ function formatBrief(md: string): string {
   // 3. Ensure blank line before each bold header
   md = md.replace(/\n(?=\*\*)/g, "\n\n");
 
-  // 4. In Executive Summary block, strip bullet markers
+  // 4. Strip bullet markers in Executive Summary
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_m, body) => body.replace(/^[ \t]*[-*]\s+/gm, "")
@@ -52,7 +61,7 @@ function formatBrief(md: string): string {
 /* ── helper ───────────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string,
+  org: string
 ): Promise<MeetingBriefPayload> {
   const prompt = `
 SUBJECT
@@ -95,7 +104,6 @@ RULES
   const candidate: any = result.response.candidates?.[0] ?? {};
   const raw = candidate.content?.parts?.[0]?.text ?? "";
 
-  /* ── post-process markdown ─────────────────────────────────────────── */
   const brief = formatBrief(raw);
 
   /* citations */
@@ -104,7 +112,7 @@ RULES
       (c: any, i: number) => ({
         marker: `[^${i + 1}]`,
         url: c.web?.uri ?? "",
-      }),
+      })
     ) ?? [];
 
   /* grounded search results */
@@ -119,7 +127,7 @@ RULES
   const usage = result.usageMetadata ?? {};
   const tokens =
     usage.totalTokenCount ??
-    ((usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0));
+    (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
 
   const searches =
     candidate.groundingMetadata?.webSearchQueries?.length ?? 0;
