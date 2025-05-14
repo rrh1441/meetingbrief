@@ -122,12 +122,20 @@ RULES
     url: c.web?.uri ?? "",
   }));
 
-  // Minimum number of citations/facts to accept—tune this as needed
-  const minCitations = 8; // adjust for your brief length requirements
-
-  const citationCount = (raw.match(/\[\^\d+\]/g) || []).length;
-  if (citationCount < minCitations || citations.length < minCitations) {
-    throw new Error("Gemini did not return enough grounded facts for a valid brief.");
+  // Every non-header, non-blank line must end with a citation marker
+  const lines = raw.split('\n').filter(
+    l =>
+      l.trim().length > 0 &&
+      !/^#+/.test(l.trim()) &&                  // Markdown header
+      !/^\*\*.+\*\*$/.test(l.trim()) &&        // Bolded section title
+      !/^\s*[-*]\s*$/.test(l.trim())           // lone bullet
+  );
+  const missing = lines.filter(l => !/\[\^\d+\]\s*$/.test(l));
+  if (missing.length > 0) {
+    throw new Error(`Some lines are missing citation markers: ${missing.length} of ${lines.length}`);
+  }
+  if (citations.length === 0) {
+    throw new Error("No grounded sources returned by Gemini.");
   }
 
   // Only superscript citations, preserve all formatting
