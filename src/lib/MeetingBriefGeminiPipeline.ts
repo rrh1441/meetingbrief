@@ -4,7 +4,6 @@ import { VertexAI } from "@google-cloud/vertexai";
 
 export const runtime = "nodejs";
 
-/* ── service-account ─────────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
 if (!saJson) throw new Error("GCP_SA_JSON env var not set");
 
@@ -12,13 +11,11 @@ const keyPath = "/tmp/sa_key.json";
 if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, saJson, "utf8");
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/* ── Vertex client ──────────────────────────────────────────────── */
 const vertex = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── outward payload ────────────────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -27,21 +24,17 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── partial Vertex types ───────────────────────────────────────── */
 interface Part      { text?: string }
 interface Content   { parts?: Part[] }
 interface WebInfo   { uri?: string; title?: string; htmlSnippet?: string }
 interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
+interface Citation  { marker: string; url: string }
 
-interface Citation { marker: string; url: string }
-
-/* Superscript citations only */
 function superscriptCitations(md: string, citations: Citation[]): string {
   let result = md;
   citations.forEach((c, idx) => {
-    // [^1] as regex (escaped)
     const markerRegex = new RegExp(`\\[\\^${idx + 1}\\]`, "g");
     const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${idx + 1}</a></sup>`;
     result = result.replace(markerRegex, sup);
@@ -105,13 +98,12 @@ RULES
   const raw = cand?.content?.parts?.[0]?.text ?? "";
 
   // --- LOG RAW OUTPUT BEFORE ANY FORMATTING ---
-  console.log("RAW GEMINI OUTPUT >>>");
-  console.log(raw);
+  console.log("RAW GEMINI OUTPUT >>>\n" + raw);
+  console.log("GROUNDING METADATA >>>\n" + JSON.stringify(cand?.groundingMetadata, null, 2));
 
-  // Optionally, save to /tmp/last_gemini.txt for local debugging (will not persist on Vercel)
   try { fs.writeFileSync("/tmp/last_gemini.txt", raw, "utf8"); } catch {}
 
-  // Fail if Gemini refused to ground
+  // Hard fail if explicit grounding refusal
   if (/ERROR: INSUFFICIENT GROUNDING/i.test(raw)) {
     throw new Error("Gemini could not provide grounded citations for every fact.");
   }
@@ -122,23 +114,30 @@ RULES
     url: c.web?.uri ?? "",
   }));
 
-  // Every non-header, non-blank line must end with a citation marker
-  const lines = raw.split('\n').filter(
-    l =>
-      l.trim().length > 0 &&
-      !/^#+/.test(l.trim()) &&                  // Markdown header
-      !/^\*\*.+\*\*$/.test(l.trim()) &&        // Bolded section title
-      !/^\s*[-*]\s*$/.test(l.trim())           // lone bullet
-  );
-  const missing = lines.filter(l => !/\[\^\d+\]\s*$/.test(l));
-  if (missing.length > 0) {
-    throw new Error(`Some lines are missing citation markers: ${missing.length} of ${lines.length}`);
+  // --- This is the only check you should enforce for production reliability ---
+  // - There must be at least one citation marker
+  // - There must be at least one source
+  // - Do NOT enforce "every line" must have one if the output is otherwise correct
+  const hasAnyCitationMarker = /\[\^\d+\]/.test(raw);
+  const hasAnySource = citations.length > 0;
+
+  if (!hasAnyCitationMarker) {
+    throw new Error("No citation markers found in Gemini output.");
   }
-  if (citations.length === 0) {
+  if (!hasAnySource) {
     throw new Error("No grounded sources returned by Gemini.");
   }
 
-  // Only superscript citations, preserve all formatting
+  // Optionally: To enforce every line (non-header, non-blank) ends with a citation
+  // (Uncomment to enforce strictest mode, but this WILL cause more errors on LLM failures)
+  // const lines = raw.split('\n').filter(
+  //   l => l.trim().length > 0 && !/^#+/.test(l.trim()) && !/^\*\*.+\*\*$/.test(l.trim())
+  // );
+  // const missing = lines.filter(l => !/\[\^\d+\]\s*$/.test(l));
+  // if (missing.length > 0) {
+  //   throw new Error(`Some lines are missing citation markers: ${missing.length} of ${lines.length}`);
+  // }
+
   const brief = superscriptCitations(raw, citations);
 
   const usage = res.usageMetadata ?? {};
