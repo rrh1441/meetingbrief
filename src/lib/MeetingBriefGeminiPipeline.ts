@@ -135,7 +135,7 @@ FORMAT (markdown – follow exactly)
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**
-3–6 concise **factual** sentences; each ends with [^1]
+3–6 concise **factual** sentences.
 
 **Notable Highlights**
 * bullet list – awards, lawsuits, milestones
@@ -148,7 +148,10 @@ FORMAT (markdown – follow exactly)
 
 RULES
 • ≤ 1 000 words total
-• **Every** line ends with a foot-note like [^1]
+• **CITATIONS ARE REQUIRED**. Every fact MUST have an inline citation marker matching exactly the pattern [^N], where N is a unique integer.
+• Never use any other citation style—no caret-alone (^N]), no number-bracket (1]), no citation bundles ([^1, ^2]), no comma-separated, grouped, or combined citations.
+• Emit only one marker per fact: [^N]. If a fact has multiple sources, select only one and use only [^N].
+• Each [^N] must match the corresponding grounding source in metadata.
 • ≥ 1 reputable source per fact (≥ 2 for negative claims)
 • Drop any fact that cannot meet the rule
 `.trim();
