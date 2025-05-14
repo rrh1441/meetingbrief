@@ -4,7 +4,7 @@ import { VertexAI } from "@google-cloud/vertexai";
 
 export const runtime = "nodejs";
 
-/* ── service-account setup ────────────────────────────────────────── */
+/* ── service-account setup ───────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
 if (!saJson) throw new Error("GCP_SA_JSON env var not set");
 
@@ -12,13 +12,13 @@ const keyPath = "/tmp/sa_key.json";
 if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, saJson, "utf8");
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/* ── Vertex client ───────────────────────────────────────────────── */
+/* ── Vertex client ──────────────────────────────────────────────── */
 const vertex = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── payload to the caller ───────────────────────────────────────── */
+/* ── outward payload ────────────────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -27,7 +27,7 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── minimal Vertex response shapes ──────────────────────────────── */
+/* ── partial Vertex response types ─────────────────────────────── */
 interface Part      { text?: string }
 interface Content   { parts?: Part[] }
 interface WebInfo   { uri?: string; title?: string; htmlSnippet?: string }
@@ -35,8 +35,8 @@ interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ── post-processing helpers ─────────────────────────────────────── */
-function tidyHeaders(md: string): string {
+/* ── helpers ────────────────────────────────────────────────────── */
+function normaliseHeaders(md: string): string {
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
     (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`,
@@ -50,58 +50,93 @@ function tidyHeaders(md: string): string {
     .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
 
-  /* ensure exactly two newlines *after* each header (never inside it) */
-  md = md.replace(/^\*\*[^\n]*\*\*(?!\n\n)/gm, (hdr: string) => `${hdr}\n\n`);
+  /* exactly two newlines after every header (no newline insertion inside) */
+  md = md.replace(/^\*\*[^\n]*\*\*(?=\n)/gm, (h: string) => `${h}\n`);
+  md = md.replace(/^\*\*[^\n]*\*\*(?!\n{2})/gm, (h: string) => `${h}\n\n`);
 
   return md.trim();
 }
 
-function ensureBullets(md: string): string {
+function bulletiseAndClean(md: string): string {
+  // Exec-summary: strip any leading bullet markers
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_: string, block: string) =>
       "**Executive Summary**\n\n" + block.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
+  // Add "* " to un-bulleted lines and remove bold date prefixes
   md = md.replace(
     /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
-    (_m: string, title: string, blk: string) =>
-      `**${title}**` + blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1"),
+    (_m: string, title: string, blk: string) => {
+      let body = blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1");
+
+      if (title === "Detailed Research Notes") {
+        body = body.replace(/^\*\*\d{4}[^:]*:\*\*\s*/gm, "* ");   // **2025-05-08:** …
+        body = body.replace(/^\*\*[A-Za-z]+[^:]*\d{4}:?\*\*\s*/gm, "* "); // **May 8, 2025:**
+      }
+      return `**${title}**${body}`;
+    },
   );
 
   return md;
 }
 
+/* –– foot-notes ––––––––––––––––––––––––––––––––––––––––––––––––––– */
 interface Citation { marker: string; url: string }
 
-function injectFootnotes(md: string, citations: Citation[]): string {
-  if (/\[\^\d+\]/.test(md) || citations.length === 0) return md;
-
+function ensureFootnotes(md: string, citations: Citation[]): string {
   let idx = 0;
 
-  /* add markers to bullets */
-  md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (line: string) =>
-    idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
-  );
+  /* if model suppressed markers, add them */
+  if (!/\[\^\d+\]/.test(md) && citations.length) {
+    md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (line: string) =>
+      idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
+    );
 
-  /* add markers to exec-summary sentences */
+    md = md.replace(
+      /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
+      (_: string, block: string) =>
+        "**Executive Summary**\n\n" +
+        block.replace(/([.!?])(\s+|$)/g, (__, punct: string, gap: string) =>
+          idx < citations.length
+            ? `${punct} ${citations[idx++].marker}${gap}`
+            : `${punct}${gap}`,
+        ),
+    );
+  }
+
+  /* strip negative bullets lacking ≥ 2 markers */
   md = md.replace(
-    /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
+    /\*\*Notable Highlights\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_: string, block: string) =>
-      "**Executive Summary**\n\n" +
-      block.replace(/([.!?])(\s+|$)/g, (__, punct: string, gap: string) =>
-        idx < citations.length ? `${punct} ${citations[idx++].marker}${gap}` : `${punct}${gap}`,
-      ),
+      "**Notable Highlights**" +
+      block
+        .split("\n")
+        .filter((ln: string) => {
+          const lower = ln.toLowerCase();
+          const negative =
+            /arrest|lawsuit|felony|indict|fraud/.test(lower);
+          const foots   = (ln.match(/\[\^\d+\]/g) ?? []).length;
+          return !negative || foots >= 2;
+        })
+        .join("\n"),
   );
 
-  /* append footnote list */
+  /* always append a foot-note list */
   md += "\n\n---\n";
-  citations.forEach(c => { md += `${c.marker}: ${c.url}\n`; });
+  if (citations.length) {
+    citations.forEach(c => {
+      md += `${c.marker}: ${c.url || "(source URL pending)"}\n`;
+    });
+  } else {
+    md += "_No external sources available for this summary_\n";
+  }
 
   return md.trim();
 }
 
-/* ── main helper ─────────────────────────────────────────────────── */
+/* ── main helper ────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
   org: string,
@@ -128,16 +163,16 @@ FORMAT (markdown – follow exactly)
 
 RULES
 • ≤ 1 000 words total
-• **Every** line ends with a footnote marker like [^1]
+• **Every** line ends with a foot-note like [^1]
 • ≥ 1 reputable source per fact (≥ 2 for negative claims)
-• Drop any fact that cannot meet the rule
+• Drop any fact that can’t meet the rule
 `.trim();
 
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
   const model = (vertex.preview as any).getGenerativeModel({
     model: "gemini-2.5-pro-preview-05-06",
     tools: [{ googleSearch: {} }],
-    generationConfig: { maxOutputTokens: 1536, temperature: 0.2 },
+    generationConfig: { maxOutputTokens: 5000, temperature: 0.2 },
   });
 
   const result = await model.generateContent({
@@ -165,14 +200,15 @@ RULES
     snippet: c.web?.htmlSnippet ?? "",
   }));
 
-  let brief = tidyHeaders(rawMd);
-  brief     = ensureBullets(brief);
-  brief     = injectFootnotes(brief, citations);
+  let brief = normaliseHeaders(rawMd);
+  brief = bulletiseAndClean(brief);
+  brief = ensureFootnotes(brief, citations);
 
   const usage   = result.usageMetadata ?? {};
   const tokens  = usage.totalTokenCount ??
                  (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches = cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
+  const searches =
+    cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
 }
