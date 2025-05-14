@@ -2,7 +2,7 @@
 import fs from "fs";
 import { VertexAI } from "@google-cloud/vertexai";
 
-export const runtime = "nodejs"; // Vertex SDK needs full Node APIs
+export const runtime = "nodejs";
 
 /* ── service-account setup ─────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
@@ -27,35 +27,40 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── partial Vertex response types ─────────────────────────────────── */
-interface Part { text?: string }
-interface Content { parts?: Part[] }
-interface WebInfo { uri?: string; title?: string; htmlSnippet?: string }
-interface Chunk { web?: WebInfo }
+/* ── minimal response shims ────────────────────────────────────────── */
+interface Part      { text?: string }
+interface Content   { parts?: Part[] }
+interface WebInfo   { uri?: string; title?: string; htmlSnippet?: string }
+interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ── markdown post-processor (spacing, renames, bullet fix) ─────────── */
+/* ── markdown post-processor (spacing, bullets, renames) ──────────── */
 function formatBrief(md: string): string {
-  md = md.replace(/^#+\s*Meeting Brief:\s*(.+)$/im, (_,_s) => `## **Meeting Brief: ${_s.trim()}**`);
+  md = md.replace(/^#+\s*Meeting Brief:\s*(.+)$/im, (_, s) => `## **Meeting Brief: ${s.trim()}**`);
+
   md = md
     .replace(/^###\s*1\.\s*Executive Summary/i, "**Executive Summary**")
     .replace(/^###\s*2\.\s*.+$/im,           "**Notable Highlights**")
     .replace(/^###\s*3\.\s*.+$/im,           "**Interesting / Fun Facts**")
     .replace(/^###\s*4\.\s*.+$/im,           "**Detailed Research Notes**")
-    .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
+    .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")          // fallback
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
 
-  md = md.replace(/(\n)?\*\*/g, "\n\n**").replace(/\*\*[^\n]*\*\*(?!\n\n)/g, m => `${m}\n\n`);
+  // blank line before & after each header
+  md = md.replace(/(\n)?\*\*/g, "\n\n**")
+         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, m => `${m}\n\n`);
 
+  // Exec-summary → strip leading bullet markers
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_m,b) => b.replace(/^[ \t]*[-*]\s+/gm, ""),
+    (_, b) => b.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
+  // ensure asterisk bullets exist
   md = md.replace(
     /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
-    (_t,title,blk) => `**${title}**${blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")}`,
+    (_, title, blk) => `**${title}**${blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")}`,
   );
 
   return md.trim();
@@ -108,25 +113,26 @@ RULES
 
   const cand = (result.response.candidates ?? [])[0] as Candidate | undefined;
   const raw  = cand?.content?.parts?.[0]?.text ?? "";
-
-  /* ── debug dump if VERCEL_LOGS is truthy ─────────────────────────── */
-  if (process.env.VERCEL_LOGS) {
-    console.log("RAW MARKDOWN START\n", raw.slice(0, 4000), "\nRAW MARKDOWN END");
-    console.log("USAGE:", result.usageMetadata);
-  }
-
   const brief = formatBrief(raw);
 
+  /* ── diagnostics when VERCEL_LOGS is set ────────────────────────── */
+  if (process.env.VERCEL_LOGS) {
+    console.log("RAW length:", raw.length);
+    console.log("FORMATTED length:", brief.length);
+    console.log("USAGE:", result.usageMetadata);
+    console.log("RAW PREVIEW:\n", raw.slice(0, 1000), "\n--- end preview ---");
+  }
+
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
-  const citations = chunks.map((c,i) => ({ marker: `[^${i+1}]`, url: c.web?.uri ?? "" }));
+  const citations = chunks.map((c, i) => ({ marker: `[^${i + 1}]`, url: c.web?.uri ?? "" }));
 
   const searchResults = chunks.map(c => ({
     url: c.web?.uri ?? "", title: c.web?.title ?? "", snippet: c.web?.htmlSnippet ?? "",
   }));
 
-  const usage = result.usageMetadata ?? {};
-  const tokens =
-    usage.totalTokenCount ?? (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const usage   = result.usageMetadata ?? {};
+  const tokens  = usage.totalTokenCount ??
+                 (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
   const searches = cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
