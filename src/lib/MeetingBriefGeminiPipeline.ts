@@ -35,56 +35,19 @@ interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ---------- formatting pipeline --------------------------------- */
-// Fix header spacing and ensure exactly one blank line after headers
-function fixHeaderSpacing(md: string): string {
-  md = md.replace(/^#+\s*Meeting Brief:\s*(.+)$/im,
-    (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`);
-  md = md
-    .replace(/^###\s*1\.\s*Executive Summary/i, "**Executive Summary**")
-    .replace(/^###\s*2\.\s*.+$/im, "**Notable Highlights**")
-    .replace(/^###\s*3\.\s*.+$/im, "**Interesting / Fun Facts**")
-    .replace(/^###\s*4\.\s*.+$/im, "**Detailed Research Notes**")
-    .replace(/^###\s*\d+\.\s*(.+)$/gm, "**$1**")
-    .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm, "**$1**");
-
-  // Exactly one blank line after every header (bold line)
-  md = md.replace(/^(\*\*[^\n]*\*\*)(?!\n\n)/gm, "$1\n\n");
-  // Remove excess blank lines
-  md = md.replace(/\n{3,}/g, "\n\n");
-  return md;
-}
-
-// Ensure every fact gets a citation if citations exist (legacy, may not be needed with strict prompt)
-function guaranteeInlineMarkers(md: string, cit: Citation[]): string {
-  if (/\[\^\d+\]/.test(md) || cit.length === 0) return md;
-
-  let idx = 0;
-  md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (ln: string) =>
-    idx < cit.length ? `${ln} ${cit[idx++].marker}` : ln);
-
-  md = md.replace(/\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_: string, blk: string) =>
-      "**Executive Summary**\n\n" +
-      blk.replace(/([.!?])(\s+|$)/g,
-        (_2: string, p: string, s: string) =>
-          idx < cit.length ? `${p} ${cit[idx++].marker}${s}` : `${p}${s}`));
-
-  return md;
-}
-
-// Remove stray carets/brackets that should not appear (conservative)
-function removeStrayCaretsAndBrackets(md: string): string {
-  md = md.replace(/\[\^\s*\]/g, "");
-  md = md.replace(/\[\s*\^/, "");
-  md = md.replace(/\^(\D|$)/g, "");
-  md = md.replace(/(\s|^)\[(?=[^\[]*?(?:\s|$))/g, "$1");
-  md = md.replace(/(\s|^)\](?=[^\]]*?(?:\s|$))/g, "$1");
-  md = md.replace(/(\s|^)\^(?=\s|$)/g, "$1");
-  return md;
-}
-
 interface Citation { marker: string; url: string }
+
+/* Superscript citations only—no other formatting! */
+function superscriptCitations(md: string, citations: Citation[]): string {
+  let result = md;
+  citations.forEach((c, idx) => {
+    // [^1] as regex (escaped)
+    const markerRegex = new RegExp(`\\[\\^${idx + 1}\\]`, "g");
+    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${idx + 1}</a></sup>`;
+    result = result.replace(markerRegex, sup);
+  });
+  return result;
+}
 
 export async function buildMeetingBriefGemini(
   name: string,
@@ -152,10 +115,8 @@ RULES
     url: c.web?.uri ?? "",
   }));
 
-  let brief = raw;
-  brief = fixHeaderSpacing(brief);
-  brief = guaranteeInlineMarkers(brief, citations);
-  brief = removeStrayCaretsAndBrackets(brief);
+  // Only apply citation superscripting—preserve all other formatting
+  const brief = superscriptCitations(raw, citations);
 
   const usage = res.usageMetadata ?? {};
   const tokens = usage.totalTokenCount ??
