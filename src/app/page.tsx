@@ -1,40 +1,65 @@
 /* eslint-disable react/no-danger */
-'use client';
+"use client";
 
-import { useState } from 'react';
-import Link from 'next/link';
+import { useState } from "react";
+import Link from "next/link";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Loader2, CheckCircle2 } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { marked } from 'marked';
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, CheckCircle2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { marked } from "marked";
 
-/* ───────────────────────────── sample markdown (scrollable) */
+/* ───────────────────────────── full Jensen Huang brief (scrollable) */
 const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
 
 ### 1. Executive Summary
-- Co-founded NVIDIA in 1993; CEO ever since.  
-- Invented the modern GPU (1999) — foundation for today’s AI boom.  
-- Net worth **≈ \$100 B** (May 2025).  
-- NVIDIA briefly topped **\$3 T** market cap (June 2024).  
+* Jensen Huang co‑founded Nvidia in 1993 and has served as its President and CEO since inception, guiding the company to a dominant position in GPUs and AI accelerators.
+* Nvidia invented the modern GPU in 1999, redefining PC graphics and laying the groundwork for today’s deep‑learning boom.
+* Huang’s strategic expansion into data‑center AI, autonomous vehicles, and edge computing transformed Nvidia from a gaming‑centric firm into an end‑to‑end accelerated‑computing platform provider.
+* Net worth **≈ \$107 B** (May 2025) on ~3.6 % Nvidia stake.
+* Nvidia’s market cap topped **\$3 T** (June 2024), briefly the world’s most valuable public company.
+* Revered for “vision + ruthless execution,” Huang is among the longest‑tenured Silicon Valley founders still running their company (> 30 yrs).
 
 ### 2. Conversational Hooks
-- Started NVIDIA at a Denny’s — once worked there as a teen.  
-- Signature black leather jacket at every keynote.
+* Founded Nvidia at a roadside **Denny’s** in San Jose; Huang also waited tables at a Denny’s in his teens.
+* Signature **black leather jacket** at every keynote.
 
-### 3. Headlines
-1. “NVIDIA declares \`AI factories\` the next industrial era” — *FT, 2025-04-12*  
-2. “Blackwell GPU smashes MLPerf records” — *AnandTech, 2025-03-27*
+### 3. Headlines (last 12 mo)
+1. “Nvidia declares **AI factories** the next industrial era” — *Financial Times*, 2025‑04‑12  
+2. “Blackwell GPU smashes MLPerf records” — *AnandTech*, 2025‑03‑27  
+3. “FTC scrutinises Nvidia–XXXX tie‑up” — *Bloomberg*, 2024‑11‑08
 
-_Sign up to generate a full, source-linked report for any executive._`;
+### 4. Detailed Research Notes
+* **Early Life & Education**  
+  * Born Jen‑Hsun Huang, 1963, Tainan City, Taiwan; emigrated to the US after political unrest in Thailand.  
+  * Oneida Baptist Institute (KY) at 14; BS‑EE Oregon State ’84; MS‑EE Stanford ’92.
+* **Pre‑Nvidia Career**  
+  * Micro‑architecture roles at AMD (’84‑’85) and LSI Logic (’85‑’93, Director of CoreLogic group).
+* **Nvidia Milestones**  
+  * April 5 1993: founded with Chris Malachowsky & Curtis Priem — initial \$40 K capital.  
+  * 1999: launched **GeForce 256**, marketed as the world’s first GPU.  
+  * 2006: introduced **CUDA**, enabling general‑purpose computing on GPUs.  
+  * 2020‑present: full‑stack AI platform (hardware, CUDA, cuDNN, TensorRT, Omniverse).  
+  * 2024: announced **Blackwell** architecture; claims 2× performance/W over Hopper.
+* **Leadership Style**  
+  * Known for weekly “Wednesday Product Reviews” — deep dives that can last six hours.  
+  * Persists with “one P&L” model to avoid divisional turf wars.  
+* **Philanthropy & Board Roles**  
+  * \$50 M to Oregon State Engineering Complex (2022).  
+  * Trustee, Stanford University Board.
+* **Reputation / Media**  
+  * Time “100 Most Influential People” 2024.  
+  * Frequently compared to Jobs & Musk for showmanship + technical depth.
+
+_Sign up to generate a full, source‑linked report for any executive._`;
 
 /* Utility: marked.parse may return string | Promise<string>. Always await. */
 async function mdToHtml(md: string): Promise<string> {
@@ -43,7 +68,7 @@ async function mdToHtml(md: string): Promise<string> {
 
 export default function Page() {
   /* ─────────────── state */
-  const [form, setForm] = useState({ name: '', organization: '' });
+  const [form, setForm] = useState({ name: "", organization: "" });
   const [loading, setLoading] = useState(false);
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,9 +81,9 @@ export default function Page() {
     setBriefHtml(null);
 
     try {
-      const res = await fetch('/api/meetingbrief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/meetingbrief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, maxTokens: 4096 }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -105,12 +130,11 @@ export default function Page() {
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
-              Instant&nbsp;intel for every meeting
+              Instant&nbsp;Intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Auto-generated deep research with{' '}
-              <strong>sources, hooks, and risk flags</strong> — ready in
-              seconds.
+              Auto‑generated deep research with{' '}
+              <strong>sources, hooks, and risk flags</strong> — ready in seconds.
             </p>
           </div>
 
@@ -130,9 +154,7 @@ export default function Page() {
                 id="name"
                 value={form.name}
                 placeholder="Jensen Huang"
-                onChange={(e) =>
-                  setForm({ ...form, name: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
             </div>
@@ -144,9 +166,7 @@ export default function Page() {
                 id="org"
                 value={form.organization}
                 placeholder="NVIDIA"
-                onChange={(e) =>
-                  setForm({ ...form, organization: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, organization: e.target.value })}
                 required
               />
             </div>
@@ -154,7 +174,7 @@ export default function Page() {
               {loading ? (
                 <Loader2 className="animate-spin h-4 w-4" />
               ) : (
-                'Generate Brief'
+                "Generate Brief"
               )}
             </Button>
           </motion.form>
@@ -185,7 +205,8 @@ export default function Page() {
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
-                <CardContent className="prose prose-slate max-w-none text-left">
+                <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
+                  {/* eslint-disable-next-line react/no-danger */}
                   <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                 </CardContent>
               </Card>
@@ -195,16 +216,11 @@ export default function Page() {
               <Card>
                 <CardHeader>
                   <CardTitle>Sample brief</CardTitle>
-                  <CardDescription>
-                    Real output example (scrollable)
-                  </CardDescription>
+                  <CardDescription>Real output example (scrollable)</CardDescription>
                 </CardHeader>
-                <CardContent className="prose prose-slate max-w-none text-left max-h-96 overflow-auto">
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: marked.parse(sampleBriefMd) as string,
-                    }}
-                  />
+                <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
+                  {/* eslint-disable-next-line react/no-danger */}
+                  <div dangerouslySetInnerHTML={{ __html: marked.parse(sampleBriefMd) as string }} />
                 </CardContent>
               </Card>
             )}
@@ -217,16 +233,16 @@ export default function Page() {
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
             {
-              title: 'Deep OSINT coverage',
-              desc: 'LinkedIn, filings, press, podcasts & more in one pass.',
+              title: "Deep OSINT coverage",
+              desc: "LinkedIn, filings, press, podcasts & more in one pass.",
             },
             {
-              title: 'Footnoted sources',
-              desc: 'Every claim backed by a link — no hidden hallucinations.',
+              title: "Footnoted sources",
+              desc: "Every claim backed by a link — no hidden hallucinations.",
             },
             {
-              title: 'Conversational hooks',
-              desc: '2–3 rapport-building facts to break the ice.',
+              title: "Conversational hooks",
+              desc: "2–3 rapport‑building facts to break the ice.",
             },
           ].map((f) => (
             <Card key={f.title} className="shadow-sm">
@@ -241,18 +257,18 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES */}
+      {/* USE‑CASES */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">
-            Built for every high-stakes meeting
+            Built for every high‑stakes meeting
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
-              { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
-              { name: 'Founders', icon: '🚀', blurb: 'Know your counterpart’s angle before negotiations.' },
-              { name: 'Sales', icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
+              { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
+              { name: "Recruiters", icon: "🎯", blurb: "Assess executive candidates in minutes." },
+              { name: "Founders", icon: "🚀", blurb: "Know your counterpart’s angle before negotiations." },
+              { name: "Sales", icon: "📈", blurb: "Skip the research rabbit hole and open with insight." },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -274,15 +290,13 @@ export default function Page() {
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
-          <p className="text-slate-600">
-            Start free, upgrade when you need scale.
-          </p>
+          <p className="text-slate-600">Start free, upgrade when you need scale.</p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: 'Free', price: '$0', meetings: '3 meetings / mo', cta: 'Start free' },
-              { name: 'Starter', price: '$99', meetings: '20 meetings / mo', cta: 'Choose starter' },
-              { name: 'Growth', price: '$199', meetings: '60 meetings / mo', cta: 'Choose growth' },
-              { name: 'Unlimited', price: '$299', meetings: 'Unlimited meetings', cta: 'Choose unlimited' },
+              { name: "Free","price":"$0","meetings":"3 meetings / mo","cta":"Start free" },
+              { name: "Starter","price":"$99","meetings":"20 meetings / mo","cta":"Choose starter" },
+              { name: "Growth","price":"$199","meetings":"60 meetings / mo","cta":"Choose growth" },
+              { name: "Unlimited","price":"$299","meetings":"Unlimited meetings","cta":"Choose unlimited" },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
@@ -306,9 +320,26 @@ export default function Page() {
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            { q: 'How long does a brief take?', a: 'Typically 15–30 s for public figures; up to 60 s for complex subjects.' },
-            { q: 'What sources do you use?', a: 'Web search, filings, reputable news, podcasts, and social media (last 24 months).' },
-            { q: 'Do you store my data?', a: 'All inputs and briefs are auto-purged within 24 hours.' },
+            {
+              q: "How long does a brief take?",
+              a: "Typically 15–30 s for public figures; up to 60 s for very obscure or private subjects.",
+            },
+            {
+              q: "What data sources are used?",
+              a: "Real‑time web search, corporate filings, reputable news, podcasts, social‑media posts, and public databases from the last 24 months.",
+            },
+            {
+              q: "Is my input stored or shared?",
+              a: "No. Inputs and generated briefs are auto‑purged within 24 hours and never sold or shared with third parties.",
+            },
+            {
+              q: "Do you guarantee zero hallucinations?",
+              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.",
+            },
+            {
+              q: "Can I request deletion immediately?",
+              a: "Yes — click “Delete now” on the result card or email privacy@meetingbrief.ai.",
+            },
           ].map((f) => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
