@@ -1,21 +1,21 @@
 /* eslint-disable react/no-danger */
-"use client";
+'use client';
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState } from 'react';
+import Link from 'next/link';
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle2 } from "lucide-react";
-import { motion } from "framer-motion";
-import { marked } from "marked";
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, CheckCircle2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { marked } from 'marked';
 
 /* ───────────────────────────── sample markdown (scrollable) */
 const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
@@ -23,8 +23,8 @@ const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
 ### 1. Executive Summary
 - Co-founded NVIDIA in 1993; CEO ever since.  
 - Invented the modern GPU (1999) — foundation for today’s AI boom.  
-- Net worth **≈ $100 B** (May 2025).  
-- NVIDIA briefly topped **$3 T** market cap (June 2024).  
+- Net worth **≈ \$100 B** (May 2025).  
+- NVIDIA briefly topped **\$3 T** market cap (June 2024).  
 
 ### 2. Conversational Hooks
 - Started NVIDIA at a Denny’s — once worked there as a teen.  
@@ -36,28 +36,34 @@ const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
 
 _Sign up to generate a full, source-linked report for any executive._`;
 
+/* Utility: marked.parse may return string | Promise<string>. Always await. */
+async function mdToHtml(md: string): Promise<string> {
+  return (await marked.parse(md)) as string;
+}
+
 export default function Page() {
-  /* ───────────────────────── state */
-  const [form, setForm] = useState({ name: "", organization: "" });
+  /* ─────────────── state */
+  const [form, setForm] = useState({ name: '', organization: '' });
   const [loading, setLoading] = useState(false);
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /* ───────────────────────── submit */
+  /* ─────────────── submit */
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setBriefHtml(null);
 
     try {
-      const res = await fetch("/api/meetingbrief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/meetingbrief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, maxTokens: 4096 }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const { brief } = await res.json(); // brief is markdown
-      setBriefHtml(marked.parse(brief));
+      const { brief } = (await res.json()) as { brief: string };
+      setBriefHtml(await mdToHtml(brief));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -65,10 +71,10 @@ export default function Page() {
     }
   };
 
-  /* ───────────────────────── view */
+  /* ─────────────── view */
   return (
     <div className="min-h-screen flex flex-col">
-      {/* NAV */}
+      {/* NAVBAR */}
       <nav className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
           <Link href="/" className="font-semibold text-xl">
@@ -102,8 +108,9 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Auto-generated deep research with <strong>sources, hooks, and risk
-              flags</strong> — ready in seconds.
+              Auto-generated deep research with{' '}
+              <strong>sources, hooks, and risk flags</strong> — ready in
+              seconds.
             </p>
           </div>
 
@@ -147,12 +154,12 @@ export default function Page() {
               {loading ? (
                 <Loader2 className="animate-spin h-4 w-4" />
               ) : (
-                "Generate Brief"
+                'Generate Brief'
               )}
             </Button>
           </motion.form>
 
-          {/* DEMO / SKELETON / SAMPLE */}
+          {/* DEMO / LOADER / OUTPUT */}
           <div className="w-full max-w-5xl mx-auto">
             {loading && (
               <Card className="animate-pulse">
@@ -161,10 +168,7 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-3 w-full bg-slate-200 rounded"
-                    />
+                    <div key={i} className="h-3 w-full bg-slate-200 rounded" />
                   ))}
                 </CardContent>
               </Card>
@@ -176,12 +180,10 @@ export default function Page() {
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    Brief ready{" "}
+                    Brief ready{' '}
                     <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
-                  <CardDescription>
-                    Scroll or copy as needed
-                  </CardDescription>
+                  <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent className="prose prose-slate max-w-none text-left">
                   <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
@@ -200,7 +202,7 @@ export default function Page() {
                 <CardContent className="prose prose-slate max-w-none text-left max-h-96 overflow-auto">
                   <div
                     dangerouslySetInnerHTML={{
-                      __html: marked.parse(sampleBriefMd),
+                      __html: marked.parse(sampleBriefMd) as string,
                     }}
                   />
                 </CardContent>
@@ -215,16 +217,16 @@ export default function Page() {
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
             {
-              title: "Deep OSINT coverage",
-              desc: "LinkedIn, filings, press, podcasts & more in one pass.",
+              title: 'Deep OSINT coverage',
+              desc: 'LinkedIn, filings, press, podcasts & more in one pass.',
             },
             {
-              title: "Footnoted sources",
-              desc: "Every claim backed by a link — no hidden hallucinations.",
+              title: 'Footnoted sources',
+              desc: 'Every claim backed by a link — no hidden hallucinations.',
             },
             {
-              title: "Conversational hooks",
-              desc: "2–3 rapport-building facts to break the ice.",
+              title: 'Conversational hooks',
+              desc: '2–3 rapport-building facts to break the ice.',
             },
           ].map((f) => (
             <Card key={f.title} className="shadow-sm">
@@ -247,26 +249,10 @@ export default function Page() {
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Investors",
-                icon: "💼",
-                blurb: "Vet founders before they pitch.",
-              },
-              {
-                name: "Recruiters",
-                icon: "🎯",
-                blurb: "Assess executive candidates in minutes.",
-              },
-              {
-                name: "Founders",
-                icon: "🚀",
-                blurb: "Know your counterpart’s angle before negotiations.",
-              },
-              {
-                name: "Sales",
-                icon: "📈",
-                blurb: "Skip the research rabbit hole and open with insight.",
-              },
+              { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
+              { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
+              { name: 'Founders', icon: '🚀', blurb: 'Know your counterpart’s angle before negotiations.' },
+              { name: 'Sales', icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -293,30 +279,10 @@ export default function Page() {
           </p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Free",
-                price: "$0",
-                meetings: "3 meetings / mo",
-                cta: "Start free",
-              },
-              {
-                name: "Starter",
-                price: "$99",
-                meetings: "20 meetings / mo",
-                cta: "Choose starter",
-              },
-              {
-                name: "Growth",
-                price: "$199",
-                meetings: "60 meetings / mo",
-                cta: "Choose growth",
-              },
-              {
-                name: "Unlimited",
-                price: "$299",
-                meetings: "Unlimited meetings",
-                cta: "Choose unlimited",
-              },
+              { name: 'Free', price: '$0', meetings: '3 meetings / mo', cta: 'Start free' },
+              { name: 'Starter', price: '$99', meetings: '20 meetings / mo', cta: 'Choose starter' },
+              { name: 'Growth', price: '$199', meetings: '60 meetings / mo', cta: 'Choose growth' },
+              { name: 'Unlimited', price: '$299', meetings: 'Unlimited meetings', cta: 'Choose unlimited' },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
@@ -340,18 +306,9 @@ export default function Page() {
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            {
-              q: "How long does a brief take?",
-              a: "Typically 15–30 s for public figures; up to 60 s for complex subjects.",
-            },
-            {
-              q: "What sources do you use?",
-              a: "Web search, filings, reputable news, podcasts, and social media (last 24 months).",
-            },
-            {
-              q: "Do you store my data?",
-              a: "All inputs and briefs are auto-purged within 24 hours.",
-            },
+            { q: 'How long does a brief take?', a: 'Typically 15–30 s for public figures; up to 60 s for complex subjects.' },
+            { q: 'What sources do you use?', a: 'Web search, filings, reputable news, podcasts, and social media (last 24 months).' },
+            { q: 'Do you store my data?', a: 'All inputs and briefs are auto-purged within 24 hours.' },
           ].map((f) => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
