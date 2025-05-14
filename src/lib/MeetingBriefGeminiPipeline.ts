@@ -37,7 +37,7 @@ interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
 interface Citation { marker: string; url: string }
 
-/* Superscript citations only—no other formatting! */
+/* Superscript citations only */
 function superscriptCitations(md: string, citations: Citation[]): string {
   let result = md;
   citations.forEach((c, idx) => {
@@ -54,6 +54,8 @@ export async function buildMeetingBriefGemini(
   org: string,
 ): Promise<MeetingBriefPayload> {
   const prompt = `
+IMPORTANT: If you cannot provide a citation marker [^N] at the end of **every** fact and match every [^N] to a unique, reputable, public source URL in the grounding metadata, DO NOT answer. Instead, reply only with: "ERROR: INSUFFICIENT GROUNDING."
+
 SUBJECT
 • Person  : ${name}
 • Employer: ${org}
@@ -109,13 +111,26 @@ RULES
   // Optionally, save to /tmp/last_gemini.txt for local debugging (will not persist on Vercel)
   try { fs.writeFileSync("/tmp/last_gemini.txt", raw, "utf8"); } catch {}
 
+  // Fail if Gemini refused to ground
+  if (/ERROR: INSUFFICIENT GROUNDING/i.test(raw)) {
+    throw new Error("Gemini could not provide grounded citations for every fact.");
+  }
+
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations: Citation[] = chunks.map((c, i) => ({
     marker: `[^${i + 1}]`,
     url: c.web?.uri ?? "",
   }));
 
-  // Only apply citation superscripting—preserve all other formatting
+  // Minimum number of citations/facts to accept—tune this as needed
+  const minCitations = 8; // adjust for your brief length requirements
+
+  const citationCount = (raw.match(/\[\^\d+\]/g) || []).length;
+  if (citationCount < minCitations || citations.length < minCitations) {
+    throw new Error("Gemini did not return enough grounded facts for a valid brief.");
+  }
+
+  // Only superscript citations, preserve all formatting
   const brief = superscriptCitations(raw, citations);
 
   const usage = res.usageMetadata ?? {};
