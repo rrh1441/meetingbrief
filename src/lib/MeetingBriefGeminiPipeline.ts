@@ -4,7 +4,7 @@ import { VertexAI } from "@google-cloud/vertexai";
 
 export const runtime = "nodejs";
 
-/* ── service-account setup ─────────────────────────────────────────── */
+/* ── service-account ─────────────────────────────────────────────── */
 const saJson = process.env.GCP_SA_JSON;
 if (!saJson) throw new Error("GCP_SA_JSON env var not set");
 
@@ -12,13 +12,13 @@ const keyPath = "/tmp/sa_key.json";
 if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, saJson, "utf8");
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/* ── Vertex client ─────────────────────────────────────────────────── */
+/* ── Vertex client ───────────────────────────────────────────────── */
 const vertex = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── types ─────────────────────────────────────────────────────────── */
+/* ── payload type ────────────────────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -27,6 +27,7 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
+/* ── minimal Vertex response shims ───────────────────────────────── */
 interface Part { text?: string }
 interface Content { parts?: Part[] }
 interface WebInfo { uri?: string; title?: string; htmlSnippet?: string }
@@ -34,7 +35,7 @@ interface Chunk { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
-/* ── post-processors ───────────────────────────────────────────────── */
+/* ── post-processors ─────────────────────────────────────────────── */
 function tidyHeaders(md: string): string {
   md = md.replace(/^#+\s*Meeting Brief:\s*(.+)$/im, (_, s) => `## **Meeting Brief: ${s.trim()}**`);
 
@@ -46,60 +47,62 @@ function tidyHeaders(md: string): string {
     .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
 
-  // blank line before & after each header
+  // blank line before & after headers
   md = md.replace(/(\n)?\*\*/g, "\n\n**")
-         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, m => `${m}\n\n`);
+         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, (hdr: string) => `${hdr}\n\n`);
 
   return md.trim();
 }
 
 function ensureBullets(md: string): string {
-  // Strip bullets from Exec-Summary block
-  md = md.replace(
-    /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_, b) => `**Executive Summary**\n\n` + b.replace(/^[ \t]*[-*]\s+/gm, ""),
-  );
-
-  // Add '* ' to list sections if missing
-  md = md.replace(
-    /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
-    (_, title, blk) =>
-      `**${title}**${blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")}`,
-  );
-
-  return md;
-}
-
-function injectFootnotes(md: string, citations: { marker: string }[]): string {
-  // if model already inserted footnotes leave them
-  if (/\[\^\d+\]/.test(md)) return md;
-
-  let idx = 0;
-  // add markers to bullets
-  md = md.replace(/^(?:[*\-]\s+[^\n]+)(?!\s+\[\^\d+\])/gm, line =>
-    idx < citations.length ? `${line} ${citations[idx++].marker}` : line
-  );
-
-  // add markers to Exec-Summary sentences
+  // Exec Summary ­– remove bullets, keep heading
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_, block) =>
       "**Executive Summary**\n\n" +
-      block.replace(/([.!?])(\s+|$)/g, (m, p, q) =>
-        idx < citations.length ? `${p} ${citations[idx++].marker}${q}` : m
-      ),
+      block.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
-  // append footnote list
-  if (citations.length) {
-    md += "\n\n---\n";
-    citations.forEach(c => (md += `${c.marker}: ${c.url}\n`));
-  }
+  // Add "* " to lines in list sections that miss it
+  md = md.replace(
+    /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
+    (_m, title, blk) => `**${title}**${blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")}`,
+  );
 
   return md;
 }
 
-/* ── main helper ───────────────────────────────────────────────────── */
+function injectFootnotes(
+  md: string,
+  citations: { marker: string }[],
+): string {
+  if (/\[\^\d+\]/.test(md) || citations.length === 0) return md; // already present or nothing to add
+
+  let idx = 0;
+
+  // bullets
+  md = md.replace(/^(?:[*\-]\s+[^\n]+)(?!\s+\[\^\d+\])/gm, (line: string) =>
+    idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
+  );
+
+  // exec summary sentences
+  md = md.replace(
+    /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
+    (_, block) =>
+      "**Executive Summary**\n\n" +
+      block.replace(/([.!?])(\s+|$)/g, (_match: string, punct: string, space: string) =>
+        idx < citations.length ? `${punct} ${citations[idx++].marker}${space}` : `${punct}${space}`,
+      ),
+  );
+
+  // append list
+  md += "\n\n---\n";
+  citations.forEach(c => { md += `${c.marker}: ${c.url}\n`; });
+
+  return md.trim();
+}
+
+/* ── main helper ─────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
   org: string,
@@ -143,40 +146,36 @@ RULES
     responseMimeType: "text/plain",
   });
 
-  const cand  = (result.response.candidates ?? [])[0] as Candidate | undefined;
-  const rawMd = cand?.content?.parts?.[0]?.text ?? "";
+  const cand   = (result.response.candidates ?? [])[0] as Candidate | undefined;
+  const rawMd  = cand?.content?.parts?.[0]?.text ?? "";
 
+  /* ── diagnostics when VERCEL_LOGS is set ───────────────────────── */
+  if (process.env.VERCEL_LOGS) {
+    console.log("RAW length:", rawMd.length);
+    console.log("USAGE:", result.usageMetadata);
+  }
+
+  /* ── citations & results ───────────────────────────────────────── */
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations = chunks.map((c, i) => ({
     marker: `[^${i + 1}]`,
     url: c.web?.uri ?? "",
   }));
 
-  /* diagnostics */
-  if (process.env.VERCEL_LOGS) {
-    console.log("RAW length:", rawMd.length);
-    console.log("USAGE:", result.usageMetadata);
-  }
-
-  /* post-process */
-  let brief = tidyHeaders(rawMd);
-  brief = ensureBullets(brief);
-  brief = injectFootnotes(brief, citations);
-
-  /* counts */
-  const usage = result.usageMetadata ?? {};
-  const tokens =
-    usage.totalTokenCount ??
-    (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches =
-    cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
-
-  /* grounded search results */
   const searchResults = chunks.map(c => ({
-    url: c.web?.uri ?? "",
-    title: c.web?.title ?? "",
-    snippet: c.web?.htmlSnippet ?? "",
+    url: c.web?.uri ?? "", title: c.web?.title ?? "", snippet: c.web?.htmlSnippet ?? "",
   }));
+
+  /* ── post-process markdown ─────────────────────────────────────── */
+  let brief = tidyHeaders(rawMd);
+  brief     = ensureBullets(brief);
+  brief     = injectFootnotes(brief, citations);
+
+  /* ── counters ──────────────────────────────────────────────────── */
+  const usage   = result.usageMetadata ?? {};
+  const tokens  = usage.totalTokenCount ??
+                 (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const searches = cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
 }
