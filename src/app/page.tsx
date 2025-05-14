@@ -19,15 +19,20 @@ import { marked } from "marked";
 
 /* ───────────────────────────── helper */
 function prettifyBrief(md: string): string {
-  // Bold numeric section headers
-  md = md.replace(/^(\d+)\.\s+/gm, (_, n) => `**${n}.** `);
-  // Blank line before each heading
-  md = md.replace(/\n(?=(\*\*\d+\.\s|###))/g, "\n\n");
-  // Strip leading dashes in Executive Summary
+  // Bold numeric headings even if preceded by up-to-3 “#”
+  md = md.replace(/^(#{0,3}\s*)(\d+)\.\s+/gm, (_, hashes, n) => {
+    return `${hashes}**${n}.** `;
+  });
+
+  // Insert blank line before any heading (“###” or “**1.**” we just created)
+  md = md.replace(/\n(?=(?:\*\*\d+\.\*\*|###))/g, "\n\n");
+
+  // In Executive Summary strip leading * or - bullets
   md = md.replace(
-    /###\s*1.*?Executive Summary[\s\S]*?(?=\n###|\n\*\*2|$)/,
-    (blk) => blk.replace(/^\s*-\s+/gm, "")
+    /###\s*1.*?Executive Summary[\s\S]*?(?=\n###|\n\*\*2|\n\*\*\d|\n*$)/,
+    blk => blk.replace(/^[ \t]*[-*]\s+/gm, "")
   );
+
   return md.trim();
 }
 
@@ -230,10 +235,7 @@ export default function Page() {
             {!loading && !briefHtml && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Sample brief</CardTitle>
-                  <CardDescription>
-                    Real output example (scrollable)
-                  </CardDescription>
+                  <CardTitle>Real Example Brief</CardTitle>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   {/* eslint-disable-next-line react/no-danger */}
