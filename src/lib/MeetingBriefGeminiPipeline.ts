@@ -39,7 +39,7 @@ interface Candidate { content?: Content; groundingMetadata?: Grounding }
 function formatBrief(md: string): string {
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
-    (_, subj) => `## **Meeting Brief: ${subj.trim()}**`
+    (_, subj) => `## **Meeting Brief: ${subj.trim()}**`,
   );
 
   md = md
@@ -51,7 +51,7 @@ function formatBrief(md: string): string {
 
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
-    (_, body) => body.replace(/^[ \t]*[-*]\s+/gm, "")
+    (_, body) => body.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
   return md.trim();
@@ -60,7 +60,7 @@ function formatBrief(md: string): string {
 /* ── main helper ───────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string
+  org: string,
 ): Promise<MeetingBriefPayload> {
   const prompt = `
 SUBJECT
@@ -89,9 +89,8 @@ RULES
 • If the evidence rule can’t be met, drop the fact
 `.trim();
 
-/* The typings for tools lag behind the API; cast to suppress TS error. */
-// @ts-expect-error googleSearch tool missing in Vertex SDK typings
-  const model = vertex.preview.getGenerativeModel({
+/* SDK typings don’t yet include googleSearch; cast preview to any. */
+  const model = (vertex.preview as any).getGenerativeModel({
     model: "gemini-2.5-pro-preview-05-06",
     tools: [{ googleSearch: {} }],
     generationConfig: { maxOutputTokens: 1024, temperature: 0.2 },
