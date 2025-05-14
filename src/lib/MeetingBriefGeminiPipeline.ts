@@ -18,7 +18,7 @@ const vertex = new VertexAI({
   location: process.env.VERTEX_LOCATION ?? "us-central1",
 });
 
-/* ── returned-to-client payload ──────────────────────────────────── */
+/* ── payload to the caller ───────────────────────────────────────── */
 export interface MeetingBriefPayload {
   brief: string;
   citations: { marker: string; url: string }[];
@@ -27,11 +27,11 @@ export interface MeetingBriefPayload {
   searchResults: { url: string; title: string; snippet: string }[];
 }
 
-/* ── minimal Vertex response shims ───────────────────────────────── */
-interface Part { text?: string }
-interface Content { parts?: Part[] }
-interface WebInfo { uri?: string; title?: string; htmlSnippet?: string }
-interface Chunk { web?: WebInfo }
+/* ── minimal Vertex response shapes ──────────────────────────────── */
+interface Part      { text?: string }
+interface Content   { parts?: Part[] }
+interface WebInfo   { uri?: string; title?: string; htmlSnippet?: string }
+interface Chunk     { web?: WebInfo }
 interface Grounding { groundingChunks?: Chunk[]; webSearchQueries?: unknown[] }
 interface Candidate { content?: Content; groundingMetadata?: Grounding }
 
@@ -39,7 +39,7 @@ interface Candidate { content?: Content; groundingMetadata?: Grounding }
 function tidyHeaders(md: string): string {
   md = md.replace(
     /^#+\s*Meeting Brief:\s*(.+)$/im,
-    (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`
+    (_: string, subj: string) => `## **Meeting Brief: ${subj.trim()}**`,
   );
 
   md = md
@@ -50,26 +50,23 @@ function tidyHeaders(md: string): string {
     .replace(/^###\s*\d+\.\s*(.+)$/gm,       "**$1**")
     .replace(/^\*\*\d+\.\*\*\s*(.+)$/gm,     "**$1**");
 
-  // blank line before & after every header
-  md = md.replace(/(\n)?\*\*/g, "\n\n**")
-         .replace(/\*\*[^\n]*\*\*(?!\n\n)/g, (h: string) => `${h}\n\n`);
+  /* ensure exactly two newlines *after* each header (never inside it) */
+  md = md.replace(/^\*\*[^\n]*\*\*(?!\n\n)/gm, (hdr: string) => `${hdr}\n\n`);
 
   return md.trim();
 }
 
 function ensureBullets(md: string): string {
-  // Exec-summary: strip bullets but keep heading
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_: string, block: string) =>
-      "**Executive Summary**\n\n" + block.replace(/^[ \t]*[-*]\s+/gm, "")
+      "**Executive Summary**\n\n" + block.replace(/^[ \t]*[-*]\s+/gm, ""),
   );
 
-  // Add "* " where missing in other sections
   md = md.replace(
     /\*\*(Notable Highlights|Interesting \/ Fun Facts|Detailed Research Notes)\*\*([\s\S]*?)(?=\n\*\*|$)/g,
     (_m: string, title: string, blk: string) =>
-      `**${title}**` + blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1")
+      `**${title}**` + blk.replace(/^(?![*\-\s])([^\n]+)/gm, "* $1"),
   );
 
   return md;
@@ -82,22 +79,22 @@ function injectFootnotes(md: string, citations: Citation[]): string {
 
   let idx = 0;
 
-  // bullets
+  /* add markers to bullets */
   md = md.replace(/^(?:[*\-]\s+[^\n]+?)(?!\s+\[\^\d+\])/gm, (line: string) =>
-    idx < citations.length ? `${line} ${citations[idx++].marker}` : line
+    idx < citations.length ? `${line} ${citations[idx++].marker}` : line,
   );
 
-  // exec-summary sentences
+  /* add markers to exec-summary sentences */
   md = md.replace(
     /\*\*Executive Summary\*\*([\s\S]*?)(?=\n\*\*|$)/,
     (_: string, block: string) =>
       "**Executive Summary**\n\n" +
       block.replace(/([.!?])(\s+|$)/g, (__, punct: string, gap: string) =>
-        idx < citations.length ? `${punct} ${citations[idx++].marker}${gap}` : `${punct}${gap}`
-      )
+        idx < citations.length ? `${punct} ${citations[idx++].marker}${gap}` : `${punct}${gap}`,
+      ),
   );
 
-  // footnote list
+  /* append footnote list */
   md += "\n\n---\n";
   citations.forEach(c => { md += `${c.marker}: ${c.url}\n`; });
 
@@ -107,7 +104,7 @@ function injectFootnotes(md: string, citations: Citation[]): string {
 /* ── main helper ─────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string
+  org: string,
 ): Promise<MeetingBriefPayload> {
   const prompt = `
 SUBJECT
@@ -118,7 +115,7 @@ FORMAT (markdown – follow exactly)
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**
-3–6 concise **factual** sentences (no adjectives/opinion). Each ends with [^1]
+3–6 concise **factual** sentences; each ends with [^1]
 
 **Notable Highlights**
 * bullet list – awards, lawsuits, milestones
@@ -131,9 +128,9 @@ FORMAT (markdown – follow exactly)
 
 RULES
 • ≤ 1 000 words total
-• **Every** sentence or bullet ends with a footnote like [^1]
+• **Every** line ends with a footnote marker like [^1]
 • ≥ 1 reputable source per fact (≥ 2 for negative claims)
-• Drop any fact that can’t meet the rule
+• Drop any fact that cannot meet the rule
 `.trim();
 
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
@@ -156,7 +153,6 @@ RULES
     console.log("USAGE:", result.usageMetadata);
   }
 
-  /* ── extract citations ─────────────────────────────────────────── */
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations: Citation[] = chunks.map((c, i) => ({
     marker: `[^${i + 1}]`,
@@ -169,15 +165,13 @@ RULES
     snippet: c.web?.htmlSnippet ?? "",
   }));
 
-  /* ── post-process markdown ─────────────────────────────────────── */
   let brief = tidyHeaders(rawMd);
   brief     = ensureBullets(brief);
   brief     = injectFootnotes(brief, citations);
 
-  /* ── counters ──────────────────────────────────────────────────── */
-  const usage    = result.usageMetadata ?? {};
-  const tokens   = usage.totalTokenCount ??
-                  (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const usage   = result.usageMetadata ?? {};
+  const tokens  = usage.totalTokenCount ??
+                 (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
   const searches = cand?.groundingMetadata?.webSearchQueries?.length ?? 0;
 
   return { brief, citations, tokens, searches, searchResults };
