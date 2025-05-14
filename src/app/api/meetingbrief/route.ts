@@ -2,12 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildMeetingBriefGemini } from "@/lib/MeetingBriefGeminiPipeline";
 
-// Robust, strictly-typed citation normalization
+// Robust, strictly-typed citation normalization (safe for any payload)
 function normalizeCitations(
   brief: string,
   citations: { marker: string; url: string }[]
 ): string {
-  if (!citations.length) return brief;
+  if (!citations || !Array.isArray(citations) || citations.length === 0) return brief;
+  if (typeof brief !== "string") return brief;
 
   // Matches [^1], ^2, [^1, 2], ^3, 5], etc.
   const citationRegex = /(\[\s*\^|\^)\s*([\d\s,]+)(?=\]|\s|,|$)/g;
@@ -59,8 +60,15 @@ export async function POST(req: NextRequest) {
     const { name, org } = await req.json();
     const payload = await buildMeetingBriefGemini(name, org);
 
-    // --- Normalize all citations before sending to frontend
-    payload.brief = normalizeCitations(payload.brief, payload.citations);
+    // Only normalize if citations is a non-empty array and brief is string
+    if (
+      payload &&
+      typeof payload.brief === "string" &&
+      Array.isArray(payload.citations) &&
+      payload.citations.length > 0
+    ) {
+      payload.brief = normalizeCitations(payload.brief, payload.citations);
+    }
 
     return NextResponse.json(payload);
   } catch (e) {
