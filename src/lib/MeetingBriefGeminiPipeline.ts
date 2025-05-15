@@ -24,7 +24,7 @@ const vertexAI = new VertexAI({
   location: process.env.VERTEX_LOCATION ?? 'us-central1',
 });
 
-/* Vertex Gemini 2.x → field name is googleSearch */
+/* Vertex Gemini 2.x field name */
 const googleSearchTool: Tool =
   { googleSearch: {} } as unknown as Tool;
 
@@ -36,7 +36,7 @@ const generativeModel = (vertexAI as unknown as {
   generationConfig: { maxOutputTokens: 2_048, temperature: 0 },
 });
 
-/*────────────────────────  Output types  */
+/*────────────────────────  Types  */
 
 export interface Citation {
   marker: string;
@@ -65,7 +65,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 function superscript(text: string, chunks: GroundingChunk[]): string {
   return text.replace(/\[\^(\d+)\]/g, (_, n) => {
-    const i = Number(n) - 1;
+    const i   = Number(n) - 1;
     const url = chunks[i]?.web?.uri ?? '#';
     return `<sup><a href="${url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
   });
@@ -73,7 +73,7 @@ function superscript(text: string, chunks: GroundingChunk[]): string {
 const is429 = (e: unknown): boolean =>
   typeof e === 'object' && e !== null && 'code' in e && (e as { code?: number }).code === 429;
 
-/*────────────────────────  Main function  */
+/*────────────────────────  Main  */
 
 export async function buildMeetingBriefGemini(
   name: string,
@@ -103,9 +103,10 @@ Exactly **3** concise sentences, each ends with a citation marker [^N].
 
 RULES
 • Max total facts ≤ 20.  
-• Every fact must end with exactly **one** [^N].  
+• **CITATIONS ARE REQUIRED.** Every fact must end with exactly one [^N].  
 • Never introduce a marker without a matching source.  
-• Discard any fact you cannot cite under these rules.`.trim();
+• Discard any fact you cannot cite.`
+  .trim();
 
   const contents: Content[] = [
     { role: 'user', parts: [{ text: prompt }] },
@@ -120,7 +121,6 @@ RULES
   let resp: GeminiResp | undefined;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      // cast because SDK overload uses string | request
       const r = await generativeModel.generateContent(request as GenerateContentRequest) as { response: GeminiResp };
       resp = r.response;
       break;
@@ -136,6 +136,9 @@ RULES
   const cand   = resp.candidates?.[0] ?? {};
   const text   = cand.content?.parts?.[0]?.text ?? '';
   const chunks = cand.groundingMetadata?.groundingChunks ?? [];
+
+  const markerCount = (text.match(/\[\^\d+\]/g) ?? []).length;
+  if (markerCount === 0) throw new Error('Gemini returned no citations; rejecting draft.');
 
   const brief = superscript(text, chunks);
 
