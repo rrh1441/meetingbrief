@@ -1,4 +1,4 @@
-/* MeetingBriefGeminiPipeline.ts – timeline-aware, OpenAI-based */
+/* MeetingBriefGeminiPipeline.ts – deterministic, OpenAI-based */
 
 import OpenAI from "openai";
 import fetch from "node-fetch";
@@ -12,11 +12,11 @@ const FIRECRAWL_KEY    = process.env.FIRECRAWL_KEY!;
 const PROXYCURL_KEY    = process.env.PROXYCURL_KEY!;
 
 /*────────────────────  CONSTANTS  */
-const MAX_LINKS      = 15;
-const MAX_FACTS      = 40;
-const SERPER_URL     = "https://google.serper.dev/search";
-const FIRECRAWL_URL  = "https://api.firecrawl.dev/v1/scrape";
-const PROXYCURL_URL  = "https://nubela.co/proxycurl/api/v2/linkedin";
+const MAX_LINKS          = 15;
+const MAX_FACTS          = 40;
+const FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape";
+const SERPER_ENDPOINT    = "https://google.serper.dev/search";
+const PROXYCURL_PROFILE  = "https://nubela.co/proxycurl/api/v2/linkedin";
 
 /*────────────────────  TYPES  */
 export interface Citation {
@@ -32,183 +32,147 @@ export interface MeetingBriefPayload {
   searches: number;
   searchResults: { url: string; title: string; snippet: string }[];
 }
-
-interface Serp { title: string; link: string; snippet?: string }
-interface Firecrawl { article?: { text_content?: string } }
-interface Exp { company?: string; title?: string; start_date?: string; end_date?: string }
-interface Pcurl { headline?: string; experiences?: Exp[] }
+interface SerperResult { title: string; link: string; snippet?: string; }
+interface FirecrawlResp { article?: { title?: string; text_content?: string } }
+interface Experience { title?: string }        // for Proxycurl minimal typing
 
 /*────────────────────  HELPERS  */
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-async function serper(q: string, num: number): Promise<Serp[]> {
-  const r = await fetch(SERPER_URL, {
-    method: "POST",
+async function serperSearch(q: string, num = 10): Promise<SerperResult[]> {
+  const res = await fetch(SERPER_ENDPOINT, {
+    method : "POST",
     headers: { "X-API-KEY": SERPER_KEY, "Content-Type": "application/json" },
-    body  : JSON.stringify({ q, num }),
+    body   : JSON.stringify({ q, num }),
   });
-  const j = await r.json() as { organic?: Serp[] };
-  return j.organic?.slice(0, num) ?? [];
+  const json = await res.json() as { organic?: SerperResult[] };
+  return json.organic?.slice(0, num) ?? [];
 }
 
-async function firecrawl(url: string): Promise<string> {
-  const r = await fetch(FIRECRAWL_URL, {
+async function fetchFirecrawl(url: string): Promise<string> {
+  const res = await fetch(FIRECRAWL_ENDPOINT, {
     method : "POST",
-    headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIRECRAWL_KEY}` },
     body   : JSON.stringify({ url, simulate: false }),
   });
-  const j = await r.json() as Firecrawl;
-  return j.article?.text_content?.slice(0, 800).trim() ?? "";
+  const json = await res.json() as FirecrawlResp;
+  return json.article?.text_content?.slice(0, 800).trim() ?? "";
 }
 
-async function proxycurl(linkedin: string): Promise<Pcurl> {
-  const u = new URL(PROXYCURL_URL);
+async function fetchProxycurl(linkedin: string): Promise<string> {
+  const u = new URL(PROXYCURL_PROFILE);
   u.searchParams.set("linkedin_profile_url", linkedin);
-  const r = await fetch(u.href, { headers: { Authorization: `Bearer ${PROXYCURL_KEY}` } });
-  const j = await r.json() as Pcurl;
-  /* log raw JSON to Vercel */
-  console.log("[Proxycurl JSON]", JSON.stringify(j, null, 2));
-  return j;
+  const res  = await fetch(u.href, { headers: { Authorization: `Bearer ${PROXYCURL_KEY}` } });
+  const json = await res.json() as { headline?: string; experiences?: Experience[] };
+  const headline = json.headline ?? "";
+  const current  = json.experiences?.[0]?.title ?? "";
+  return `LinkedIn Headline: ${headline}. Current role: ${current}.`;
 }
 
-const approxTokens = (s: string): number => Math.ceil(s.length / 4);
+function tokenApprox(str: string): number {
+  return Math.ceil(str.length / 4);
+}
 
 /*────────────────────  MAIN  */
 
 export async function buildMeetingBriefGemini(
   name: string,
-  org:  string
+  org: string,
+  team?: string,
 ): Promise<MeetingBriefPayload> {
 
-  /* 1 ── primary SERP & LinkedIn */
-  const primary = await serper(`${name} ${org}`, 10);
+  /* 1 ── harvest links */
+  const primary = await serperSearch(`${name} ${org}`, 10);
 
-  let linkedin = primary.find(s => s.link.includes("linkedin.com/in/"));
+  // ensure LinkedIn present
+  let linkedin = primary.find(r => r.link.includes("linkedin.com/in/"));
   if (!linkedin) {
-    const alt = await serper(`${name} linkedin`, 3);
-    linkedin = alt.find(s => s.link.includes("linkedin.com/in/"));
+    const lookup = await serperSearch(`${name} linkedin`, 3);
+    linkedin = lookup.find(r => r.link.includes("linkedin.com/in/"));
   }
-  if (linkedin && !primary.some(s => s.link === linkedin.link)) {
+  if (linkedin && !primary.some(r => r.link === linkedin.link)) {
     primary.unshift(linkedin);
   }
-  if (!linkedin) throw new Error("LinkedIn profile not found");
 
-  /* 2 ── Proxycurl profile → timeline */
-  const pcl = await proxycurl(linkedin.link);
-  const timeline = (pcl.experiences ?? []).map(e => ({
-    org : (e.company ?? "").trim(),
-    title: (e.title ?? "").trim(),
-    start: e.start_date ?? "",
-    end  : e.end_date ?? "Present",
-  })).filter(t => t.org);
+  // team search / fallback
+  const teamQuery = team ? `${org} ${team}` : `${org} ${name.split(" ").pop()}`;
+  const teamRes   = await serperSearch(teamQuery, 5);
+  const sources   = [...primary, ...teamRes].slice(0, MAX_LINKS);
 
-  /* verify current org matches */
-  if (timeline.length && !timeline[0].org.toLowerCase().includes(org.toLowerCase())) {
-    throw new Error("LinkedIn profile org mismatch");
-  }
-
-  const orgTokens = timeline.map(t => t.org.toLowerCase());
-
-  /* 3 ── awards SERP */
-  const awards = await serper(`${name} ${org} award OR honor OR recognition`, 3);
-
-  /* 4 ── filter SERP links by timeline orgs */
-  function good(s: Serp): boolean {
-    const text = (s.title + " " + (s.snippet ?? "")).toLowerCase();
-    return text.includes(name.toLowerCase()) &&
-           orgTokens.some(tok => text.includes(tok));
-  }
-  const sources: Serp[] = [];
-  const seen = new Set<string>();
-  for (const s of [...primary, ...awards]) {
-    if (good(s) && !seen.has(s.link) && sources.length < MAX_LINKS) {
-      sources.push(s); seen.add(s.link);
+  /* 2 ── fetch extracts */
+  const extracts: string[] = [];
+  for (const src of sources) {
+    if (src.link.includes("linkedin.com/in/")) {
+      extracts.push(await fetchProxycurl(src.link));
+    } else {
+      extracts.push(await fetchFirecrawl(src.link));
     }
   }
 
-  /* 5 ── fetch extracts */
-  const extracts: string[] = [];
-  for (const s of sources) {
-    extracts.push(
-      s.link.includes("linkedin.com/in/") ? `LinkedIn Headline: ${pcl.headline ?? ""}.` :
-      await firecrawl(s.link)
-    );
-  }
-
-  /* 6 ── build TIMELINE + SOURCES */
-  const timelineBlock = timeline.slice(0, 6).map(t =>
-    `${t.start}-${t.end} — ${t.title}, ${t.org}`
-  ).join("\n");
-
+  /* 3 ── build prompt */
   const sourceBlock = sources.map((s, i) =>
     `[^${i + 1}] ${s.link}\nExtract: ${extracts[i]}`).join("\n\n");
 
   const prompt =
-`### EMPLOYMENT TIMELINE
-${timelineBlock}
-
-### SOURCES
+`### SOURCES
 ${sourceBlock}
 
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**
-Exactly 3 plain factual sentences, each ends with [^N] *or* derives from TIMELINE.
+Exactly 3 cited sentences, each ends with [^N].
 
 **Notable Highlights**
-* Up to 5 bullet facts (omit section if <1 fact). Cite [^N] or TIMELINE.
+* Up to 5 bullets, each ends with [^N].
 
 **Interesting / Fun Facts**
-* Up to 3 bullet facts (optional). Cite [^N] or TIMELINE.
+* Up to 3 bullets, each ends with [^N].
 
 **Detailed Research Notes**
-* Up to 8 bullet facts (optional). Cite [^N] or TIMELINE.
+* Up to 8 bullets, each ends with [^N].
 
-RULES  
-• No inference or repetition; write only what appears in Extracts or TIMELINE.  
-• ≤ ${MAX_FACTS} facts total. Sections may be shorter or omitted.  
-• Every non-timeline fact must cite one marker from SOURCES.  
-• If zero facts can be written, reply ERROR.`;
+RULES
+• ≤ ${MAX_FACTS} total facts.  
+• Every fact *must* cite one marker from SOURCES.  
+• If you cannot cite a fact, omit it.  
+• If you cannot cite anything, respond only: ERROR`;
 
-  /* 7 ── GPT-4 mini */
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.0,
-    messages: [{ role: "user", content: prompt }],
-  });
-  let text = res.choices[0].message.content ?? "";
-  if (/^ERROR/i.test(text.trim())) throw new Error("GPT returned ERROR");
-
-  /* 8 ── superscripts + spacing */
-  text = text.replace(/([a-zA-Z])\s*(\[\^\d+\])/g, "$1 $2");
-  let brief = text.replace(/\[\^(\d+)\]/g, (_: string, n: string) =>
-    `<sup><a href="${sources[Number(n) - 1].link}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`
-  ).replace(/([a-zA-Z])(<sup>)/g, "$1 $2");
-
-  /* auto-bullet orphan lines inside list sections */
-  function autobullet(sec: RegExp): void {
-    brief = brief.replace(sec, m =>
-      m.replace(/^(?![*-])(\S.*?<\/sup>)/gm, "* $1"));
+  /* 4 ── call GPT-4 mini */
+  let completion;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.15,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const txt = completion.choices[0].message.content ?? "";
+    if (!/^ERROR/i.test(txt.trim())) break;
+    await sleep(300);
   }
-  autobullet(/(\*\*Notable[\s\S]*?)(?=\n\*\*|$)/);
-  autobullet(/(\*\*Interesting[\s\S]*?)(?=\n\*\*|$)/);
-  autobullet(/(\*\*Detailed[\s\S]*?)(?=\n\*\*|$)/);
+  const text = completion!.choices[0].message.content ?? "";
+  const markers = text.match(/\[\^\d+\]/g) ?? [];
+  if (markers.length === 0) throw new Error("LLM returned no citations");
 
-  /* 9 ── assemble payload */
+  /* 5 ── post-process */
+  const brief = text.replace(/\[\^(\d+)\]/g, (_, n) =>
+    `<sup><a href="${sources[Number(n)-1].link}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`);
+
   const citations: Citation[] = sources.map((s, i) => ({
-    marker: `[^${i + 1}]`,
+    marker : `[^${i + 1}]`,
+    url    : s.link,
+    title  : s.title,
+    snippet: extracts[i],
+  }));
+
+  const tokens   = tokenApprox(prompt) + tokenApprox(text);
+  const searches = 1;   // one Serper call counted
+
+  const searchResults = sources.map((s, i) => ({
     url: s.link,
     title: s.title,
     snippet: extracts[i],
   }));
 
-  return {
-    brief,
-    citations,
-    tokens: approxTokens(prompt) + approxTokens(text),
-    searches: 2,                 // primary + awards
-    searchResults: sources.map((s, i) => ({
-      url: s.link, title: s.title, snippet: extracts[i],
-    })),
-  };
+  return { brief, citations, tokens, searches, searchResults };
 }
