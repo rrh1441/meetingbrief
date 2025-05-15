@@ -1,14 +1,12 @@
 /**
  * MeetingBriefGeminiPipeline.ts
- *
- * – Gemini-2.5-pro-preview with Google Search-as-a-Tool enabled by default.
- * – Requires env vars: GCP_SA_JSON, VERTEX_PROJECT_ID, (optional) VERTEX_LOCATION.
+ * Vertex AI / Gemini-2.5-pro-preview + Google Search-as-a-Tool (default).
  */
 
 import fs from 'fs';
 import { VertexAI, type Tool } from '@google-cloud/vertexai';
 
-/*────────────────────────────  Auth bootstrap  */
+/*──────────────────────────────────  Auth bootstrap  */
 
 export const runtime = 'nodejs';
 
@@ -20,7 +18,7 @@ if (!fs.existsSync('/tmp')) fs.mkdirSync('/tmp', { recursive: true });
 fs.writeFileSync(keyPath, saJson, 'utf8');
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/*────────────────────────────  Vertex client  */
+/*──────────────────────────────────  Vertex client  */
 
 const vertexAI = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
@@ -28,24 +26,21 @@ const vertexAI = new VertexAI({
 });
 
 /**
- * Typings workaround:
- * Some SDK versions still omit `googleSearch` from `Tool`.
- * We cast through `unknown` so the compiler cannot reject it.
+ * Correct field on the wire is **google_search_retrieval** – not googleSearch.
+ * We cast through unknown so TypeScript never blocks the build, regardless
+ * of which SDK version is installed.
  */
-const googleSearchTool = { googleSearch: {} } as unknown as Tool;
+const googleSearchTool: Tool =
+  { google_search_retrieval: {} } as unknown as Tool;
 
 const modelId = 'gemini-2.5-pro-preview-05-06';
 
 const generativeModel = vertexAI.preview.getGenerativeModel({
   model: modelId,
-  tools: [googleSearchTool],            // ← Search always enabled
-  generationConfig: {
-    maxOutputTokens: 8_192,
-    temperature: 0,
-  },
+  generationConfig: { maxOutputTokens: 2_048, temperature: 0 },
 });
 
-/*────────────────────────────  Types  */
+/*──────────────────────────────────  Types  */
 
 export interface Citation {
   marker: string;
@@ -53,7 +48,6 @@ export interface Citation {
   title?: string;
   snippet?: string;
 }
-
 export interface MeetingBriefPayload {
   brief: string;
   citations: Citation[];
@@ -61,55 +55,56 @@ export interface MeetingBriefPayload {
   searches: number;
   searchResults: { url: string; title: string; snippet: string }[];
 }
-
-interface Part           { text?: string }
-interface Content        { role?: string; parts?: Part[] }
 interface WebInfo        { uri?: string; title?: string; htmlSnippet?: string }
 interface GroundingChunk { web?: WebInfo }
 interface GroundingMeta  { groundingChunks?: GroundingChunk[]; webSearchQueries?: string[] }
 interface Candidate      {
-  content?: Content;
-  finishReason?: string;
+  content?: { parts?: { text?: string }[] };
   groundingMetadata?: GroundingMeta;
 }
 interface UsageMeta      { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number }
-interface GeminiResponse { candidates?: Candidate[]; usageMetadata?: UsageMeta }
+interface GeminiResp     { candidates?: Candidate[]; usageMetadata?: UsageMeta }
 
-/*────────────────────────────  Helpers  */
+/*──────────────────────────────────  Helpers  */
 
-function superscriptCitations(md: string, citations: Citation[]): string {
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+function superscript(md: string, citations: Citation[]): string {
   let out = md;
   citations.forEach(c => {
-    if (!c.marker || !c.url || c.url.startsWith('ERROR_')) return;
-    const num = c.marker.match(/\d+/)?.[0] ?? '#';
-    const anchor = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${num}</a></sup>`;
-    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), anchor);
+    if (!c.marker || !c.url) return;
+    const n   = c.marker.match(/\d+/)?.[0] ?? '#';
+    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), sup);
   });
   return out;
 }
 
-/*────────────────────────────  Main  */
+/*──────────────────────────────────  Main  */
 
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string,
+  org?: string,
 ): Promise<MeetingBriefPayload> {
+
+  if (!name) throw new Error('name is required');
+  const orgLabel = (org && org !== 'undefined') ? org : '';
 
   const prompt = `
 IMPORTANT: If you cannot end **every** fact with one citation marker [^N] linked to a public URL, reply only "ERROR: INSUFFICIENT GROUNDING."
 
 SUBJECT
 • Person  : ${name}
-• Employer: ${org}
+${orgLabel ? `• Employer: ${orgLabel}` : ''}
 
-FORMAT (Markdown – follow exactly)
-## **Meeting Brief: ${name} – ${org}**
+FORMAT (Markdown — follow exactly)
+## **Meeting Brief: ${name}${orgLabel ? ` – ${orgLabel}` : ''}**
 
 **Executive Summary**
 Each sentence on its own line, ends with [^N].
 
 **Notable Highlights**
-* Bullet list; one fact + [^N] each.
+* Bullet; one fact + [^N].
 
 **Interesting / Fun Facts**
 * Bullet; one fact + [^N].
@@ -119,49 +114,51 @@ Each sentence on its own line, ends with [^N].
 
 RULES
 • ≤ 1500 words total.
-• One [^N] per fact, at end of sentence/bullet.
+• One [^N] per fact, at end of bullet/sentence.
 • Drop any fact you can’t cite.`
   .trim();
 
-  console.log(`[${new Date().toISOString()}] ► Generating brief for "${name}"`);
+  /*──────────  Call with retries  */
 
-  const { response } = await generativeModel.generateContent({
+  const request = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-  }) as { response: GeminiResponse };
+    tools: [googleSearchTool], // <-- Search tool actually sent
+  };
+
+  let resp: GeminiResp;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      ({ response: resp } = await generativeModel.generateContent(request) as { response: GeminiResp });
+      break;
+    } catch (e: any) {
+      if (e?.code !== 429 || attempt >= 3) throw e;
+      await sleep(500 * 2 ** attempt); // 0.5 s, 1 s, 2 s
+    }
+  }
 
   /*──────────  Parse response  */
 
-  const candidate = response.candidates?.[0] ?? {};
-  const rawText   = candidate.content?.parts?.[0]?.text ?? '';
-  const chunks    = candidate.groundingMetadata?.groundingChunks ?? [];
+  const cand   = resp.candidates?.[0] ?? {};
+  const text   = cand.content?.parts?.[0]?.text ?? '';
+  const chunks = cand.groundingMetadata?.groundingChunks ?? [];
 
-  const markers = [...new Set(rawText.match(/\[\^\d+\]/g) ?? [])]
+  const markers = [...new Set(text.match(/\[\^\d+\]/g) ?? [])]
     .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
 
   const citations: Citation[] = markers.map(m => {
-    const idx = Number(m.match(/\d+/)![0]) - 1;
+    const idx   = Number(m.match(/\d+/)![0]) - 1;
     const chunk = chunks[idx];
     return chunk?.web?.uri
       ? { marker: m, url: chunk.web.uri, title: chunk.web.title, snippet: chunk.web.htmlSnippet }
-      : { marker: m, url: `ERROR_NO_URI_${idx}` };
-  }).filter(c => !c.url.startsWith('ERROR_'));
+      : { marker: m, url: '' };               // empty URL filtered below
+  }).filter(c => c.url);
 
-  const brief    = superscriptCitations(rawText, citations);
-  const usage    = response.usageMetadata ?? {};
+  const brief    = superscript(text, citations);
+  const usage    = resp.usageMetadata ?? {};
   const tokens   = usage.totalTokenCount ?? (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches = candidate.groundingMetadata?.webSearchQueries?.length ?? 0;
+  const searches = cand.groundingMetadata?.webSearchQueries?.length ?? 0;
   const results  = chunks.filter(c => c.web?.uri)
     .map(c => ({ url: c.web!.uri!, title: c.web!.title ?? '', snippet: c.web!.htmlSnippet ?? '' }));
 
   return { brief, citations, tokens, searches, searchResults: results };
 }
-
-/*────────────  SDK version hint  */
-/*
- * If you prefer full typings support drop the cast and:
- *   pnpm add -D @google-cloud/vertexai@latest
- * Once the package exposes Tool.googleSearch, revert
- *   const googleSearchTool = { googleSearch: {} } as unknown as Tool;
- * to:
- *   const googleSearchTool: Tool = { googleSearch: {} };
- */
