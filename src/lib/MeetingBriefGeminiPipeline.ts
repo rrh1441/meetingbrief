@@ -1,4 +1,6 @@
-/* MeetingBriefGeminiPipeline.ts – deterministic, OpenAI-based */
+/*  MeetingBriefGeminiPipeline.ts
+ *  Deterministic SOURCES → GPT-4o-mini generator
+ *  Implements: awards search, no inference, bullet spacing fix            */
 
 import OpenAI from "openai";
 import fetch from "node-fetch";
@@ -12,11 +14,11 @@ const FIRECRAWL_KEY    = process.env.FIRECRAWL_KEY!;
 const PROXYCURL_KEY    = process.env.PROXYCURL_KEY!;
 
 /*────────────────────  CONSTANTS  */
-const MAX_LINKS          = 15;
-const MAX_FACTS          = 40;
-const FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape";
-const SERPER_ENDPOINT    = "https://google.serper.dev/search";
-const PROXYCURL_PROFILE  = "https://nubela.co/proxycurl/api/v2/linkedin";
+const MAX_LINKS      = 15;          // total sources fed to model
+const MAX_FACTS      = 40;          // cap across all sections
+const SERPER_URL     = "https://google.serper.dev/search";
+const FIRECRAWL_URL  = "https://api.firecrawl.dev/v1/scrape";
+const PROXYCURL_URL  = "https://nubela.co/proxycurl/api/v2/linkedin";
 
 /*────────────────────  TYPES  */
 export interface Citation {
@@ -32,85 +34,89 @@ export interface MeetingBriefPayload {
   searches: number;
   searchResults: { url: string; title: string; snippet: string }[];
 }
-interface SerperResult { title: string; link: string; snippet?: string; }
-interface FirecrawlResp { article?: { title?: string; text_content?: string } }
-interface Experience { title?: string }        // for Proxycurl minimal typing
+interface Serp { title: string; link: string; snippet?: string; }
+interface Firecrawl { article?: { text_content?: string } }
+interface Experience { title?: string }
 
 /*────────────────────  HELPERS  */
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-async function serperSearch(q: string, num = 10): Promise<SerperResult[]> {
-  const res = await fetch(SERPER_ENDPOINT, {
-    method : "POST",
+async function serper(q: string, num = 10): Promise<Serp[]> {
+  const r = await fetch(SERPER_URL, {
+    method: "POST",
     headers: { "X-API-KEY": SERPER_KEY, "Content-Type": "application/json" },
-    body   : JSON.stringify({ q, num }),
+    body  : JSON.stringify({ q, num }),
   });
-  const json = await res.json() as { organic?: SerperResult[] };
-  return json.organic?.slice(0, num) ?? [];
+  const j = await r.json() as { organic?: Serp[] };
+  return j.organic?.slice(0, num) ?? [];
 }
 
-async function fetchFirecrawl(url: string): Promise<string> {
-  const res = await fetch(FIRECRAWL_ENDPOINT, {
+async function firecrawl(url: string): Promise<string> {
+  const r = await fetch(FIRECRAWL_URL, {
     method : "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIRECRAWL_KEY}` },
+    headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
     body   : JSON.stringify({ url, simulate: false }),
   });
-  const json = await res.json() as FirecrawlResp;
-  return json.article?.text_content?.slice(0, 800).trim() ?? "";
+  const j = await r.json() as Firecrawl;
+  return j.article?.text_content?.slice(0, 800).trim() ?? "";
 }
 
-async function fetchProxycurl(linkedin: string): Promise<string> {
-  const u = new URL(PROXYCURL_PROFILE);
+async function proxycurl(linkedin: string): Promise<string> {
+  const u = new URL(PROXYCURL_URL);
   u.searchParams.set("linkedin_profile_url", linkedin);
-  const res  = await fetch(u.href, { headers: { Authorization: `Bearer ${PROXYCURL_KEY}` } });
-  const json = await res.json() as { headline?: string; experiences?: Experience[] };
-  const headline = json.headline ?? "";
-  const current  = json.experiences?.[0]?.title ?? "";
+  const r = await fetch(u.href, { headers: { Authorization: `Bearer ${PROXYCURL_KEY}` } });
+  const j = await r.json() as { headline?: string; experiences?: Experience[] };
+  const headline = j.headline ?? "";
+  const current  = j.experiences?.[0]?.title ?? "";
   return `LinkedIn Headline: ${headline}. Current role: ${current}.`;
 }
 
-function tokenApprox(str: string): number {
-  return Math.ceil(str.length / 4);
-}
+const tokens = (s: string): number => Math.ceil(s.length / 4);
 
 /*────────────────────  MAIN  */
 
 export async function buildMeetingBriefGemini(
   name: string,
-  org: string,
-  team?: string,
+  org:  string
 ): Promise<MeetingBriefPayload> {
 
   /* 1 ── harvest links */
-  const primary = await serperSearch(`${name} ${org}`, 10);
+  const primary = await serper(`${name} ${org}`, 10);
 
-  // ensure LinkedIn present
-  let linkedin = primary.find(r => r.link.includes("linkedin.com/in/"));
+  // ensure LinkedIn
+  let linkedin = primary.find(s => s.link.includes("linkedin.com/in/"));
   if (!linkedin) {
-    const lookup = await serperSearch(`${name} linkedin`, 3);
-    linkedin = lookup.find(r => r.link.includes("linkedin.com/in/"));
+    const alt = await serper(`${name} linkedin`, 3);
+    linkedin = alt.find(s => s.link.includes("linkedin.com/in/"));
   }
-  if (linkedin && !primary.some(r => r.link === linkedin.link)) {
+  if (linkedin && !primary.some(s => s.link === linkedin!.link)) {
     primary.unshift(linkedin);
   }
 
-  // team search / fallback
-  const teamQuery = team ? `${org} ${team}` : `${org} ${name.split(" ").pop()}`;
-  const teamRes   = await serperSearch(teamQuery, 5);
-  const sources   = [...primary, ...teamRes].slice(0, MAX_LINKS);
+  /* awards query */
+  const awards = await serper(`${name} ${org} award OR honor OR recognition`, 3);
 
-  /* 2 ── fetch extracts */
-  const extracts: string[] = [];
-  for (const src of sources) {
-    if (src.link.includes("linkedin.com/in/")) {
-      extracts.push(await fetchProxycurl(src.link));
-    } else {
-      extracts.push(await fetchFirecrawl(src.link));
+  /* combine + dedupe + cap */
+  const seen = new Set<string>();
+  const sources: Serp[] = [];
+  for (const s of [...primary, ...awards]) {
+    if (!seen.has(s.link) && sources.length < MAX_LINKS) {
+      sources.push(s); seen.add(s.link);
     }
   }
 
-  /* 3 ── build prompt */
+  /* 2 ── fetch extracts */
+  const extracts: string[] = [];
+  for (const s of sources) {
+    if (s.link.includes("linkedin.com/in/")) {
+      extracts.push(await proxycurl(s.link));
+    } else {
+      extracts.push(await firecrawl(s.link));
+    }
+  }
+
+  /* 3 ── prompt */
   const sourceBlock = sources.map((s, i) =>
     `[^${i + 1}] ${s.link}\nExtract: ${extracts[i]}`).join("\n\n");
 
@@ -121,58 +127,55 @@ ${sourceBlock}
 ## **Meeting Brief: ${name} – ${org}**
 
 **Executive Summary**
-Exactly 3 cited sentences, each ends with [^N].
+Exactly 3 concise sentences (plain factual), each ends with [^N].
 
 **Notable Highlights**
-* Up to 5 bullets, each ends with [^N].
+* Up to 5 bullet facts. Use * fewer if sources limited. Each ends with [^N].
 
 **Interesting / Fun Facts**
-* Up to 3 bullets, each ends with [^N].
+* Up to 3 bullet facts (optional). Each ends with [^N].
 
 **Detailed Research Notes**
-* Up to 8 bullets, each ends with [^N].
+* Up to 8 bullet facts (optional). Each ends with [^N].
 
-RULES
-• ≤ ${MAX_FACTS} total facts.  
-• Every fact *must* cite one marker from SOURCES.  
-• If you cannot cite a fact, omit it.  
-• If you cannot cite anything, respond only: ERROR`;
+STYLE & RULES
+• Write only what appears in the Extracts. **DO NOT infer skills, traits, or impact.**  
+• Do not repeat the same fact or phrasing.  
+• ≤ ${MAX_FACTS} facts total; sections may be shorter or omitted.  
+• Every fact must cite exactly one marker from SOURCES.  
+• If no facts can be cited, reply ERROR.`;
 
-  /* 4 ── call GPT-4 mini */
-  let completion;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    completion = await openai.chat.completions.create({
+  /* 4 ── model */
+  let txt = "ERROR";
+  for (let i = 0; i < 2 && /^ERROR/i.test(txt.trim()); i += 1) {
+    const res = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.15,
+      temperature: 0.0,
       messages: [{ role: "user", content: prompt }],
     });
-    const txt = completion.choices[0].message.content ?? "";
-    if (!/^ERROR/i.test(txt.trim())) break;
-    await sleep(300);
+    txt = res.choices[0].message.content ?? "ERROR";
+    if (/^ERROR/i.test(txt.trim())) await sleep(300);
   }
-  const text = completion!.choices[0].message.content ?? "";
-  const markers = text.match(/\[\^\d+\]/g) ?? [];
-  if (markers.length === 0) throw new Error("LLM returned no citations");
+  if (/^ERROR/i.test(txt.trim())) throw new Error("GPT refused to cite");
 
-  /* 5 ── post-process */
-  const brief = text.replace(/\[\^(\d+)\]/g, (_, n) =>
-    `<sup><a href="${sources[Number(n)-1].link}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`);
+  /* 5 ── superscript + spacing fix */
+  let brief = txt.replace(/\[\^(\d+)\]/g, (_, n) =>
+    `<sup><a href="${sources[Number(n)-1].link}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`
+  );
+  brief = brief.replace(/([a-zA-Z])(<sup>)/g, "$1 $2");
 
   const citations: Citation[] = sources.map((s, i) => ({
-    marker : `[^${i + 1}]`,
-    url    : s.link,
-    title  : s.title,
-    snippet: extracts[i],
-  }));
-
-  const tokens   = tokenApprox(prompt) + tokenApprox(text);
-  const searches = 1;   // one Serper call counted
-
-  const searchResults = sources.map((s, i) => ({
+    marker: `[^${i + 1}]`,
     url: s.link,
     title: s.title,
     snippet: extracts[i],
   }));
 
-  return { brief, citations, tokens, searches, searchResults };
+  return {
+    brief,
+    citations,
+    tokens: tokens(prompt) + tokens(txt),
+    searches: 2,   // primary + awards
+    searchResults: sources.map((s, i) => ({ url: s.link, title: s.title, snippet: extracts[i] })),
+  };
 }
