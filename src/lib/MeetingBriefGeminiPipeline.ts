@@ -86,18 +86,6 @@
 
    /* ── HTML RENDER ---------------------------------------------------------- */
 
-   const formatHtmlBullets = (rows: Row[], cites: Citation[]): string => {
-     if (!rows || rows.length === 0) {
-       return "";
-     }
-     const listItems = rows.map(r => {
-       const citation = cites[r.source - 1];
-       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`;
-       return `  <li>${clean(r.text)} ${citationLink}</li>`;
-     }).join("\n");
-     return `<ul>\n${listItems}\n</ul>`;
-   };
-
    const formatHtmlSentences = (rows: Row[], cites: Citation[]): string => {
      if (!rows || rows.length === 0) {
        return "";
@@ -109,13 +97,37 @@
      }).join("\n");
    };
 
+   /**
+    * Formats the employment timeline into an HTML unordered list for Job History.
+    * Adds Tailwind classes for bullet styling and padding.
+    */
    const formatHtmlJobHistory = (timelineItems: string[]): string => {
      if (!timelineItems || timelineItems.length === 0) {
        return "<p>No job history available.</p>";
      }
      const listItems = timelineItems.map(item => `  <li>${item.startsWith("* ") ? item.substring(2) : item}</li>`).join("\n");
-     return `<ul>\n${listItems}\n</ul>`;
+     // Added Tailwind classes: list-disc for bullets, pl-5 for left padding
+     return `<ul class="list-disc pl-5">\n${listItems}\n</ul>`;
    };
+
+   /**
+    * Formats an array of Row objects into an HTML unordered list.
+    * Each list item includes text and a superscripted citation link.
+    * Adds Tailwind classes for bullet styling and padding.
+    */
+   const formatHtmlBullets = (rows: Row[], cites: Citation[]): string => {
+     if (!rows || rows.length === 0) {
+       return "";
+     }
+     const listItems = rows.map(r => {
+       const citation = cites[r.source - 1];
+       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`;
+       return `  <li>${clean(r.text)} ${citationLink}</li>`;
+     }).join("\n");
+     // Added Tailwind classes: list-disc for bullets, pl-5 for left padding
+     return `<ul class="list-disc pl-5">\n${listItems}\n</ul>`;
+   };
+
 
    function renderToHtml(
      name: string,
@@ -200,7 +212,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
              { Authorization:`Bearer ${FIRECRAWL_KEY!}` }
            );
            extracts.push((art.article?.text_content ?? `${s.title}. ${s.snippet??""}`).slice(0,1500));
-         } catch (scrapeError: unknown) { // MODIFIED: any to unknown
+         } catch (scrapeError: unknown) {
            if (scrapeError instanceof Error) {
              console.warn(`Failed to scrape ${s.link}: ${scrapeError.message}`);
            } else {
@@ -267,7 +279,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
        if (!content) throw new Error("AI returned empty content");
        j = JSON.parse(content);
      }
-     catch(e: unknown){ // MODIFIED: any to unknown
+     catch(e: unknown){
        console.error("Bad JSON from AI:", resp.choices[0]?.message?.content ?? "No content in response");
        if (e instanceof Error) {
          console.error("Error parsing JSON:", e.message);
