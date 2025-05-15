@@ -1,7 +1,6 @@
 /* ------------------------------------------------------------------
  *  API route:  POST /api/meetingbrief
- *  Body JSON:  { "name": "...", "org": "...", "team": "..."? }
- *  Returns  :  MeetingBriefPayload  (brief HTML + citations array …)
+ *  Body JSON:  { "name": "<person>", "organization": "<company>" }
  * -----------------------------------------------------------------*/
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,27 +15,27 @@ function normalizeCitations(
   if (!Array.isArray(citations) || citations.length === 0) return brief;
   if (typeof brief !== "string") return brief;
 
-  /* build lookup table */
   const sup: Record<string, string> = {};
   citations.forEach((c, i) => {
     const n = (i + 1).toString();
-    sup[n] = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+    sup[n] =
+      `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
   });
 
-  /* replace every cluster like [^1, 2] or ^3 */
   brief = brief.replace(
     /(\[\s*\^|\^)\s*([\d\s,]+)(?=\]|\s|,|$)/g,
-    (_match: string, _pre: string, nums: string) => {
+    (_m: string, _pre: string, nums: string) => {
       const unique = Array.from(
         new Set(
-          nums.split(/[\s,]+/).filter((num: string) => num && sup[num])
+          nums
+            .split(/[\s,]+/)
+            .filter((num: string) => num && sup[num])
         )
       );
       return unique.map((num: string) => sup[num]).join("");
     }
   );
 
-  /* strip stray symbols and clean spacing */
   return brief
     .replace(/[\[\]\^,]/g, "")
     .replace(/\s+\n/g, "\n")
@@ -48,16 +47,17 @@ function normalizeCitations(
 
 export async function POST(req: NextRequest) {
   try {
-    const { name, org, team } = await req.json();
+    const { name, organization } = await req.json();
 
-    if (!name || !org) {
+    if (!name || !organization) {
       return NextResponse.json(
-        { error: "name and org are required" },
+        { error: "name and organization are required" },
         { status: 400 }
       );
     }
 
-    const payload = await buildMeetingBriefGemini(name, org, team);
+    // call the briefing pipeline (team will be derived from LinkedIn later)
+    const payload = await buildMeetingBriefGemini(name, organization);
 
     if (payload.brief && payload.citations?.length) {
       payload.brief = normalizeCitations(payload.brief, payload.citations);
@@ -66,6 +66,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload);
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "pipeline failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "pipeline failed" },
+      { status: 500 }
+    );
   }
 }
