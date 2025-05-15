@@ -29,13 +29,13 @@
    const MAX_SRC = 15; // Max sources to feed into the LLM
    
    /* ── TYPES ---------------------------------------------------------------- */
-   interface SerpResult { title: string; link: string; snippet?: string } // Changed from Serp to avoid confusion
-   interface FirecrawlScrapeResult { article?: { text_content?: string } } // Changed from Fire
+   interface SerpResult { title: string; link: string; snippet?: string }
+   interface FirecrawlScrapeResult { article?: { text_content?: string } }
    interface Ymd { year?: number }
-   interface LinkedInExperience { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd } // Changed from Exp
-   interface ProxyCurlResult { headline?: string; experiences?: LinkedInExperience[] } // Changed from Curl
+   interface LinkedInExperience { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd }
+   interface ProxyCurlResult { headline?: string; experiences?: LinkedInExperience[] }
    
-   interface BriefRow { text: string; source: number } // Changed from Row
+   interface BriefRow { text: string; source: number }
    interface JsonBrief {
      executive: BriefRow[];
      highlights: BriefRow[];
@@ -47,14 +47,14 @@
      marker: string;
      url: string;
      title: string;
-     snippet: string; // Using the scraped extract as the snippet for citation context
+     snippet: string;
    }
    export interface MeetingBriefPayload {
      brief: string; // This will be an HTML string
      citations: Citation[];
      tokens: number;
      searches: number; // Number of Serper API calls made
-     searchResults: { url: string; title: string; snippet: string }[]; // Using extracts for snippets here too
+     searchResults: { url: string; title: string; snippet: string }[];
    }
    
    /* ── HELPERS -------------------------------------------------------------- */
@@ -154,11 +154,11 @@
      org: string,
    ): Promise<MeetingBriefPayload> {
      let serperQueryCount = 0;
-     let allSerpResults: SerpResult[] = [];
+     const allSerpResults: SerpResult[] = []; // MODIFIED: let -> const
    
      // 1. Define Serper queries
      const serperQueries = [
-       { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 }, // Primary query for general info and LinkedIn
+       { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
        { q: `"${name}" "${org}" (achievements OR awards OR speaker OR panelist OR author OR published)`, num: 7 },
        { q: `"${name}" (education OR university OR "X handle" OR "Twitter profile" OR "personal blog" OR hobbies)`, num: 7 },
      ];
@@ -175,7 +175,6 @@
          }
        } catch (error) {
          console.warn(`Serper query failed for "${query.q}":`, error);
-         // Continue with other queries if one fails
        }
      }
    
@@ -190,8 +189,8 @@
          );
          serperQueryCount++;
          if (liSearch.organic && liSearch.organic.length > 0) {
-           linkedInProfile = liSearch.organic.find(s => s.link.includes("linkedin.com/in/")) || liSearch.organic[0]; // Take the best LI match or first result
-           if (linkedInProfile) allSerpResults.push(linkedInProfile); // Add to allSerpResults if found and not already there
+           linkedInProfile = liSearch.organic.find(s => s.link.includes("linkedin.com/in/")) || liSearch.organic[0];
+           if (linkedInProfile) allSerpResults.push(linkedInProfile);
          }
        } catch (error) {
          console.warn(`Dedicated LinkedIn Serper query failed:`, error);
@@ -217,27 +216,24 @@
        `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`);
    
      // 5. Prepare source list for scraping and LLM
-     // Add LinkedIn profile to the top of the list if it's not already effectively there from serp results
      const uniqueSerpResults = Array.from(new Map(allSerpResults.map(item => [item.link, item])).values());
      
-     let finalSourcesInput: SerpResult[] = [linkedInProfile, ...uniqueSerpResults]
-         .filter((s, i, self) => s && s.link && self.findIndex(t => t.link === s.link) === i) // Ensure unique and valid
+     const finalSourcesInput: SerpResult[] = [linkedInProfile!, ...uniqueSerpResults] // MODIFIED: let -> const, added ! to linkedInProfile
+         .filter((s, i, self) => s && s.link && self.findIndex(t => t.link === s.link) === i)
          .slice(0, MAX_SRC);
-   
    
      // 6. Scrape text from sources
      const extracts: string[] = [];
      for (const s of finalSourcesInput) {
        if (s.link.includes("linkedin.com/in/")) {
-         // For LinkedIn, use ProxyCurl data and the link itself
          extracts.push(`LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,3).join("; ")}`);
        } else {
          try {
            const firecrawlResult = await postJSON<FirecrawlScrapeResult>(
-             FIRE, { url: s.link, page_options: { only_main_content: true, include_html: false } }, // Ensure include_html: false
+             FIRE, { url: s.link, page_options: { only_main_content: true, include_html: false } },
              { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
            );
-           extracts.push((firecrawlResult.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 2500)); // Increased slice for more context
+           extracts.push((firecrawlResult.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 2500));
          } catch (scrapeError: unknown) {
            const errorMessage = scrapeError instanceof Error ? scrapeError.message : "An unknown error occurred";
            console.warn(`Failed to scrape ${s.link}: ${errorMessage}`);
@@ -282,7 +278,7 @@
      const prompt = `
    Return **only** JSON matching the template.
    The "text" field MUST be a plain sentence or concise statement. Do not use markdown (e.g., bolding, italics, lists) within the "text" field.
-   All years should be in YYYY format.
+   All years should be in<y_bin_46> format.
    
    RULE A: "text" MUST NOT contain the word "source", brackets, or parenthetical
            numbers referring to sources (e.g., "(source 3)") inside the text itself. The source number is a separate field.
@@ -350,7 +346,6 @@
        } else {
          console.error("Error parsing JSON: An unknown error occurred");
        }
-       // Provide a default empty structure on parse failure
        briefJson = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
      }
    
@@ -376,7 +371,7 @@
        marker: `[${i + 1}]`,
        url: s.link,
        title: s.title,
-       snippet: extracts[i].substring(0, 300) + (extracts[i].length > 300 ? "..." : ""), // Use a snippet of the extract
+       snippet: extracts[i].substring(0, 300) + (extracts[i].length > 300 ? "..." : ""),
      }));
    
      // 11. HTML Generation
@@ -386,7 +381,7 @@
      return {
        brief: htmlBrief,
        citations: finalCitations,
-       tokens: toks(prompt) + toks(JSON.stringify(briefJson)), // More accurate token count for response
+       tokens: toks(prompt) + toks(JSON.stringify(briefJson)),
        searches: serperQueryCount,
        searchResults: finalSourcesInput.map((s, i) => ({
          url: s.link,
