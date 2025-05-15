@@ -14,81 +14,51 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { marked } from "marked";
+// marked and prettifyBrief are removed as they are no longer needed if API returns HTML
+// and the sample is HTML.
 
-/* ───────────────────────────── helper */
-function prettifyBrief(md: string): string {
-  // Bold numeric headings even if preceded by up-to-3 “#”
-  md = md.replace(/^(#{0,3}\s*)(\d+)\.\s+/gm, (_, hashes, n) => {
-    return `${hashes}**${n}.** `;
-  });
-
-  // Insert blank line before any heading (“###” or “**1.**”)
-  md = md.replace(/\n(?=(?:\*\*\d+\.\*\*|###))/g, "\n\n");
-
-  // In Executive Summary strip leading * or − bullets
-  md = md.replace(
-    /###\s*1.*?Executive Summary[\s\S]*?(?=\n###|\n\*\*2|\n\*\*\d|\n*$)/,
-    (blk) => blk.replace(/^[ \t]*[-*]\s+/gm, "")
-  );
-
-  return md.trim();
-}
-
-/* ───────────────────────────── full Jensen Huang brief (scrollable) */
-const sampleBriefMd = `## Meeting Brief: Jensen Huang · NVIDIA
-
-### 1. Executive Summary
-* Jensen Huang co-founded Nvidia in 1993 and has served as its President and CEO since inception, guiding the company to a dominant position in GPUs and AI accelerators.
-* Nvidia invented the modern GPU in 1999, redefining PC graphics and laying the groundwork for today’s deep-learning boom.
-* Huang’s strategic expansion into data-center AI, autonomous vehicles, and edge computing transformed Nvidia from a gaming-centric firm into an end-to-end accelerated-computing platform provider.
-* Net worth **≈ \$107 B** (May 2025) on ~3.6 % Nvidia stake.
-* Nvidia’s market cap topped **\$3 T** (June 2024), briefly the world’s most valuable public company.
-* Revered for “vision + ruthless execution,” Huang is among the longest-tenured Silicon Valley founders still running their company (> 30 yrs).
-
-### 2. Conversational Hooks
-* Founded Nvidia at a roadside **Denny’s** in San Jose; Huang also waited tables at a Denny’s in his teens.
-* Signature **black leather jacket** at every keynote.
-
-### 3. Headlines (last 12 mo)
-1. “Nvidia declares **AI factories** the next industrial era” — *Financial Times*, 2025-04-12  
-2. “Blackwell GPU smashes MLPerf records” — *AnandTech*, 2025-03-27  
-3. “FTC scrutinises Nvidia–XXXX tie-up” — *Bloomberg*, 2024-11-08
-
-### 4. Detailed Research Notes
-* **Early Life & Education**  
-  * Born Jen-Hsun Huang, 1963, Tainan City, Taiwan; emigrated to the US after political unrest in Thailand.  
-  * Oneida Baptist Institute (KY) at 14; BS-EE Oregon State ’84; MS-EE Stanford ’92.
-* **Pre-Nvidia Career**  
-  * Micro-architecture roles at AMD (’84-’85) and LSI Logic (’85-’93, Director of CoreLogic group).
-* **Nvidia Milestones**  
-  * April 5 1993: founded with Chris Malachowsky & Curtis Priem — initial \$40 K capital.  
-  * 1999: launched **GeForce 256**, marketed as the world’s first GPU.  
-  * 2006: introduced **CUDA**, enabling general-purpose computing on GPUs.  
-  * 2020-present: full-stack AI platform (hardware, CUDA, cuDNN, TensorRT, Omniverse).  
-  * 2024: announced **Blackwell** architecture; claims 2× performance/W over Hopper.
-* **Leadership Style**  
-  * Known for weekly “Wednesday Product Reviews” — deep dives that can last six hours.  
-  * Persists with “one P&L” model to avoid divisional turf wars.  
-* **Philanthropy & Board Roles**  
-  * \$50 M to Oregon State Engineering Complex (2022).  
-  * Trustee, Stanford University Board.
-* **Reputation / Media**  
-  * Time “100 Most Influential People” 2024.  
-  * Frequently compared to Jobs & Musk for showmanship + technical depth.
-
-_Sign up to generate a full, source-linked report for any executive._`;
-
-/* Utility: marked.parse may return string | Promise<string>. Always await. */
-async function mdToHtml(md: string): Promise<string> {
-  return (await marked.parse(md)) as string;
-}
+// Sample Brief as an HTML string, reflecting your new direct HTML output
+const sampleBriefHtmlContent = `
+<div>
+  <h2><strong>Meeting Brief: Jensen Huang – Nvidia</strong></h2>
+  <p>&nbsp;</p>
+  <h3><strong>Executive Summary</strong></h3>
+  <p>Jensen Huang is the Founder and CEO of NVIDIA since 1993. He holds a Bachelor of Science in Electrical Engineering from Oregon State University and a Master of Science in Electrical Engineering from Stanford University. Prior to founding NVIDIA he worked in various roles including dishwasher busboy and waiter at Denny's. He has led NVIDIA to become a leader in AI and GPU technology over more than three decades of experience in the industry. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></p>
+  <p>&nbsp;</p>
+  <h3><strong>Job History</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>Founder and CEO — NVIDIA (1993 – Present)</li>
+    <li>Dishwasher Busboy Waiter — Denny's (1978 – 1983)</li>
+  </ul>
+  <p>&nbsp;</p>
+  <h3><strong>Highlights & Fun Facts</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>Founded NVIDIA in 1993 and has led the company to become a pioneer in AI and GPU computing. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
+    <li>Delivered keynote presentations at major industry events such as NVIDIA's GPU Technology Conference and CES 2025. <sup><a href="#source-placeholder-6" target="_blank" rel="noopener noreferrer">6</a></sup></li>
+    <li>Worked as a dishwasher busboy and waiter at Denny's from 1978 to 1983 before his engineering career. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
+  </ul>
+  <p>&nbsp;</p>
+  <h3><strong>Detailed Research Notes</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>Jensen Huang's leadership at NVIDIA has been instrumental in powering the AI revolution through advanced GPU technology. <sup><a href="#source-placeholder-11" target="_blank" rel="noopener noreferrer">11</a></sup></li>
+    <li>NVIDIA under Huang's leadership focuses on AI GPU computing and expanding into global markets including China. <sup><a href="#source-placeholder-13" target="_blank" rel="noopener noreferrer">13</a></sup></li>
+    <li>Conversation starter: Discuss how Huang's early work experiences influenced his leadership style and vision for NVIDIA. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
+  </ul>
+</div>`;
+// Note: The placeholder URLs like "#source-placeholder-1" should ideally be replaced
+// with actual example URLs if you want the sample links to be clickable to something meaningful.
+// The styling of the links (blue, underline) would come from your global CSS or Tailwind's
+// default anchor styling, as the `<sup><a>` tags here don't have explicit Tailwind classes.
+// Your actual generated brief WILL have the Tailwind classes if `superscriptCitations` in the pipeline adds them.
+// The current pipeline's `renderToHtml`'s helpers output `<sup><a href="..." target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
+// which does not include the blue Tailwind classes. If you want those classes in the final output,
+// they need to be added in the `formatHtmlSentences` and `formatHtmlBullets` functions.
 
 export default function Page() {
   /* ─────────────── state */
   const [form, setForm] = useState({ name: "", organization: "" });
   const [loading, setLoading] = useState(false);
-  const [briefHtml, setBriefHtml] = useState<string | null>(null);
+  const [briefHtml, setBriefHtml] = useState<string | null>(null); // Will store HTML from API
   const [error, setError] = useState<string | null>(null);
 
   /* ─────────────── submit */
@@ -102,12 +72,26 @@ export default function Page() {
       const res = await fetch("/api/meetingbrief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, maxTokens: 4096 }),
+        body: JSON.stringify({ ...form }), // Removed maxTokens, assuming API handles it
       });
-      if (!res.ok) throw new Error(await res.text());
-      const { brief } = (await res.json()) as { brief: string };
-      const pretty = prettifyBrief(brief);
-      setBriefHtml(await mdToHtml(pretty));
+      if (!res.ok) {
+        let errorData;
+        try {
+          errorData = await res.json(); // Try to parse as JSON first
+        } catch (jsonError) {
+          errorData = await res.text(); // Fallback to text
+        }
+        console.error("API Error Data:", errorData);
+        throw new Error(
+          typeof errorData === "string"
+            ? errorData
+            : errorData.message || `Request failed with status ${res.status}`
+        );
+      }
+      // Assuming the API returns { brief: "<html>...", citations: [...] }
+      const result = (await res.json()) as { brief: string; citations: any[] };
+      // The 'brief' from your API is already HTML from renderToHtml
+      setBriefHtml(result.brief);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -224,11 +208,13 @@ export default function Page() {
                   <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
+                  {/* The briefHtml from your API is already HTML */}
                   <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                 </CardContent>
               </Card>
             )}
 
+            {/* Display sample HTML brief when no dynamic brief is loaded */}
             {!loading && !briefHtml && (
               <Card>
                 <CardHeader>
@@ -237,7 +223,7 @@ export default function Page() {
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   <div
                     dangerouslySetInnerHTML={{
-                      __html: marked.parse(prettifyBrief(sampleBriefMd)) as string,
+                      __html: sampleBriefHtmlContent, // Use the new HTML sample
                     }}
                   />
                 </CardContent>
@@ -247,7 +233,7 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES */}
+      {/* FEATURES (remains the same) */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -276,7 +262,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES */}
+      {/* USE-CASES (remains the same) */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
@@ -303,7 +289,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* PRICING */}
+      {/* PRICING (remains the same) */}
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
@@ -330,7 +316,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* FAQ (remains the same) */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
@@ -352,7 +338,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* FOOTER (remains the same) */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
