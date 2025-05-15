@@ -50,14 +50,20 @@ interface Citation {
   url: string;
 }
 
-function superscriptCitations(md: string, citations: Citation[]): string {
-  let result = md;
-  citations.forEach((c, idx) => {
-    const markerRegex = new RegExp(`\\[\\^${idx + 1}\\]`, 'g');
-    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${idx + 1}</a></sup>`;
-    result = result.replace(markerRegex, sup);
+function appendSources(responseText: string, groundingChunks: Chunk[]): string {
+  if (!groundingChunks || groundingChunks.length === 0) {
+    return responseText;
+  }
+
+  let sourcesText = '\n\n**Sources:**\n';
+  groundingChunks.forEach((chunk, index) => {
+    const source = chunk.web;
+    if (source && source.uri) {
+      sourcesText += `[^${index + 1}]: ${source.uri}\n`;
+    }
   });
-  return result;
+
+  return responseText + sourcesText;
 }
 
 export async function buildMeetingBriefGemini(
@@ -65,39 +71,7 @@ export async function buildMeetingBriefGemini(
   org: string
 ): Promise<MeetingBriefPayload> {
   const prompt = `
-IMPORTANT: If you cannot provide a citation marker [^N] at the end of **every** fact and match every [^N] to a unique, reputable, public source URL in the grounding metadata, DO NOT answer. Instead, reply only with: "ERROR: INSUFFICIENT GROUNDING."
-
-SUBJECT
-• Person  : ${name}
-• Employer: ${org}
-
-FORMAT (Markdown – follow exactly)
-## **Meeting Brief: ${name} – ${org}**
-
-**Executive Summary**
-
-Each sentence must be on its own line, ending with a period and a citation marker [^N]. Do not combine multiple facts into one sentence.
-
-**Notable Highlights**
-
-* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
-
-**Interesting / Fun Facts**
-
-* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
-
-**Detailed Research Notes**
-
-* Use Markdown bullet list. Each bullet is a single fact, each ends with a period and a citation marker [^N].
-
-RULES
-• ≤ 1 000 words total.
-• **CITATIONS ARE REQUIRED.** Every fact must end with exactly one citation marker in the format [^N], at the end of the sentence or bullet, and nowhere else.
-• Never use any other citation style (no caret-alone (^N]), no number-bracket (1]), no citation bundles ([^1, ^2]), no comma-separated, grouped, or combined citations).
-• Each [^N] must correspond to a unique source in the grounding metadata.
-• Never insert [^N] in the middle of a line—only at the very end of a sentence or bullet.
-• ≥ 1 reputable source per fact (≥ 2 for negative claims).
-• Drop any fact that cannot meet the rule.
+Please provide a detailed response about ${name} from ${org}, ensuring that each factual statement is followed by a citation marker in the format [^N], where N corresponds to the source number. List the sources at the end of the response.
 `.trim();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,7 +87,7 @@ RULES
   });
 
   const cand = (res.response.candidates ?? [])[0] as Candidate | undefined;
-  const raw = cand?.content?.parts?.[0]?.text ?? '';
+  let raw = cand?.content?.parts?.[0]?.text ?? '';
 
   // --- LOG RAW OUTPUT BEFORE ANY FORMATTING ---
   console.log('RAW GEMINI OUTPUT >>>\n' + raw);
@@ -122,11 +96,6 @@ RULES
   try {
     fs.writeFileSync('/tmp/last_gemini.txt', raw, 'utf8');
   } catch {}
-
-  // Hard fail if explicit grounding refusal
-  if (/ERROR: INSUFFICIENT GROUNDING/i.test(raw)) {
-    throw new Error('Gemini could not provide grounded citations for every fact.');
-  }
 
   const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
   const citations: Citation[] = chunks.map((c, i) => ({
@@ -137,14 +106,13 @@ RULES
   const hasAnyCitationMarker = /\[\^\d+\]/.test(raw);
   const hasAnySource = citations.length > 0;
 
-  if (!hasAnyCitationMarker) {
-    throw new Error('No citation markers found in Gemini output.');
-  }
-  if (!hasAnySource) {
-    throw new Error('No grounded sources returned by Gemini.');
+  if (!hasAnyCitationMarker && hasAnySource) {
+    raw = appendSources(raw, chunks);
+  } else if (!hasAnyCitationMarker && !hasAnySource) {
+    throw new Error('No citation markers or grounded sources found in Gemini output.');
   }
 
-  const brief = superscriptCitations(raw, citations);
+  const brief = raw;
 
   const usage = res.usageMetadata ?? {};
   const tokens =
