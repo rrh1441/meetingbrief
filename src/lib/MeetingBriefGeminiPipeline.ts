@@ -9,7 +9,7 @@
    ------------------------------------------------------------------------ */
 
    import OpenAI from "openai";
-   import fetch   from "node-fetch";
+   import fetch   from "node-fetch"; // Make sure you have 'node-fetch' and '@types/node-fetch' installed
 
    export const runtime = "nodejs";
 
@@ -22,7 +22,7 @@
    } = process.env;
 
    /* ── CONSTANTS ------------------------------------------------------------ */
-   const MODEL_ID = "gpt-4.1-mini-2025-04-14"; // Ensure this is your intended model
+   const MODEL_ID = "gpt-4.1-mini-2025-04-14"; // Verify this is your intended and available model
    const SERPER   = "https://google.serper.dev/search";
    const FIRE     = "https://api.firecrawl.dev/v1/scrape";
    const CURL     = "https://nubela.co/proxycurl/api/v2/linkedin";
@@ -30,7 +30,7 @@
 
    /* ── TYPES ---------------------------------------------------------------- */
    interface Serp { title: string; link: string; snippet?: string }
-   interface Fire { article?: { text_content?: string } }
+   interface Fire { article?: { text_content?: string } } // Adjusted based on usage
    interface Ymd  { year?: number }
    interface Exp  { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd }
    interface Curl { headline?: string; experiences?: Exp[] }
@@ -44,13 +44,13 @@
    }
 
    export interface Citation {
-     marker : string; // This might be less relevant if not using Markdown markers
+     marker : string;
      url    : string;
      title  : string;
      snippet: string;
    }
    export interface MeetingBriefPayload {
-     brief        : string; // This will now be an HTML string
+     brief        : string; // This will be an HTML string
      citations    : Citation[];
      tokens       : number;
      searches     : number;
@@ -64,19 +64,25 @@
      url : string,
      body: unknown,
      hdr : Record<string, string>,
-   ) =>
+   ): Promise<T> => // Added return type Promise<T> for clarity
      fetch(url,{
        method :"POST",
        headers:{ ...hdr, "Content-Type":"application/json" },
        body   : JSON.stringify(body),
-     }).then(r=>r.json() as Promise<T>);
+     }).then(async r => { // made async to await r.json()
+         if (!r.ok) {
+             const errorText = await r.text();
+             throw new Error(`HTTP error! status: ${r.status}, body: ${errorText}`);
+         }
+         return r.json() as Promise<T>;
+     });
 
-   const yr   = (d?:Ymd|null)=>d?.year?.toString() ?? "?";
-   const span = (s?:Ymd|null,e?:Ymd|null)=>`${yr(s)} – ${e?yr(e):"Present"}`;
-   const toks = (s:string)=>Math.ceil(s.length/4); // Token approximation
+   const yr   = (d?:Ymd|null): string =>d?.year?.toString() ?? "?"; // Explicit string return
+   const span = (s?:Ymd|null,e?:Ymd|null): string =>`${yr(s)} – ${e?yr(e):"Present"}`; // Explicit string return
+   const toks = (s:string): number =>Math.ceil(s.length/4); // Token approximation
 
    // Cleans "source N" from text, important for AI output
-   const clean = (t:string)=>
+   const clean = (t:string): string =>
      t.replace(/\s*\(?\bsource\s*\d+\)?/gi,"").trim();
 
    /* ── HTML RENDER ---------------------------------------------------------- */
@@ -87,11 +93,11 @@
     */
    const formatHtmlBullets = (rows: Row[], cites: Citation[]): string => {
      if (!rows || rows.length === 0) {
-       return "";
+       return ""; // Return empty string if no rows, rather than just undefined behavior for map
      }
      const listItems = rows.map(r => {
-       const citation = cites[r.source - 1];
-       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`;
+       const citation = cites[r.source - 1]; // 0-indexed access
+       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`; // Fallback if citation not found
        return `  <li>${clean(r.text)} ${citationLink}</li>`;
      }).join("\n");
      return `<ul>\n${listItems}\n</ul>`;
@@ -113,13 +119,12 @@
    };
 
    /**
-    * Formats the employment timeline into an HTML unordered list.
+    * Formats the employment timeline into an HTML unordered list for Job History.
     */
-   const formatHtmlTimeline = (timelineItems: string[]): string => {
+   const formatHtmlJobHistory = (timelineItems: string[]): string => {
      if (!timelineItems || timelineItems.length === 0) {
-       return "";
+       return "<p>No job history available.</p>";
      }
-     // Assuming timelineItems might start with "* " from previous Markdown generation
      const listItems = timelineItems.map(item => `  <li>${item.startsWith("* ") ? item.substring(2) : item}</li>`).join("\n");
      return `<ul>\n${listItems}\n</ul>`;
    };
@@ -132,30 +137,32 @@
      org: string,
      jsonData: JsonBrief,
      citations: Citation[],
-     timeline: string[] // Raw timeline strings
+     jobTimelineData: string[] // Renamed for clarity
    ): string {
-     // Using <h3> for section headers for better semantics and default spacing.
-     // Using <p> for Executive Summary sentences.
-     // Using <ul> for bulleted lists.
-     // Browsers typically add default margins to h2, h3, p, ul, which should create visual separation.
+     const emptyParagraphForSpacing = "<p>&nbsp;</p>"; // Uses non-breaking space to ensure paragraph isn't collapsed
+
+     // Combine Highlights and Fun Facts from jsonData
+     const combinedHighlightsAndFunFacts: Row[] = [
+       ...(jsonData.highlights || []), // Ensure these are not undefined before spreading
+       ...(jsonData.funFacts || [])
+     ];
 
      return `
 <div>
   <h2><strong>Meeting Brief: ${name} – ${org}</strong></h2>
-
+${emptyParagraphForSpacing}
   <h3><strong>Executive Summary</strong></h3>
 ${formatHtmlSentences(jsonData.executive, citations)}
-
-  <h3><strong>Notable Highlights</strong></h3>
-${formatHtmlTimeline(timeline)}
-${formatHtmlBullets(jsonData.highlights, citations)}
-
-  <h3><strong>Fun Facts</strong></h3>
-${formatHtmlBullets(jsonData.funFacts, citations)}
-
+${emptyParagraphForSpacing}
+  <h3><strong>Job History</strong></h3>
+${formatHtmlJobHistory(jobTimelineData)}
+${emptyParagraphForSpacing}
+  <h3><strong>Highlights & Fun Facts</strong></h3>
+${formatHtmlBullets(combinedHighlightsAndFunFacts, citations)}
+${emptyParagraphForSpacing}
   <h3><strong>Detailed Research Notes</strong></h3>
 ${formatHtmlBullets(jsonData.researchNotes, citations)}
-</div>`.trim().replace(/^\s*\n/gm, ""); // Basic trim and removal of excess blank lines from template literal
+</div>`.trim().replace(/^\s*\n/gm, ""); // Clean up leading whitespace on new lines from template literal
    }
 
    /* ── MAIN ----------------------------------------------------------------- */
@@ -174,20 +181,26 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
        (await postJSON<{organic?:Serp[]}>(
          SERPER,{ q:`${name} linkedin`, num:3 },{ "X-API-KEY":SERPER_KEY! }))
          .organic?.find(s=>s.link.includes("linkedin.com/in/"));
-     if(!li) throw new Error("LinkedIn profile not found for " + name);
+
+     if(!li) throw new Error("LinkedIn profile not found for " + name + " in organization " + org);
 
      /* 3 ── ProxyCurl ------------------------------------------------------ */
-     const curl = await fetch(
+     const curlResponse = await fetch(
        `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
-       { headers:{ Authorization:`Bearer ${PROXYCURL_KEY}` } }
-     ).then(r=>r.json()) as Curl;
+       { headers:{ Authorization:`Bearer ${PROXYCURL_KEY!}` } } // Added non-null assertion for PROXYCURL_KEY
+     );
+     if (!curlResponse.ok) {
+        const errorText = await curlResponse.text();
+        throw new Error(`ProxyCurl error! status: ${curlResponse.status}, body: ${errorText}`);
+     }
+     const curl = await curlResponse.json() as Curl;
 
-     // Timeline now directly used by HTML formatter
-     const timeline = (curl.experiences??[]).map(e=>
-       `${e.title??"Role"} — ${e.company??"Company"} (${span(e.starts_at,e.ends_at)})`);
+
+     const jobTimeline = (curl.experiences??[]).map(e=>
+       `${e.title??"Role"} — ${e.company??"Company"} (${span(e.starts_at, e.ends_at)})`);
 
      /* 4 ── Source list ---------------------------------------------------- */
-     const sources = [li, ...serp]
+     const sources: Serp[] = [li, ...serp] // Explicitly type sources
        .filter((s,i,self)=>self.findIndex(t=>t.link===s.link)===i)
        .slice(0, MAX_SRC);
 
@@ -195,16 +208,16 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      const extracts: string[] = [];
      for(const s of sources){
        if(s.link.includes("linkedin.com/in/")){
-         extracts.push(`LinkedIn headline: ${curl.headline??""}. Profile URL: ${s.link}`);
+         extracts.push(`LinkedIn headline: ${curl.headline??"N/A"}. Profile URL: ${s.link}`);
        }else{
          try {
-           const art = await postJSON<Fire>(
-             FIRE,{ url:s.link, simulate:false }, // Ensure Firecrawl parameters are correct
-             { Authorization:`Bearer ${FIRECRAWL_KEY}` }
+           const art = await postJSON<Fire>( // Ensure Fire type is correctly defined for what Firecrawl returns
+             FIRE,{ url:s.link, page_options: { only_main_content: true } }, // Added page_options as it's common for Firecrawl
+             { Authorization:`Bearer ${FIRECRAWL_KEY!}` } // Added non-null assertion
            );
            extracts.push((art.article?.text_content ?? `${s.title}. ${s.snippet??""}`).slice(0,1500));
-         } catch (scrapeError) {
-           console.warn(`Failed to scrape ${s.link}:`, scrapeError);
+         } catch (scrapeError: any) { // Typed scrapeError
+           console.warn(`Failed to scrape ${s.link}:`, scrapeError.message);
            extracts.push(`${s.title}. ${s.snippet??""} (Content not fully scraped).`); // Fallback
          }
        }
@@ -224,27 +237,30 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      const example = `// GOOD
    {
     "executive":[
-      {"text":"Sales Director at Flashpoint since 2024","source":1}
+      {"text":"Sales Director at Flashpoint since 2024 based on provided employment timeline.","source":1}
     ]
-   }`;
+   }`; // Updated example to reflect potential AI use of timeline
 
      const prompt = `
    Return **only** JSON matching the template.
-   The "text" field MUST be a plain sentence.
+   The "text" field MUST be a plain sentence or concise statement.
    RULE A: "text" MUST NOT contain the word "source", brackets, or parenthetical
-           numbers referring to sources.
+           numbers referring to sources (e.g., "(source 3)").
    RULE B: Each array item MUST have both "text" (plain sentence) and "source"
-           (1-based index of SOURCE_N).
+           (1-based index of SOURCE_N from the ### SOURCES block).
+   RULE C: Base the executive summary and other points on the provided ### SOURCES.
+   RULE D: Use the ### EMPLOYMENT TIMELINE for context, especially for roles and dates in the executive summary,
+           but synthesize information, do not just copy timeline entries verbatim into JSON fields.
 
    ${example}
 
-   ### EMPLOYMENT TIMELINE (for context, do not repeat in executive summary unless highly notable)
-   ${timeline.join("\n")}
+   ### EMPLOYMENT TIMELINE (for context and factual data)
+   ${jobTimeline.join("\n")}
 
    ### SOURCES
    ${srcBlock}
 
-   ### TEMPLATE
+   ### TEMPLATE (fill this structure)
    \`\`\`json
    ${template}
    \`\`\``.trim();
@@ -252,7 +268,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      /* 7 ── LLM call ------------------------------------------------------- */
      const resp = await ai.chat.completions.create({
        model: MODEL_ID,
-       temperature: 0,
+       temperature: 0.1, // Slightly increased for less deterministic but still factual output
        response_format:{ type:"json_object"},
        messages:[{ role:"user", content:prompt }],
      });
@@ -263,23 +279,23 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
        if (!content) throw new Error("AI returned empty content");
        j = JSON.parse(content);
      }
-     catch(e){
-       console.error("Bad JSON from AI:", resp.choices[0].message.content);
-       console.error(e);
-       // Fallback or re-throw:
-       // Create a dummy JsonBrief to prevent downstream errors if you want to handle it gracefully
+     catch(e: any){ // Typed error
+       console.error("Bad JSON from AI:", resp.choices[0]?.message?.content ?? "No content in response");
+       console.error("Error parsing JSON:", e.message);
+       // Fallback: create a dummy JsonBrief to prevent downstream errors
        j = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
-       // Or throw new Error("Bad JSON from AI");
+       // Optionally, re-throw or handle more gracefully:
+       // throw new Error("Failed to parse AI response as JSON.");
      }
 
      /* 8 ── Validate / dedupe --------------------------------------------- */
-     const fix = (rows?:Row[]): Row[] => { // Added optional chaining for rows
-       if (!rows) return [];
+     const fix = (rows?:Row[]): Row[] => {
+       if (!rows || !Array.isArray(rows)) return []; // Check if rows is an array
        return Array.from(
          new Map(
            rows
              .filter(r => r && typeof r.text === 'string' && r.text.trim() !== "" && typeof r.source === 'number' && r.source >= 1 && r.source <= sources.length)
-             .map(r => [clean(r.text), { text: clean(r.text), source: r.source }])
+             .map(r => [clean(r.text).toLowerCase(), { text: clean(r.text), source: r.source }]) // Dedupe case-insensitively
          ).values()
        );
      }
@@ -291,21 +307,21 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
 
      /* 9 ── Citations (still useful for linking and context) --------------- */
      const finalCitations: Citation[] = sources.map((s,i)=>({
-       marker : `[${i+1}]`, // Less critical for HTML but good for reference
+       marker : `[${i+1}]`, // Retained for potential other uses or debugging
        url    : s.link,
        title  : s.title,
        snippet: extracts[i], // The snippet here is the scraped text used for AI
      }));
 
      /*10 ── HTML Generation ------------------------------------------------ */
-     const htmlBrief = renderToHtml(name, org, j, finalCitations, timeline);
+     const htmlBrief = renderToHtml(name, org, j, finalCitations, jobTimeline);
 
      /*11 ── Payload -------------------------------------------------------- */
      return {
        brief : htmlBrief, // This is now HTML
        citations: finalCitations,
        tokens: toks(prompt)+toks(htmlBrief), // Token count on the generated HTML
-       searches: 1, // Assuming 2 Serper calls + LI search still count as 1 logical search operation for billing/metrics
+       searches: 2, // Updated to reflect two Serper calls (initial + LinkedIn specific if needed)
        searchResults: sources.map((s,i)=>({url:s.link,title:s.title,snippet:extracts[i]})),
      };
    }
