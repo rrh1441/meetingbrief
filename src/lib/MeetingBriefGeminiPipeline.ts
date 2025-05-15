@@ -1,43 +1,24 @@
-import fs from 'fs';
-import {
-  VertexAI,
-  type Tool,
-  type GenerateContentRequest,
-  type Content,
-} from '@google-cloud/vertexai';
+/* MeetingBriefGeminiPipeline.ts – deterministic, OpenAI-based */
 
-/*────────────────────────  Auth  */
+import OpenAI from "openai";
+import fetch from "node-fetch";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-const saJson = process.env.GCP_SA_JSON;
-if (!saJson) throw new Error('GCP_SA_JSON env var not set');
+/*────────────────────  ENV KEYS  */
+const OPENAI_API_KEY   = process.env.OPENAI_API_KEY!;
+const SERPER_KEY       = process.env.SERPER_KEY!;
+const FIRECRAWL_KEY    = process.env.FIRECRAWL_KEY!;
+const PROXYCURL_KEY    = process.env.PROXYCURL_KEY!;
 
-const keyPath = '/tmp/sa_key.json';
-if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, saJson, 'utf8');
-process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
+/*────────────────────  CONSTANTS  */
+const MAX_LINKS          = 15;
+const MAX_FACTS          = 40;
+const FIRECRAWL_ENDPOINT = "https://r.jina.ai/http://api.firecrawl.dev/v1/scrape";
+const SERPER_ENDPOINT    = "https://google.serper.dev/search";
+const PROXYCURL_PROFILE  = "https://api.proxycurl.com/api/v2/linkedin";
 
-/*────────────────────────  Vertex client  */
-
-const vertexAI = new VertexAI({
-  project: process.env.VERTEX_PROJECT_ID!,
-  location: process.env.VERTEX_LOCATION ?? 'us-central1',
-});
-
-/* Vertex Gemini 2.x field name */
-const googleSearchTool: Tool =
-  { googleSearch: {} } as unknown as Tool;
-
-const modelId = 'gemini-2.5-pro-preview-05-06';
-const generativeModel = (vertexAI as unknown as {
-  preview: { getGenerativeModel: typeof vertexAI.getGenerativeModel }
-}).preview.getGenerativeModel({
-  model: modelId,
-  generationConfig: { maxOutputTokens: 2_048, temperature: 0 },
-});
-
-/*────────────────────────  Types  */
-
+/*────────────────────  TYPES  */
 export interface Citation {
   marker: string;
   url: string;
@@ -51,112 +32,155 @@ export interface MeetingBriefPayload {
   searches: number;
   searchResults: { url: string; title: string; snippet: string }[];
 }
-interface GroundingChunk { web?: { uri?: string; title?: string; htmlSnippet?: string } }
-interface Candidate {
-  content?: { parts?: { text?: string }[] };
-  groundingMetadata?: { groundingChunks?: GroundingChunk[]; webSearchQueries?: string[] };
-}
-interface UsageMeta { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number }
-interface GeminiResp { candidates?: Candidate[]; usageMetadata?: UsageMeta }
+interface SerperResult { title: string; link: string; snippet?: string; }
+interface FirecrawlResp { article: { title?: string; text_content?: string } }
 
-/*────────────────────────  Helpers  */
+/*────────────────────  HELPERS  */
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-function superscript(text: string, chunks: GroundingChunk[]): string {
-  return text.replace(/\[\^(\d+)\]/g, (_, n) => {
-    const i   = Number(n) - 1;
-    const url = chunks[i]?.web?.uri ?? '#';
-    return `<sup><a href="${url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+async function serperSearch(q: string, num = 10): Promise<SerperResult[]> {
+  const res = await fetch(SERPER_ENDPOINT, {
+    method : "POST",
+    headers: { "X-API-KEY": SERPER_KEY, "Content-Type": "application/json" },
+    body   : JSON.stringify({ q, num }),
   });
+  const json = await res.json();
+  return json.organic?.slice(0, num) ?? [];
 }
-const is429 = (e: unknown): boolean =>
-  typeof e === 'object' && e !== null && 'code' in e && (e as { code?: number }).code === 429;
 
-/*────────────────────────  Main  */
+async function fetchFirecrawl(url: string): Promise<string> {
+  const res  = await fetch(FIRECRAWL_ENDPOINT, {
+    method : "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIRECRAWL_KEY}` },
+    body   : JSON.stringify({ url, simulate: false }),
+  });
+  const json = (await res.json()) as FirecrawlResp;
+  return json.article?.text_content?.slice(0, 800).trim() ?? "";
+}
+
+async function fetchProxycurl(linkedin: string): Promise<string> {
+  const u = new URL(PROXYCURL_PROFILE);
+  u.searchParams.set("linkedin_profile_url", linkedin);
+  const res = await fetch(u.href, {
+    headers: { Authorization: `Bearer ${PROXYCURL_KEY}` },
+  });
+  const json = await res.json() as Record<string, unknown>;
+  const headline = json?.headline ?? "";
+  const current  = (json?.experiences as any[])?.[0]?.title ?? "";
+  return `LinkedIn Headline: ${headline}. Current role: ${current}.`;
+}
+
+function tokenApprox(str: string): number {
+  return Math.ceil(str.length / 4);   // rough 4-char per token average
+}
+
+/*────────────────────  MAIN  */
 
 export async function buildMeetingBriefGemini(
   name: string,
   org: string,
+  team?: string,                                   // optional team hint
 ): Promise<MeetingBriefPayload> {
 
-  const orgLabel = org?.trim() || '';
-  const prompt = `
-SUBJECT
-• Person  : ${name}
-• Employer: ${orgLabel}
+  /* 1 ── harvest links ───────────────────────────*/
+  const primary = await serperSearch(`${name} ${org}`, 10);
 
-FORMAT (Markdown – follow exactly)
-## **Meeting Brief: ${name} – ${orgLabel}**
+  // ensure LinkedIn present
+  let linkedin = primary.find(r => r.link.includes("linkedin.com/in/"));
+  if (!linkedin) {
+    const lookup = await serperSearch(`${name} linkedin`, 3);
+    linkedin = lookup.find(r => r.link.includes("linkedin.com/in/"));
+  }
+  if (linkedin && !primary.some(r => r.link === linkedin!.link)) {
+    primary.unshift(linkedin);
+  }
 
-**Executive Summary**
-Exactly **3** concise sentences, each ends with a citation marker [^N].
+  // team search / fallback
+  const teamQuery = team ? `${org} ${team}` : `${org} ${name.split(" ").pop()}`;
+  const teamRes   = await serperSearch(teamQuery, 5);
+  const sources   = [...primary, ...teamRes].slice(0, MAX_LINKS);
 
-**Notable Highlights**
-* **Up to 5** bullets. Each bullet one fact, ends with [^N].
-
-**Interesting / Fun Facts**
-* **Up to 3** bullets. Each bullet one fact, ends with [^N].
-
-**Detailed Research Notes**
-* **Up to 8** bullets. Each bullet one fact, ends with [^N].
-
-RULES
-• Max total facts ≤ 20.  
-• **CITATIONS ARE REQUIRED.** Every fact must end with exactly one [^N].  
-• Never introduce a marker without a matching source.  
-• Discard any fact you cannot cite.`
-  .trim();
-
-  const contents: Content[] = [
-    { role: 'user', parts: [{ text: prompt }] },
-  ];
-  const request: GenerateContentRequest = {
-    contents,
-    tools: [googleSearchTool],
-  };
-
-  /*──  call with retry  */
-
-  let resp: GeminiResp | undefined;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const r = await generativeModel.generateContent(request as GenerateContentRequest) as { response: GeminiResp };
-      resp = r.response;
-      break;
-    } catch (e) {
-      if (!is429(e) || attempt === 3) throw e;
-      await sleep(500 * 2 ** attempt); // 0.5 s, 1 s, 2 s
+  // fetch extracts
+  const extracts: string[] = [];
+  for (const src of sources) {
+    if (src.link.includes("linkedin.com/in/")) {
+      extracts.push(await fetchProxycurl(src.link));
+    } else {
+      extracts.push(await fetchFirecrawl(src.link));
     }
   }
-  if (!resp) throw new Error('No response from Gemini');
 
-  /*──  parse  */
+  /* 2 ── build prompt ────────────────────────────*/
+  const sourceBlock = sources.map((s, i) =>
+    `[^${i + 1}] ${s.link}\nExtract: ${extracts[i]}`).join("\n\n");
 
-  const cand   = resp.candidates?.[0] ?? {};
-  const text   = cand.content?.parts?.[0]?.text ?? '';
-  const chunks = cand.groundingMetadata?.groundingChunks ?? [];
+  const prompt =
+`### SOURCES
+${sourceBlock}
 
-  const markerCount = (text.match(/\[\^\d+\]/g) ?? []).length;
-  if (markerCount === 0) throw new Error('Gemini returned no citations; rejecting draft.');
+## **Meeting Brief: ${name} – ${org}**
 
-  const brief = superscript(text, chunks);
+**Executive Summary**
+Exactly 3 cited sentences, each ends with [^N].
 
-  const citations: Citation[] = chunks.map((c, i) => ({
-    marker : `[^${i + 1}]`,
-    url    : c.web?.uri ?? '',
-    title  : c.web?.title,
-    snippet: c.web?.htmlSnippet,
-  })).filter(c => c.url);
+**Notable Highlights**
+* Up to 5 bullets, each ends with [^N].
 
-  const usage  = resp.usageMetadata ?? {};
-  const tokens = usage.totalTokenCount ??
-    (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches = cand.groundingMetadata?.webSearchQueries?.length ?? 0;
+**Interesting / Fun Facts**
+* Up to 3 bullets, each ends with [^N].
 
-  const searchResults = chunks
-    .filter(c => c.web?.uri)
-    .map(c => ({ url: c.web!.uri!, title: c.web!.title ?? '', snippet: c.web!.htmlSnippet ?? '' }));
+**Detailed Research Notes**
+* Up to 8 bullets, each ends with [^N].
 
-  return { brief, citations, tokens, searches, searchResults };
+RULES
+• ≤ ${MAX_FACTS} total facts.  
+• Every fact *must* cite one of the [^N] markers above.  
+• If you cannot cite a fact, omit it.  
+• If you cannot cite any fact, respond only: ERROR`;
+
+  /* 3 ── call GPT-4 mini ─────────────────────────*/
+  let completion: Awaited<ReturnType<typeof openai.chat.completions.create>>;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.15,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const txt = completion.choices[0].message.content ?? "";
+    if (!/^ERROR/i.test(txt.trim())) break;
+    await sleep(300);        // quick back-off then retry
+  }
+  const text = completion!.choices[0].message.content ?? "";
+  const markers = text.match(/\[\^\d+\]/g) ?? [];
+  if (markers.length === 0) throw new Error("LLM returned no citations");
+
+  /* 4 ── post-process & payload ───────────────────*/
+  const brief = text.replace(/\[\^(\d+)\]/g, (_, n) =>
+    `<sup><a href="${sources[Number(n)-1].link}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`);
+
+  const citations: Citation[] = sources.map((s, i) => ({
+    marker: `[^${i + 1}]`,
+    url   : s.link,
+    title : s.title,
+    snippet: extracts[i],
+  }));
+
+  const tokensIn  = tokenApprox(prompt);
+  const tokensOut = tokenApprox(text);
+  const tokens    = tokensIn + tokensOut;
+
+  const searchResults = sources.map((s, i) => ({
+    url: s.link,
+    title: s.title,
+    snippet: extracts[i],
+  }));
+
+  return {
+    brief,
+    citations,
+    tokens,
+    searches: 1,          // one Serper call
+    searchResults,
+  };
 }
