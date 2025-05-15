@@ -147,7 +147,7 @@ ${tlBullets.slice(0, 5).join("\n")}
 
 RULES  
 • Use only information present in Extracts or TIMELINE (paraphrasing allowed).  
-• **Do NOT output bare numbers**; cite `[ ^N ]` exactly for web sources.  
+• **Do NOT output bare numbers**; cite \\[^N] exactly for web sources. 
 • No invented facts. Keep all section headers.`;
 
   /* ── GPT */
