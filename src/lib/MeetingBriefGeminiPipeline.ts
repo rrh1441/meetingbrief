@@ -166,10 +166,24 @@
      let serperQueryCount = 0;
      const allSerpResults: SerpResult[] = [];
    
-     // 1. Define Serper queries
+     // 1. Define Serper queries with expanded keywords
      const serperQueries = [
+       // Query 1: Core identity and LinkedIn (Essential, kept as is)
        { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
-       { q: `"${name}" (achievements OR awards OR speaker OR panelist OR author OR published OR "about" OR bio OR profile)`, num: 10 },
+   
+       // Query 2: Expanded Achievements, Publications, and Event Participation
+       // Combines achievements with a broader range of event-related terms.
+       { q: `"${name}" (achievement OR award OR "published work" OR author OR speaker OR panelist OR presenter OR keynote OR moderator OR "conference presentation" OR webinar OR forum OR seminar OR workshop OR "about page" OR biography OR profile OR "attendee list" OR "presented at" OR chaired OR masterclass OR discussion OR summit OR symposium OR convener OR delegate OR "roundtable discussion")`, num: 10 },
+   
+       // Query 3: News specifically linking person and current organization
+       // Focuses on news, announcements, and thought leadership related to their current role.
+       { q: `"${name}" "${org}" (interview OR profile OR news OR article OR "press release" OR "quoted in" OR featured OR announced OR statement OR commentary OR insights OR appointed OR partnership OR acquisition OR funding OR "thought leadership" OR "expert opinion")`, num: 7 },
+   
+       // Query 4: Broader professional news, contributions, and general online presence not strictly tied to the current org
+       // Aims to catch other significant professional mentions.
+       { q: `"${name}" (leads OR "industry expert" OR "discussion with" OR "roundtable on" OR develops OR launches OR "featured in article" OR "statement by" OR "opinion piece" OR "appointed to board")`, num: 7 },
+   
+       // Query 5: Education, social media, and personal details (Existing, kept as is)
        { q: `"${name}" (education OR university OR "X handle" OR "Twitter profile" OR "personal blog" OR hobbies)`, num: 7 },
      ];
    
@@ -463,4 +477,3 @@
        })),
      };
    }
-   
