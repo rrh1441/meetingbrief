@@ -6,7 +6,7 @@
 import fs from 'fs';
 import { VertexAI, type Tool } from '@google-cloud/vertexai';
 
-/*──────────────────────────────────  Auth bootstrap  */
+/*────────────────────  Auth bootstrap  */
 
 export const runtime = 'nodejs';
 
@@ -18,7 +18,7 @@ if (!fs.existsSync('/tmp')) fs.mkdirSync('/tmp', { recursive: true });
 fs.writeFileSync(keyPath, saJson, 'utf8');
 process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
 
-/*──────────────────────────────────  Vertex client  */
+/*────────────────────  Vertex client  */
 
 const vertexAI = new VertexAI({
   project: process.env.VERTEX_PROJECT_ID!,
@@ -26,9 +26,8 @@ const vertexAI = new VertexAI({
 });
 
 /**
- * Correct field on the wire is **google_search_retrieval** – not googleSearch.
- * We cast through unknown so TypeScript never blocks the build, regardless
- * of which SDK version is installed.
+ * Correct protobuf field is **google_search_retrieval**.
+ * Cast through unknown so TypeScript tolerates all SDK versions.
  */
 const googleSearchTool: Tool =
   { google_search_retrieval: {} } as unknown as Tool;
@@ -40,7 +39,7 @@ const generativeModel = vertexAI.preview.getGenerativeModel({
   generationConfig: { maxOutputTokens: 2_048, temperature: 0 },
 });
 
-/*──────────────────────────────────  Types  */
+/*────────────────────  Types  */
 
 export interface Citation {
   marker: string;
@@ -65,7 +64,7 @@ interface Candidate      {
 interface UsageMeta      { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number }
 interface GeminiResp     { candidates?: Candidate[]; usageMetadata?: UsageMeta }
 
-/*──────────────────────────────────  Helpers  */
+/*────────────────────  Helpers  */
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -73,14 +72,18 @@ function superscript(md: string, citations: Citation[]): string {
   let out = md;
   citations.forEach(c => {
     if (!c.marker || !c.url) return;
-    const n   = c.marker.match(/\d+/)?.[0] ?? '#';
-    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
-    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), sup);
+    const num  = c.marker.match(/\d+/)?.[0] ?? '#';
+    const link = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${num}</a></sup>`;
+    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), link);
   });
   return out;
 }
 
-/*──────────────────────────────────  Main  */
+function isResourceExhausted(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: number }).code === 429;
+}
+
+/*────────────────────  Main  */
 
 export async function buildMeetingBriefGemini(
   name: string,
@@ -88,10 +91,11 @@ export async function buildMeetingBriefGemini(
 ): Promise<MeetingBriefPayload> {
 
   if (!name) throw new Error('name is required');
-  const orgLabel = (org && org !== 'undefined') ? org : '';
+
+  const orgLabel = org && org !== 'undefined' ? org : '';
 
   const prompt = `
-IMPORTANT: If you cannot end **every** fact with one citation marker [^N] linked to a public URL, reply only "ERROR: INSUFFICIENT GROUNDING."
+IMPORTANT: If you cannot end **every** fact with a citation marker [^N] linked to a public URL, reply only "ERROR: INSUFFICIENT GROUNDING."
 
 SUBJECT
 • Person  : ${name}
@@ -122,19 +126,22 @@ RULES
 
   const request = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    tools: [googleSearchTool], // <-- Search tool actually sent
+    tools: [googleSearchTool],            // search tool actually sent
   };
 
-  let resp: GeminiResp;
+  let resp: GeminiResp | undefined;
   for (let attempt = 0; ; attempt++) {
     try {
-      ({ response: resp } = await generativeModel.generateContent(request) as { response: GeminiResp });
+      const res = await generativeModel.generateContent(request) as { response: GeminiResp };
+      resp = res.response;
       break;
-    } catch (e: any) {
-      if (e?.code !== 429 || attempt >= 3) throw e;
-      await sleep(500 * 2 ** attempt); // 0.5 s, 1 s, 2 s
+    } catch (err) {
+      if (!isResourceExhausted(err) || attempt >= 3) throw err;
+      await sleep(500 * 2 ** attempt);    // 0.5 s, 1 s, 2 s
     }
   }
+
+  if (!resp) throw new Error('No response from Gemini');
 
   /*──────────  Parse response  */
 
@@ -150,7 +157,7 @@ RULES
     const chunk = chunks[idx];
     return chunk?.web?.uri
       ? { marker: m, url: chunk.web.uri, title: chunk.web.title, snippet: chunk.web.htmlSnippet }
-      : { marker: m, url: '' };               // empty URL filtered below
+      : { marker: m, url: '' };
   }).filter(c => c.url);
 
   const brief    = superscript(text, citations);
