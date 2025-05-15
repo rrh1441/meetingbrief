@@ -1,9 +1,7 @@
-/* eslint-disable no-console */
-
 /**
  * MeetingBriefGeminiPipeline.ts
  *
- * – Runs Gemini-2.5-pro-preview with Google Search-as-a-Tool **by default**.
+ * – Gemini-2.5-pro-preview with Google Search-as-a-Tool enabled by default.
  * – Requires env vars: GCP_SA_JSON, VERTEX_PROJECT_ID, (optional) VERTEX_LOCATION.
  */
 
@@ -29,14 +27,18 @@ const vertexAI = new VertexAI({
   location: process.env.VERTEX_LOCATION ?? 'us-central1',
 });
 
-// typings ≥ v1.11 include googleSearch ▸ no cast / expect-error needed
-const googleSearchTool: Tool = { googleSearch: {} };
+/**
+ * Typings workaround:
+ * Some SDK versions still omit `googleSearch` from `Tool`.
+ * We cast through `unknown` so the compiler cannot reject it.
+ */
+const googleSearchTool = { googleSearch: {} } as unknown as Tool;
 
 const modelId = 'gemini-2.5-pro-preview-05-06';
 
 const generativeModel = vertexAI.preview.getGenerativeModel({
   model: modelId,
-  tools: [googleSearchTool],            // <-- default Search
+  tools: [googleSearchTool],            // ← Search always enabled
   generationConfig: {
     maxOutputTokens: 8_192,
     temperature: 0,
@@ -64,17 +66,13 @@ interface Part           { text?: string }
 interface Content        { role?: string; parts?: Part[] }
 interface WebInfo        { uri?: string; title?: string; htmlSnippet?: string }
 interface GroundingChunk { web?: WebInfo }
-interface GroundingMeta  {
-  groundingChunks?: GroundingChunk[];
-  webSearchQueries?: string[];
-}
-interface Candidate {
+interface GroundingMeta  { groundingChunks?: GroundingChunk[]; webSearchQueries?: string[] }
+interface Candidate      {
   content?: Content;
   finishReason?: string;
   groundingMetadata?: GroundingMeta;
-  citationMetadata?: { citationSources?: { uri?: string; startIndex?: number; endIndex?: number }[] };
 }
-interface UsageMeta { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
+interface UsageMeta      { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number }
 interface GeminiResponse { candidates?: Candidate[]; usageMetadata?: UsageMeta }
 
 /*────────────────────────────  Helpers  */
@@ -122,8 +120,8 @@ Each sentence on its own line, ends with [^N].
 RULES
 • ≤ 1500 words total.
 • One [^N] per fact, at end of sentence/bullet.
-• Drop any fact you can’t cite.
-  `.trim();
+• Drop any fact you can’t cite.`
+  .trim();
 
   console.log(`[${new Date().toISOString()}] ► Generating brief for "${name}"`);
 
@@ -133,9 +131,9 @@ RULES
 
   /*──────────  Parse response  */
 
-  const candidate       = response.candidates?.[0] ?? {};
-  const rawText         = candidate.content?.parts?.[0]?.text ?? '';
-  const chunks          = candidate.groundingMetadata?.groundingChunks ?? [];
+  const candidate = response.candidates?.[0] ?? {};
+  const rawText   = candidate.content?.parts?.[0]?.text ?? '';
+  const chunks    = candidate.groundingMetadata?.groundingChunks ?? [];
 
   const markers = [...new Set(rawText.match(/\[\^\d+\]/g) ?? [])]
     .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
@@ -148,19 +146,22 @@ RULES
       : { marker: m, url: `ERROR_NO_URI_${idx}` };
   }).filter(c => !c.url.startsWith('ERROR_'));
 
-  const brief     = superscriptCitations(rawText, citations);
-  const usage     = response.usageMetadata ?? {};
-  const tokens    = usage.totalTokenCount ?? (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
-  const searches  = candidate.groundingMetadata?.webSearchQueries?.length ?? 0;
-  const results   = chunks.filter(c => c.web?.uri)
+  const brief    = superscriptCitations(rawText, citations);
+  const usage    = response.usageMetadata ?? {};
+  const tokens   = usage.totalTokenCount ?? (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+  const searches = candidate.groundingMetadata?.webSearchQueries?.length ?? 0;
+  const results  = chunks.filter(c => c.web?.uri)
     .map(c => ({ url: c.web!.uri!, title: c.web!.title ?? '', snippet: c.web!.htmlSnippet ?? '' }));
 
   return { brief, citations, tokens, searches, searchResults: results };
 }
 
-/*────────────  Version note  */
+/*────────────  SDK version hint  */
 /*
- * Ensure @google-cloud/vertexai ≥ 1.11.0:
- *   pnpm add @google-cloud/vertexai@latest
- * Earlier versions lacked googleSearch in the Tool type.
+ * If you prefer full typings support drop the cast and:
+ *   pnpm add -D @google-cloud/vertexai@latest
+ * Once the package exposes Tool.googleSearch, revert
+ *   const googleSearchTool = { googleSearch: {} } as unknown as Tool;
+ * to:
+ *   const googleSearchTool: Tool = { googleSearch: {} };
  */
