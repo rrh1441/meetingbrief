@@ -1,12 +1,11 @@
 /**
- * MeetingBriefGeminiPipeline.ts
- * Vertex AI / Gemini-2.5-pro-preview + Google Search-as-a-Tool (default).
+ * MeetingBriefGeminiPipeline.ts  –  Vertex Gemini-2.5-pro-preview + Google Search
  */
 
 import fs from 'fs';
 import { VertexAI, type Tool } from '@google-cloud/vertexai';
 
-/*────────────────────  Auth bootstrap  */
+/*────────────────────  Auth  */
 
 export const runtime = 'nodejs';
 
@@ -26,11 +25,11 @@ const vertexAI = new VertexAI({
 });
 
 /**
- * Correct protobuf field is **google_search_retrieval**.
- * Cast through unknown so TypeScript tolerates all SDK versions.
+ * Vertex Gemini 2.x JSON schema →   { "google_search": {} }
+ * The SDK typings haven’t caught up, so cast through unknown.
  */
 const googleSearchTool: Tool =
-  { google_search_retrieval: {} } as unknown as Tool;
+  { google_search: {} } as unknown as Tool;
 
 const modelId = 'gemini-2.5-pro-preview-05-06';
 
@@ -72,16 +71,14 @@ function superscript(md: string, citations: Citation[]): string {
   let out = md;
   citations.forEach(c => {
     if (!c.marker || !c.url) return;
-    const num  = c.marker.match(/\d+/)?.[0] ?? '#';
-    const link = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${num}</a></sup>`;
-    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), link);
+    const n   = c.marker.match(/\d+/)?.[0] ?? '#';
+    const sup = `<sup><a class="text-blue-600 underline hover:no-underline" href="${c.url}" target="_blank" rel="noopener noreferrer">${n}</a></sup>`;
+    out = out.replace(new RegExp(c.marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), sup);
   });
   return out;
 }
-
-function isResourceExhausted(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: number }).code === 429;
-}
+const is429 = (e: unknown): boolean =>
+  typeof e === 'object' && e !== null && 'code' in e && (e as { code?: number }).code === 429;
 
 /*────────────────────  Main  */
 
@@ -91,11 +88,10 @@ export async function buildMeetingBriefGemini(
 ): Promise<MeetingBriefPayload> {
 
   if (!name) throw new Error('name is required');
-
   const orgLabel = org && org !== 'undefined' ? org : '';
 
   const prompt = `
-IMPORTANT: If you cannot end **every** fact with a citation marker [^N] linked to a public URL, reply only "ERROR: INSUFFICIENT GROUNDING."
+IMPORTANT: If you cannot end **every** fact with one citation marker [^N] linked to a public URL, reply only "ERROR: INSUFFICIENT GROUNDING."
 
 SUBJECT
 • Person  : ${name}
@@ -118,39 +114,38 @@ Each sentence on its own line, ends with [^N].
 
 RULES
 • ≤ 1500 words total.
-• One [^N] per fact, at end of bullet/sentence.
-• Drop any fact you can’t cite.`
+• One [^N] per fact. Drop any fact you can’t cite.`
   .trim();
 
-  /*──────────  Call with retries  */
-
-  const request = {
+  const req = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    tools: [googleSearchTool],            // search tool actually sent
+    tools: [googleSearchTool],            // search tool sent in payload
   };
 
+  /*──────────  call with back-off  */
+
   let resp: GeminiResp | undefined;
-  for (let attempt = 0; ; attempt++) {
+  for (let a = 0; ; a++) {
     try {
-      const res = await generativeModel.generateContent(request) as { response: GeminiResp };
-      resp = res.response;
+      const r = await generativeModel.generateContent(req) as { response: GeminiResp };
+      resp = r.response;
       break;
-    } catch (err) {
-      if (!isResourceExhausted(err) || attempt >= 3) throw err;
-      await sleep(500 * 2 ** attempt);    // 0.5 s, 1 s, 2 s
+    } catch (e) {
+      if (!is429(e) || a >= 3) throw e;
+      await sleep(500 * 2 ** a);           // 0.5 s, 1 s, 2 s
     }
   }
 
-  if (!resp) throw new Error('No response from Gemini');
+  if (!resp) throw new Error('Empty response from Gemini');
 
-  /*──────────  Parse response  */
+  /*──────────  parse  */
 
   const cand   = resp.candidates?.[0] ?? {};
   const text   = cand.content?.parts?.[0]?.text ?? '';
   const chunks = cand.groundingMetadata?.groundingChunks ?? [];
 
   const markers = [...new Set(text.match(/\[\^\d+\]/g) ?? [])]
-    .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
+    .sort((x, y) => Number(x.match(/\d+/)![0]) - Number(y.match(/\d+/)![0]));
 
   const citations: Citation[] = markers.map(m => {
     const idx   = Number(m.match(/\d+/)![0]) - 1;
