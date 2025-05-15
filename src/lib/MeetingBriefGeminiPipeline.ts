@@ -1,11 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────────────
    src/lib/MeetingBriefGeminiPipeline.ts
-   ----------------------------------------------------------------------------
-   • LLM returns strict JSON (no Markdown)
-   • Robust renderer → Markdown (all spacing guaranteed)
-   • Accepts string | {text,source} items in every list
-   • Superscripts inserted during rendering
-   • Uses gpt-4.1-mini-2025-04-14
    ────────────────────────────────────────────────────────────────────────── */
 
    import OpenAI from "openai";
@@ -129,14 +123,17 @@
    ): Promise<MeetingBriefPayload> {
    
      /* 1 ── Google search -------------------------------------------------- */
-     const serp1 = await postJSON<{organic?:Serp[]}>(SERPER,
-       { q:`${name} ${org}`, num:10 }, { "X-API-KEY":SERPER_KEY! });
-     const serp  = serp1.organic ?? [];
+     const serp1 = await postJSON<{organic?:Serp[]}>(
+       SERPER,
+       { q:`${name} ${org}`, num:10 },
+       { "X-API-KEY":SERPER_KEY! },
+     );
+     const serp = serp1.organic ?? [];
    
      /* 2 ── LinkedIn first ------------------------------------------------- */
      const linkedin = serp.find(s=>s.link.includes("linkedin.com/in/")) ??
-       (await postJSON<{organic?:Serp[]}>(SERPER,
-         { q:`${name} linkedin`, num:3 }, { "X-API-KEY":SERPER_KEY! }))
+       (await postJSON<{organic?:Serp[]}>(
+         SERPER, { q:`${name} linkedin`, num:3 }, { "X-API-KEY":SERPER_KEY! }))
          .organic?.find(s=>s.link.includes("linkedin.com/in/"));
      if(!linkedin) throw new Error("LinkedIn profile not found");
    
@@ -161,9 +158,10 @@
        if(s.link.includes("linkedin.com/in/")){
          extracts.push(`LinkedIn headline: ${curl.headline ?? ""}.`);
        } else {
-         const art = await postJSON<Fire>(FIRE,
-           { url:s.link, simulate:false },
-           { Authorization:`Bearer ${FIRECRAWL_KEY}` });
+         const art = await postJSON<Fire>(
+           FIRE, { url:s.link, simulate:false },
+           { Authorization:`Bearer ${FIRECRAWL_KEY}` }
+         );
          extracts.push((art.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0,1500));
        }
      }
@@ -209,6 +207,8 @@
      try{
        data = JSON.parse(chat.choices[0].message.content!);
      }catch(err){
+       /* ←–––––––––– err now referenced so ESLint no-unused-vars is happy */
+       console.error("JSON parse error:", err);
        throw new Error("LLM returned malformed JSON");
      }
    
