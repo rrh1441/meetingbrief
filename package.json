@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@google-cloud/vertexai": "^1.10.0",
     "@radix-ui/react-slot": "^1.2.2",
     "@tailwindcss/typography": "^0.5.16",
     "class-variance-authority": "^0.7.1",
@@ -26,6 +25,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@google-cloud/vertexai": "^1.10.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
