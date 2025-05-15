@@ -22,7 +22,7 @@
    } = process.env;
    
    /* ── CONSTANTS ------------------------------------------------------------ */
-   const MODEL_ID = "gpt-4.1-mini-2025-04-14"; // Verify this is your intended and available model
+   const MODEL_ID = "gpt-4.1-mini-2025-04-14";
    const SERPER = "https://google.serper.dev/search";
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
@@ -33,7 +33,7 @@
    interface FirecrawlScrapeResult { article?: { text_content?: string } }
    interface Ymd { year?: number }
    interface LinkedInExperience { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd }
-   interface ProxyCurlResult { headline?: string; experiences?: LinkedInExperience[] }
+   interface ProxyCurlResult { headline?: string; experiences?: LinkedInExperience[]; /* other standard fields */ }
    
    interface BriefRow { text: string; source: number }
    interface JsonBrief {
@@ -83,6 +83,16 @@
    
    const clean = (t: string): string =>
      t.replace(/\s*\(?\bsource\s*\d+\)?/gi, "").trim();
+   
+   const normalizeOrgName = (companyName: string): string => {
+       if (!companyName) return "";
+       return companyName
+           .toLowerCase()
+           .replace(/[,.]?\s*(inc|llc|ltd|gmbh|corp|corporation|limited|company|co)\s*$/i, '') // Remove common suffixes
+           .replace(/[.,]/g, '') // Remove periods and commas
+           .trim();
+   };
+   
    
    /* ── HTML RENDER ---------------------------------------------------------- */
    const formatHtmlSentences = (rows: BriefRow[], cites: Citation[]): string => {
@@ -151,15 +161,15 @@
    /* ── MAIN ----------------------------------------------------------------- */
    export async function buildMeetingBriefGemini(
      name: string,
-     org: string,
+     org: string, // Current organization
    ): Promise<MeetingBriefPayload> {
      let serperQueryCount = 0;
-     const allSerpResults: SerpResult[] = []; // MODIFIED: let -> const
+     const allSerpResults: SerpResult[] = [];
    
      // 1. Define Serper queries
      const serperQueries = [
        { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
-       { q: `"${name}" "${org}" (achievements OR awards OR speaker OR panelist OR author OR published)`, num: 7 },
+       { q: `"${name}" (achievements OR awards OR speaker OR panelist OR author OR published OR "about" OR bio OR profile)`, num: 10 },
        { q: `"${name}" (education OR university OR "X handle" OR "Twitter profile" OR "personal blog" OR hobbies)`, num: 7 },
      ];
    
@@ -190,7 +200,9 @@
          serperQueryCount++;
          if (liSearch.organic && liSearch.organic.length > 0) {
            linkedInProfile = liSearch.organic.find(s => s.link.includes("linkedin.com/in/")) || liSearch.organic[0];
-           if (linkedInProfile) allSerpResults.push(linkedInProfile);
+           if (linkedInProfile && !allSerpResults.some(s => s.link === linkedInProfile!.link)) {
+               allSerpResults.push(linkedInProfile);
+           }
          }
        } catch (error) {
          console.warn(`Dedicated LinkedIn Serper query failed:`, error);
@@ -201,11 +213,12 @@
        throw new Error(`LinkedIn profile not found for ${name}. ProxyCurl step cannot proceed.`);
      }
    
-     // 4. ProxyCurl for LinkedIn data
+     // 4. ProxyCurl for LinkedIn data - REVERTED TO STANDARD CALL
      const curlResponse = await fetch(
-       `${CURL}?linkedin_profile_url=${encodeURIComponent(linkedInProfile.link)}`,
+       `${CURL}?linkedin_profile_url=${encodeURIComponent(linkedInProfile.link)}`, // Standard ProxyCurl URL
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } }
      );
+   
      if (!curlResponse.ok) {
        const errorText = await curlResponse.text();
        throw new Error(`ProxyCurl error! status: ${curlResponse.status}, body: ${errorText}`);
@@ -215,10 +228,72 @@
      const jobTimeline = (proxyCurlData.experiences ?? []).map(e =>
        `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`);
    
-     // 5. Prepare source list for scraping and LLM
-     const uniqueSerpResults = Array.from(new Map(allSerpResults.map(item => [item.link, item])).values());
-     
-     const finalSourcesInput: SerpResult[] = [linkedInProfile!, ...uniqueSerpResults] // MODIFIED: let -> const, added ! to linkedInProfile
+     // 5. Prepare source list for scraping and LLM (NUANCED PRIORITIZATION LOGIC)
+     const significantOrgNames: string[] = [org];
+     proxyCurlData.experiences?.forEach(exp => {
+         if (exp.company && !significantOrgNames.some(o => normalizeOrgName(o) === normalizeOrgName(exp.company!))) {
+             significantOrgNames.push(exp.company);
+         }
+     });
+     const normalizedSignificantOrgNames = significantOrgNames.map(normalizeOrgName).filter(name => name.length > 1);
+   
+     const allInitiallyDedupedSerpResults = Array.from(new Map(allSerpResults.map(item => [item.link, item])).values());
+     const otherSerpResults = allInitiallyDedupedSerpResults.filter(s => s.link !== linkedInProfile!.link);
+   
+     const achievementKeywords = ["award", "prize", "honor", "recognition", "achievement", "speaker", "panelist", "webinar", "conference", "presentation", "author", "published", "paper", "study", "interview", "keynote", "medal", "fellowship", "laureate", "bio", "profile", "executive profile"];
+   
+     const category1_LinkedIn = [linkedInProfile!];
+     const category2_AchievementsWithAnyListedOrg: SerpResult[] = [];
+     const category3_MentionsWithAnyListedOrg: SerpResult[] = [];
+     const category4_GeneralAchievements: SerpResult[] = [];
+     const category5_OtherSources: SerpResult[] = [];
+   
+     const personNameKeywords = name.toLowerCase().split(' ').filter(n => n.length > 2);
+   
+     otherSerpResults.forEach(s => {
+         if (!s || !s.link || !s.title) {
+             if(s) category5_OtherSources.push(s);
+             return;
+         }
+   
+         const linkText = `${s.title.toLowerCase()} ${s.snippet?.toLowerCase() || ''} ${s.link.toLowerCase()}`;
+         const nameInLinkText = personNameKeywords.some(namePart => linkText.includes(namePart));
+   
+         if (!nameInLinkText) {
+             category5_OtherSources.push(s);
+             return;
+         }
+   
+         let isAchievementRelated = achievementKeywords.some(keyword => linkText.includes(keyword));
+         let mentionedOrgNormalized: string | null = null;
+   
+         for (const normOrgName of normalizedSignificantOrgNames) {
+             if (normOrgName && linkText.includes(normOrgName)) {
+                 mentionedOrgNormalized = normOrgName;
+                 break;
+             }
+         }
+   
+         if (isAchievementRelated && mentionedOrgNormalized) {
+             category2_AchievementsWithAnyListedOrg.push(s);
+         } else if (mentionedOrgNormalized) {
+             category3_MentionsWithAnyListedOrg.push(s);
+         } else if (isAchievementRelated) {
+             category4_GeneralAchievements.push(s);
+         } else {
+             category5_OtherSources.push(s);
+         }
+     });
+   
+     const thoughtfullyPrioritizedList: SerpResult[] = [
+         ...category1_LinkedIn,
+         ...category2_AchievementsWithAnyListedOrg,
+         ...category3_MentionsWithAnyListedOrg,
+         ...category4_GeneralAchievements,
+         ...category5_OtherSources
+     ];
+   
+     const finalSourcesInput: SerpResult[] = thoughtfullyPrioritizedList
          .filter((s, i, self) => s && s.link && self.findIndex(t => t.link === s.link) === i)
          .slice(0, MAX_SRC);
    
@@ -226,14 +301,15 @@
      const extracts: string[] = [];
      for (const s of finalSourcesInput) {
        if (s.link.includes("linkedin.com/in/")) {
-         extracts.push(`LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,3).join("; ")}`);
+         let linkedInExtract = `LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,5).join("; ")}.`;
+         extracts.push(linkedInExtract);
        } else {
          try {
            const firecrawlResult = await postJSON<FirecrawlScrapeResult>(
              FIRE, { url: s.link, page_options: { only_main_content: true, include_html: false } },
              { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
            );
-           extracts.push((firecrawlResult.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 2500));
+           extracts.push((firecrawlResult.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 3000));
          } catch (scrapeError: unknown) {
            const errorMessage = scrapeError instanceof Error ? scrapeError.message : "An unknown error occurred";
            console.warn(`Failed to scrape ${s.link}: ${errorMessage}`);
@@ -256,21 +332,21 @@
      const example = `// GOOD EXAMPLE OF STRUCTURE AND CONTENT STYLE:
    {
      "executive":[
-       {"text":"Sales Director at Flashpoint since 2024, previously Performance Analyst at SIGAR. Over 12 years of threat-intelligence experience. Holds a B.A. in International Affairs from The George Washington University.","source":1}
+       {"text":"Sales Director at Flashpoint since 2024, previously Performance Analyst at SIGAR where he co-received a CIGIE Audit Excellence award. Over 12 years of threat-intelligence experience. Holds a B.A. in International Affairs from The George Washington University.","source":1}
      ],
      "highlights":[
        {"text":"Co-recipient of a CIGIE Audit Excellence award for uncovering improper taxes while at SIGAR.","source":3},
-       {"text":"Speaker on Flashpoint webinar 'Retail Security Unwrapped: Strategies to Prevent Retail Theft and Fraud'.","source":1},
-       {"text":"Mentioned in connection with Flashpoint's work on mitigating executive risks.","source":2}
+       {"text":"Speaker on Flashpoint webinar 'Retail Security Unwrapped: Strategies to Prevent Retail Theft and Fraud'.","source":2},
+       {"text":"Authored a study on geopolitical risk factors impacting supply chains during his tenure at a prior advisory firm.","source":4}
      ],
      "funFacts":[
        {"text":"Published a GWU study-abroad travel journal from Costa Rica.","source":6},
-       {"text":"Active on X (formerly Twitter) with handle @rheger7, tweeting about cybersecurity and sports.","source":7}
+       {"text":"Active on X (formerly Twitter) with handle @rheger7, tweeting about cybersecurity and international affairs.","source":7}
      ],
      "researchNotes":[
+       {"text":"The CIGIE award recognized work related to financial oversight in Afghanistan reconstruction efforts.","source":3},
        {"text":"Flashpoint’s sales function targets Fortune 500 security, fraud, and intel teams.","source":5},
-       {"text":"One webinar topic included 'Key retail theft and fraud trends to monitor and prepare for this holiday season'.","source":1},
-       {"text":"Conversation starter: Ask about key takeaways from his 'Think Like a Threat Actor: How To Mitigate Executive Risks' webinar.","source":2}
+       {"text":"Conversation starter: Ask about the key challenges in transitioning from public sector analysis (SIGAR) to private sector threat intelligence sales (Flashpoint).","source":1}
      ]
    }
    // Ensure all text fields are plain sentences and correctly cite a source.`;
@@ -278,40 +354,37 @@
      const prompt = `
    Return **only** JSON matching the template.
    The "text" field MUST be a plain sentence or concise statement. Do not use markdown (e.g., bolding, italics, lists) within the "text" field.
-   All years should be in<y_bin_46> format.
+   All years should be in YYYY format.
    
    RULE A: "text" MUST NOT contain the word "source", brackets, or parenthetical
            numbers referring to sources (e.g., "(source 3)") inside the text itself. The source number is a separate field.
    RULE B: Each array item MUST have both "text" (plain sentence) and "source"
            (1-based index of SOURCE_N from the ### SOURCES block).
    RULE C: Base all information strictly on the provided ### SOURCES. Do not invent or infer information beyond what is stated. If a detail isn't in the sources, do not include it.
-   RULE D: Use the ### EMPLOYMENT TIMELINE for context and factual data for roles, companies, and dates when synthesizing the executive summary or job history details.
+   RULE D: Use the ### EMPLOYMENT TIMELINE for context and factual data for roles, companies, and dates when synthesizing the executive summary or job history details. Prioritize achievements and specific contributions from ANY relevant past or current role if found in sources.
    
    ### DETAILED INSTRUCTIONS FOR EACH JSON FIELD:
    
    * **"executive"**: Create a concise overview (around 2-4 key sentences). Include:
-       * Current role, company, and start year (e.g., "Sales Director at Flashpoint since 2024").
-       * Brief mention of 1-2 significant prior roles and their companies (e.g., "previously Performance Analyst at SIGAR").
-       * If explicitly mentioned and clearly attributable, total years of relevant experience (e.g., "Over 12 years of threat-intelligence experience.").
-       * One or two very significant, specific achievements or recognitions if clearly stated in sources (e.g., "Co-recipient of a CIGIE Audit Excellence award...").
-       * Highest relevant education degree and university if clearly stated in sources like LinkedIn, official bios, or alumni pages (e.g., "Holds a B.A. in International Affairs from The George Washington University.").
+       * Current role, company, and start year.
+       * Briefly mention 1-2 significant prior roles and their companies, especially if associated with a key achievement found in sources (e.g., "previously Performance Analyst at SIGAR where he co-received a CIGIE Audit Excellence award").
+       * If explicitly mentioned, total years of relevant experience.
+       * One or two very significant, specific achievements or recognitions from any point in their career if clearly stated in sources.
+       * Highest relevant education degree and university.
    
-   * **"highlights"**: List specific notable professional achievements, skills, and industry engagement. Aim for distinct points.
-       * Specific awards or honors received with context (e.g., "CIGIE Audit Excellence awardee for uncovering multimillion-dollar tax overcharges..."). **Scan sources from targeted searches for award mentions, news articles, or bio pages.**
-       * Unique or specialized skills/expertise if explicitly highlighted with clear context.
-       * Significant projects, publications (e.g., "Published a study on X topic" or "Authored paper on Y subject"). **Check sources for author profiles, publication lists, or research mentions.**
-       * Specific examples of industry engagement such as speaking roles at conferences/webinars (including event name and specific topic if available), or panel participation. (e.g., "Speaker on Flashpoint webinar 'Retail Security Unwrapped' covering retail theft and fraud trends."). Do not just say "active industry presence"; give the specific example and topic if found. **Scan sources for terms like "speaker," "panelist," "presentation," "webinar," and extract the event and topic.**
+   * **"highlights"**: List specific notable professional achievements, skills, and industry engagement from any point in their career. Aim for distinct points.
+       * Specific awards or honors received with context (e.g., "CIGIE Audit Excellence awardee for work at SIGAR..."). **Scan all sources, especially those prioritized for achievements, for these details.**
+       * Significant projects, publications (e.g., "Authored paper on Y subject while at Z company").
+       * Specific examples of industry engagement such as speaking roles (event name, topic, and associated organization if available).
    
    * **"funFacts"**: List unique personal details, non-professional achievements, or explicitly stated public social media presence.
-       * Specific hobbies, interests, or personal publications not directly tied to core professional work (e.g., "Published a GWU study-abroad travel journal..."). **Look for these in personal blogs, university alumni notes, or less formal profiles if found by targeted searches.**
-       * Publicly stated social media presence IF a specific handle AND platform are explicitly mentioned in the sources (e.g., "Active on X (formerly Twitter) with handle @username, tweets about [topics]."). If no handle or platform is found, or if it's just a list of names on a generic social site, do not include it. **Prioritize finding actual handles and activity topics from profile pages or clear social media mentions.**
-       * Other unique, publicly available, and light-hearted facts suitable for a professional brief, if clearly sourced.
+       * Specific hobbies, interests, or personal publications.
+       * Publicly stated social media presence IF a specific handle AND platform AND general topic of discussion are explicitly mentioned.
    
    * **"researchNotes"**: Provide deeper context, supporting details for claims, and potential insights.
-       * More detailed responsibilities or context for current/past key roles if available and insightful.
-       * Relevant context about their current company or team's focus, or market positioning, if available (e.g., "Flashpoint’s sales function targets Fortune 500 security...").
-       * Specific recent professional activities (from the last 1-2 years, if dates are available) not already covered in "highlights," including topics of discussions or contributions. (e.g., "Participated in 'Think Like a Threat Actor' webinar covering executive threat landscape.").
-       * Potential conversation starters that are directly and reasonably inferred from specific, factual information found in the sourced material. (e.g., "Conversation starter: Ask about key takeaways from their 'Retail Security Unwrapped' webinar." or "Conversation starter: Inquire about their experience with [Specific Award/Project]."). Frame these as suggestions and ensure they are tied to concrete details from the sources. Avoid generic starters.
+       * More detailed context for key achievements or roles (current or past).
+       * Relevant context about their current company's focus, or significant past projects/initiatives.
+       * Potential conversation starters based on specific, factual information found (e.g., relating to a past award, a significant project, or a transition between notable roles).
    
    ${example}
    
