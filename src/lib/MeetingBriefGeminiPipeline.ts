@@ -16,7 +16,7 @@ const MAX_LINKS          = 15;
 const MAX_FACTS          = 40;
 const FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape";
 const SERPER_ENDPOINT    = "https://google.serper.dev/search";
-const PROXYCURL_PROFILE  = "https://api.proxycurl.com/api/v2/linkedin";
+const PROXYCURL_PROFILE  = "https://nubela.co/proxycurl/api/v2/linkedin";
 
 /*────────────────────  TYPES  */
 export interface Citation {
