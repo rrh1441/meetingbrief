@@ -264,7 +264,7 @@
              return;
          }
    
-         let isAchievementRelated = achievementKeywords.some(keyword => linkText.includes(keyword));
+         const isAchievementRelated = achievementKeywords.some(keyword => linkText.includes(keyword));
          let mentionedOrgNormalized: string | null = null;
    
          for (const normOrgName of normalizedSignificantOrgNames) {
@@ -301,7 +301,7 @@
      const extracts: string[] = [];
      for (const s of finalSourcesInput) {
        if (s.link.includes("linkedin.com/in/")) {
-         let linkedInExtract = `LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,5).join("; ")}.`;
+         const linkedInExtract = `LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,5).join("; ")}.`;
          extracts.push(linkedInExtract);
        } else {
          try {
@@ -463,3 +463,4 @@
        })),
      };
    }
+   
