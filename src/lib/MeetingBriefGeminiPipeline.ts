@@ -30,7 +30,7 @@
 
    /* ── TYPES ---------------------------------------------------------------- */
    interface Serp { title: string; link: string; snippet?: string }
-   interface Fire { article?: { text_content?: string } } // Adjusted based on usage
+   interface Fire { article?: { text_content?: string } }
    interface Ymd  { year?: number }
    interface Exp  { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd }
    interface Curl { headline?: string; experiences?: Exp[] }
@@ -64,12 +64,12 @@
      url : string,
      body: unknown,
      hdr : Record<string, string>,
-   ): Promise<T> => // Added return type Promise<T> for clarity
+   ): Promise<T> =>
      fetch(url,{
        method :"POST",
        headers:{ ...hdr, "Content-Type":"application/json" },
        body   : JSON.stringify(body),
-     }).then(async r => { // made async to await r.json()
+     }).then(async r => {
          if (!r.ok) {
              const errorText = await r.text();
              throw new Error(`HTTP error! status: ${r.status}, body: ${errorText}`);
@@ -77,36 +77,27 @@
          return r.json() as Promise<T>;
      });
 
-   const yr   = (d?:Ymd|null): string =>d?.year?.toString() ?? "?"; // Explicit string return
-   const span = (s?:Ymd|null,e?:Ymd|null): string =>`${yr(s)} – ${e?yr(e):"Present"}`; // Explicit string return
-   const toks = (s:string): number =>Math.ceil(s.length/4); // Token approximation
+   const yr   = (d?:Ymd|null): string =>d?.year?.toString() ?? "?";
+   const span = (s?:Ymd|null,e?:Ymd|null): string =>`${yr(s)} – ${e?yr(e):"Present"}`;
+   const toks = (s:string): number =>Math.ceil(s.length/4);
 
-   // Cleans "source N" from text, important for AI output
    const clean = (t:string): string =>
      t.replace(/\s*\(?\bsource\s*\d+\)?/gi,"").trim();
 
    /* ── HTML RENDER ---------------------------------------------------------- */
 
-   /**
-    * Formats an array of Row objects into an HTML unordered list.
-    * Each list item includes text and a superscripted citation link.
-    */
    const formatHtmlBullets = (rows: Row[], cites: Citation[]): string => {
      if (!rows || rows.length === 0) {
-       return ""; // Return empty string if no rows, rather than just undefined behavior for map
+       return "";
      }
      const listItems = rows.map(r => {
-       const citation = cites[r.source - 1]; // 0-indexed access
-       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`; // Fallback if citation not found
+       const citation = cites[r.source - 1];
+       const citationLink = citation ? `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>` : `<sup>[source ${r.source}]</sup>`;
        return `  <li>${clean(r.text)} ${citationLink}</li>`;
      }).join("\n");
      return `<ul>\n${listItems}\n</ul>`;
    };
 
-   /**
-    * Formats an array of Row objects into a series of HTML paragraphs.
-    * Each paragraph includes text and a superscripted citation link.
-    */
    const formatHtmlSentences = (rows: Row[], cites: Citation[]): string => {
      if (!rows || rows.length === 0) {
        return "";
@@ -118,9 +109,6 @@
      }).join("\n");
    };
 
-   /**
-    * Formats the employment timeline into an HTML unordered list for Job History.
-    */
    const formatHtmlJobHistory = (timelineItems: string[]): string => {
      if (!timelineItems || timelineItems.length === 0) {
        return "<p>No job history available.</p>";
@@ -129,21 +117,17 @@
      return `<ul>\n${listItems}\n</ul>`;
    };
 
-   /**
-    * Renders the meeting brief data directly into an HTML string.
-    */
    function renderToHtml(
      name: string,
      org: string,
      jsonData: JsonBrief,
      citations: Citation[],
-     jobTimelineData: string[] // Renamed for clarity
+     jobTimelineData: string[]
    ): string {
-     const emptyParagraphForSpacing = "<p>&nbsp;</p>"; // Uses non-breaking space to ensure paragraph isn't collapsed
+     const emptyParagraphForSpacing = "<p>&nbsp;</p>";
 
-     // Combine Highlights and Fun Facts from jsonData
      const combinedHighlightsAndFunFacts: Row[] = [
-       ...(jsonData.highlights || []), // Ensure these are not undefined before spreading
+       ...(jsonData.highlights || []),
        ...(jsonData.funFacts || [])
      ];
 
@@ -162,7 +146,7 @@ ${formatHtmlBullets(combinedHighlightsAndFunFacts, citations)}
 ${emptyParagraphForSpacing}
   <h3><strong>Detailed Research Notes</strong></h3>
 ${formatHtmlBullets(jsonData.researchNotes, citations)}
-</div>`.trim().replace(/^\s*\n/gm, ""); // Clean up leading whitespace on new lines from template literal
+</div>`.trim().replace(/^\s*\n/gm, "");
    }
 
    /* ── MAIN ----------------------------------------------------------------- */
@@ -187,7 +171,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      /* 3 ── ProxyCurl ------------------------------------------------------ */
      const curlResponse = await fetch(
        `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
-       { headers:{ Authorization:`Bearer ${PROXYCURL_KEY!}` } } // Added non-null assertion for PROXYCURL_KEY
+       { headers:{ Authorization:`Bearer ${PROXYCURL_KEY!}` } }
      );
      if (!curlResponse.ok) {
         const errorText = await curlResponse.text();
@@ -200,7 +184,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
        `${e.title??"Role"} — ${e.company??"Company"} (${span(e.starts_at, e.ends_at)})`);
 
      /* 4 ── Source list ---------------------------------------------------- */
-     const sources: Serp[] = [li, ...serp] // Explicitly type sources
+     const sources: Serp[] = [li, ...serp]
        .filter((s,i,self)=>self.findIndex(t=>t.link===s.link)===i)
        .slice(0, MAX_SRC);
 
@@ -211,14 +195,18 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
          extracts.push(`LinkedIn headline: ${curl.headline??"N/A"}. Profile URL: ${s.link}`);
        }else{
          try {
-           const art = await postJSON<Fire>( // Ensure Fire type is correctly defined for what Firecrawl returns
-             FIRE,{ url:s.link, page_options: { only_main_content: true } }, // Added page_options as it's common for Firecrawl
-             { Authorization:`Bearer ${FIRECRAWL_KEY!}` } // Added non-null assertion
+           const art = await postJSON<Fire>(
+             FIRE,{ url:s.link, page_options: { only_main_content: true } },
+             { Authorization:`Bearer ${FIRECRAWL_KEY!}` }
            );
            extracts.push((art.article?.text_content ?? `${s.title}. ${s.snippet??""}`).slice(0,1500));
-         } catch (scrapeError: any) { // Typed scrapeError
-           console.warn(`Failed to scrape ${s.link}:`, scrapeError.message);
-           extracts.push(`${s.title}. ${s.snippet??""} (Content not fully scraped).`); // Fallback
+         } catch (scrapeError: unknown) { // MODIFIED: any to unknown
+           if (scrapeError instanceof Error) {
+             console.warn(`Failed to scrape ${s.link}: ${scrapeError.message}`);
+           } else {
+             console.warn(`Failed to scrape ${s.link}: An unknown error occurred`);
+           }
+           extracts.push(`${s.title}. ${s.snippet??""} (Content not fully scraped).`);
          }
        }
      }
@@ -239,7 +227,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
     "executive":[
       {"text":"Sales Director at Flashpoint since 2024 based on provided employment timeline.","source":1}
     ]
-   }`; // Updated example to reflect potential AI use of timeline
+   }`;
 
      const prompt = `
    Return **only** JSON matching the template.
@@ -268,7 +256,7 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      /* 7 ── LLM call ------------------------------------------------------- */
      const resp = await ai.chat.completions.create({
        model: MODEL_ID,
-       temperature: 0.1, // Slightly increased for less deterministic but still factual output
+       temperature: 0.1,
        response_format:{ type:"json_object"},
        messages:[{ role:"user", content:prompt }],
      });
@@ -279,23 +267,24 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
        if (!content) throw new Error("AI returned empty content");
        j = JSON.parse(content);
      }
-     catch(e: any){ // Typed error
+     catch(e: unknown){ // MODIFIED: any to unknown
        console.error("Bad JSON from AI:", resp.choices[0]?.message?.content ?? "No content in response");
-       console.error("Error parsing JSON:", e.message);
-       // Fallback: create a dummy JsonBrief to prevent downstream errors
+       if (e instanceof Error) {
+         console.error("Error parsing JSON:", e.message);
+       } else {
+         console.error("Error parsing JSON: An unknown error occurred");
+       }
        j = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
-       // Optionally, re-throw or handle more gracefully:
-       // throw new Error("Failed to parse AI response as JSON.");
      }
 
      /* 8 ── Validate / dedupe --------------------------------------------- */
      const fix = (rows?:Row[]): Row[] => {
-       if (!rows || !Array.isArray(rows)) return []; // Check if rows is an array
+       if (!rows || !Array.isArray(rows)) return [];
        return Array.from(
          new Map(
            rows
              .filter(r => r && typeof r.text === 'string' && r.text.trim() !== "" && typeof r.source === 'number' && r.source >= 1 && r.source <= sources.length)
-             .map(r => [clean(r.text).toLowerCase(), { text: clean(r.text), source: r.source }]) // Dedupe case-insensitively
+             .map(r => [clean(r.text).toLowerCase(), { text: clean(r.text), source: r.source }])
          ).values()
        );
      }
@@ -305,12 +294,12 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
      j.funFacts      = fix(j.funFacts);
      j.researchNotes = fix(j.researchNotes);
 
-     /* 9 ── Citations (still useful for linking and context) --------------- */
+     /* 9 ── Citations ------------------------------------------------------ */
      const finalCitations: Citation[] = sources.map((s,i)=>({
-       marker : `[${i+1}]`, // Retained for potential other uses or debugging
+       marker : `[${i+1}]`,
        url    : s.link,
        title  : s.title,
-       snippet: extracts[i], // The snippet here is the scraped text used for AI
+       snippet: extracts[i],
      }));
 
      /*10 ── HTML Generation ------------------------------------------------ */
@@ -318,10 +307,10 @@ ${formatHtmlBullets(jsonData.researchNotes, citations)}
 
      /*11 ── Payload -------------------------------------------------------- */
      return {
-       brief : htmlBrief, // This is now HTML
+       brief : htmlBrief,
        citations: finalCitations,
-       tokens: toks(prompt)+toks(htmlBrief), // Token count on the generated HTML
-       searches: 2, // Updated to reflect two Serper calls (initial + LinkedIn specific if needed)
+       tokens: toks(prompt)+toks(htmlBrief),
+       searches: 2,
        searchResults: sources.map((s,i)=>({url:s.link,title:s.title,snippet:extracts[i]})),
      };
    }
