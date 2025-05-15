@@ -71,10 +71,6 @@
    const span = (s?:Ymd|null,e?:Ymd|null)=>`${year(s)} – ${e?year(e):"Present"}`;
    const tokenCount = (s:string)=>Math.ceil(s.length/4);
    
-   /* ── SANITISER ------------------------------------------------------------ */
-   const cleanse = (txt: string) =>
-     txt.replace(/\s*\(?\bsource\s*\d+\)?/gi, "").trim();
-   
    /* ── RENDERER ------------------------------------------------------------- */
    function render(
      json    : JsonBrief,
@@ -82,19 +78,18 @@
      timeline: string[],
    ): string {
    
-     const sup = (n:number)=>
-       `<sup><a href="${cites[n].url}" target="_blank" rel="noopener noreferrer">${n+1}</a></sup>`;
+     const sup = (n:number)=>`<sup><a href="${cites[n].url}" target="_blank" rel="noopener noreferrer">${n+1}</a></sup>`;
    
      const norm = (x: JsonOrStr, idx:number): JsonItem =>
        typeof x === "string"
-         ? { text: cleanse(x), source: idx }
-         : { text: cleanse(x?.text ?? ""), source: x?.source ?? idx };
+         ? { text: x, source: idx }
+         : { text: x?.text ?? "", source: x?.source ?? idx };
    
      const bullets = (arr: JsonOrStr[]) => {
        const rows = arr
          .map(norm)
-         .filter(({text})=>text.length)
-         .map(({text,source})=>`* ${text} ${sup(source)}`);
+         .filter(({text})=>text.trim().length)
+         .map(({text,source})=>`* ${text.trim()} ${sup(source)}`);
        return rows.length ? rows.join("\n") : "* _No data available_";
      };
    
@@ -135,7 +130,7 @@
      );
      const serp = serp1.organic ?? [];
    
-     /* 2 ── LinkedIn profile ---------------------------------------------- */
+     /* 2 ── LinkedIn first ------------------------------------------------- */
      const linkedin = serp.find(s=>s.link.includes("linkedin.com/in/")) ??
        (await postJSON<{organic?:Serp[]}>(
          SERPER, { q:`${name} linkedin`, num:3 }, { "X-API-KEY":SERPER_KEY! }))
@@ -165,7 +160,7 @@
        } else {
          const art = await postJSON<Fire>(
            FIRE, { url:s.link, simulate:false },
-           { Authorization:`Bearer ${FIRECRAWL_KEY}` },
+           { Authorization:`Bearer ${FIRECRAWL_KEY}` }
          );
          extracts.push((art.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0,1500));
        }
@@ -182,23 +177,8 @@
      "researchNotes":[{"text":"","source":0}]
    }`;
    
-     const goodExample = `// GOOD EXAMPLE
-   {
-     "executive": [
-       { "text": "Sales Director at Flashpoint since 2024", "source": 1 }
-     ]
-   }`;
-   
      const prompt = `
    Return **only** valid JSON matching the template.
-   
-   RULE A  The "text" field MUST NOT contain any words like "source", "src",
-           citation markers, brackets, or numbers in parentheses.
-   
-   RULE B  The "text" field is plain prose only; citation goes ONLY in the
-           separate "source" number.
-   
-   ${goodExample}
    
    ### EMPLOYMENT TIMELINE
    ${timeline.join("\n")}
@@ -209,7 +189,12 @@
    ### TEMPLATE
    \`\`\`json
    ${template}
-   \`\`\``.trim();
+   \`\`\`
+   
+   Rules:
+   • Use only timeline or sources.  
+   • Every list item cites "source" (1-based).  
+   • No invented facts.`.trim();
    
      const chat = await ai.chat.completions.create({
        model: MODEL_ID,
@@ -221,8 +206,8 @@
      let data: JsonBrief;
      try{
        data = JSON.parse(chat.choices[0].message.content!);
-     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     }catch(err:any){
+     }catch(err){
+       /* ←–––––––––– err now referenced so ESLint no-unused-vars is happy */
        console.error("JSON parse error:", err);
        throw new Error("LLM returned malformed JSON");
      }
