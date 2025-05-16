@@ -3,13 +3,13 @@
    --------------------------------------------------------------------------
    HARD CONTRACT
    ─ model returns only:
-        { executive: [], highlights: [], funFacts: [], researchNotes: [] }
+        { executive: [], highlights: [], funFacts: [], socialLinks: [], researchNotes: [] }
    ─ each element { text: string, source: number }
    ─ no headings, no prose, no “source 3” strings inside text
    ------------------------------------------------------------------------ */
 
    import OpenAI from "openai";
-   import fetch from "node-fetch"; // Ensure 'node-fetch' and '@types/node-fetch' are installed
+   import fetch from "node-fetch";
    
    export const runtime = "nodejs";
    
@@ -26,50 +26,36 @@
    const SERPER = "https://google.serper.dev/search";
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
-   const MAX_SRC = 15; // Max sources passed to the LLM
-   const FIRECRAWL_SKIP_SUBSTRINGS = [
+   const MAX_SRC = 15;
+   
+   /* ── DOMAINS TO SHORT-CIRCUIT -------------------------------------------- */
+   const SOCIAL_SUBSTRINGS = ["instagram.com/", "facebook.com/", "fb.com/"];
+   const GENERIC_SKIP_SUBSTRINGS = [
      "youtube.com/",
      "youtu.be/",
      "x.com/",
      "twitter.com/",
      "reddit.com/",
      "linkedin.com/pulse/",
+     "linkedin.com/posts/",
    ];
+   const NO_SCRAPE = [...SOCIAL_SUBSTRINGS, ...GENERIC_SKIP_SUBSTRINGS];
    
    /* ── TYPES ---------------------------------------------------------------- */
-   interface SerpResult {
-     title: string;
-     link: string;
-     snippet?: string;
-   }
-   interface FirecrawlScrapeResult {
-     article?: { text_content?: string };
-   }
-   interface Ymd {
-     year?: number;
-   }
-   interface LinkedInExperience {
-     company?: string;
-     title?: string;
-     starts_at?: Ymd;
-     ends_at?: Ymd;
-   }
-   interface ProxyCurlResult {
-     headline?: string;
-     experiences?: LinkedInExperience[];
-   }
+   interface SerpResult { title: string; link: string; snippet?: string }
+   interface FirecrawlScrapeResult { article?: { text_content?: string } }
+   interface Ymd { year?: number }
+   interface LinkedInExperience { company?: string; title?: string; starts_at?: Ymd; ends_at?: Ymd }
+   interface ProxyCurlResult { headline?: string; experiences?: LinkedInExperience[] }
    
-   interface BriefRow {
-     text: string;
-     source: number;
-   }
+   interface BriefRow { text: string; source: number }
    interface JsonBrief {
      executive: BriefRow[];
      highlights: BriefRow[];
      funFacts: BriefRow[];
+     socialLinks: BriefRow[];
      researchNotes: BriefRow[];
    }
-   
    export interface Citation {
      marker: string;
      url: string;
@@ -82,6 +68,7 @@
      tokens: number;
      searches: number;
      searchResults: { url: string; title: string; snippet: string }[];
+     possibleSocialLinks: string[];
    }
    
    /* ── HELPERS -------------------------------------------------------------- */
@@ -97,33 +84,21 @@
        headers: { ...hdr, "Content-Type": "application/json" },
        body: JSON.stringify(body),
      }).then(async (r) => {
-       if (!r.ok) {
-         const text = await r.text();
-         throw new Error(`HTTP ${r.status} – ${text} – ${url}`);
-       }
+       if (!r.ok) throw new Error(`HTTP ${r.status} – ${await r.text()}`);
        return r.json() as Promise<T>;
      });
    
-   const yr = (d?: Ymd | null): string => d?.year?.toString() ?? "?";
-   const span = (s?: Ymd | null, e?: Ymd | null): string =>
-     `${yr(s)} – ${e ? yr(e) : "Present"}`;
+   const yr = (d?: Ymd): string => d?.year?.toString() ?? "?";
+   const span = (s?: Ymd, e?: Ymd): string => `${yr(s)} – ${e ? yr(e) : "Present"}`;
    const toks = (s: string): number => Math.ceil(s.length / 4);
-   const clean = (t: string): string =>
-     t.replace(/\s*\(?\bsource\s*\d+\)?/gi, "").trim();
+   const clean = (t: string) => t.replace(/\s*\(?\bsource\s*\d+\)?/gi, "").trim();
+   const normalize = (c: string) =>
+     c.toLowerCase()
+       .replace(/[,.]?\s*(inc|llc|ltd|gmbh|corp|corporation|limited|company|co)\s*$/i, "")
+       .replace(/[.,]/g, "")
+       .trim();
    
-   const normalizeOrgName = (company: string): string =>
-     company
-       ? company
-           .toLowerCase()
-           .replace(
-             /[,.]?\s*(inc|llc|ltd|gmbh|corp|corporation|limited|company|co)\s*$/i,
-             "",
-           )
-           .replace(/[.,]/g, "")
-           .trim()
-       : "";
-   
-   /* ── Firecrawl wrapper (10-s timeout) ------------------------------------ */
+   /* ── Firecrawl wrapper (15-s timeout) ------------------------------------ */
    const scrapeWithTimeout = (url: string) =>
      Promise.race([
        postJSON<FirecrawlScrapeResult>(
@@ -132,252 +107,188 @@
          { Authorization: `Bearer ${FIRECRAWL_KEY!}` },
        ),
        new Promise<never>((_, reject) =>
-         setTimeout(() => reject(new Error("timeout")), 10_000),
+         setTimeout(() => reject(new Error("timeout")), 15_000),
        ),
      ]) as Promise<FirecrawlScrapeResult>;
    
-   /* ── HTML RENDER ---------------------------------------------------------- */
-   const formatHtmlSentences = (rows: BriefRow[], cites: Citation[]): string =>
-     rows
-       .map((r) => {
-         const c = cites[r.source - 1];
-         const sup = c
-           ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
-           : `<sup>[${r.source}]</sup>`;
-         return `<p>${clean(r.text)} ${sup}</p>`;
-       })
-       .join("\n");
+   /* ── HTML helpers --------------------------------------------------------- */
+   const pSent = (rows: BriefRow[], cites: Citation[]) =>
+     rows.map(r => {
+       const c = cites[r.source - 1];
+       const sup = c
+         ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
+         : `<sup>[${r.source}]</sup>`;
+       return `<p>${clean(r.text)} ${sup}</p>`;
+     }).join("\n");
    
-   const formatHtmlList = (rows: BriefRow[], cites: Citation[]): string =>
-     rows.length === 0
-       ? ""
-       : `<ul class="list-disc pl-5">\n${rows
-           .map((r) => {
-             const c = cites[r.source - 1];
-             const sup = c
-               ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
-               : `<sup>[${r.source}]</sup>`;
-             return `  <li>${clean(r.text)} ${sup}</li>`;
-           })
-           .join("\n")}\n</ul>`;
+   const ulRows = (rows: BriefRow[], cites: Citation[]) =>
+     rows.length
+       ? `<ul class="list-disc pl-5">\n${rows.map(r => {
+           const c = cites[r.source - 1];
+           const sup = c
+             ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
+             : `<sup>[${r.source}]</sup>`;
+           return `  <li>${clean(r.text)} ${sup}</li>`;
+         }).join("\n")}\n</ul>`
+       : "";
    
-   const formatHtmlJobs = (jobs: string[]): string =>
+   const ulJobs = (jobs: string[]) =>
      jobs.length
-       ? `<ul class="list-disc pl-5">\n${jobs
-           .map((j) => `  <li>${j.startsWith("* ") ? j.slice(2) : j}</li>`)
-           .join("\n")}\n</ul>`
+       ? `<ul class="list-disc pl-5">\n${jobs.map(j => `  <li>${j}</li>`).join("\n")}\n</ul>`
        : "<p>No job history available.</p>";
    
-   function toHtml(
+   const toHtml = (
      name: string,
      org: string,
      data: JsonBrief,
      cites: Citation[],
      jobs: string[],
-   ): string {
-     const spacer = "<p>&nbsp;</p>";
+   ) => {
+     const s = "<p>&nbsp;</p>";
      return `
    <div>
      <h2><strong>Meeting Brief: ${name} – ${org}</strong></h2>
-   ${spacer}
-     <h3><strong>Executive Summary</strong></h3>
-   ${formatHtmlSentences(data.executive, cites)}
-   ${spacer}
-     <h3><strong>Job History</strong></h3>
-   ${formatHtmlJobs(jobs)}
-   ${spacer}
-     <h3><strong>Highlights & Fun Facts</strong></h3>
-   ${formatHtmlList([...data.highlights, ...data.funFacts], cites)}
-   ${spacer}
-     <h3><strong>Detailed Research Notes</strong></h3>
-   ${formatHtmlList(data.researchNotes, cites)}
+   ${s}<h3><strong>Executive Summary</strong></h3>
+   ${pSent(data.executive, cites)}
+   ${s}<h3><strong>Job History</strong></h3>
+   ${ulJobs(jobs)}
+   ${s}<h3><strong>Highlights & Fun Facts</strong></h3>
+   ${ulRows([...data.highlights, ...data.funFacts], cites)}
+   ${s}<h3><strong>Social Links (unverified)</strong></h3>
+   ${ulRows(data.socialLinks, cites)}
+   ${s}<h3><strong>Detailed Research Notes</strong></h3>
+   ${ulRows(data.researchNotes, cites)}
    </div>`.trim().replace(/^\s*\n/gm, "");
-   }
+   };
    
    /* ── MAIN ----------------------------------------------------------------- */
    export async function buildMeetingBriefGemini(
      name: string,
      org: string,
    ): Promise<MeetingBriefPayload> {
-     let serperQueryCount = 0;
-     const serpAll: SerpResult[] = [];
+     let serperCalls = 0;
+     const serp: SerpResult[] = [];
    
-     /* 1 — Serper searches */
-     const queries = [
+     /* 1 — Initial Serper queries */
+     const baseQs = [
        { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
-       {
-         q: `"${name}" (achievement OR award OR "published work" OR author OR speaker OR panelist OR presenter OR keynote OR moderator OR "conference presentation" OR webinar OR forum OR seminar OR workshop OR "about page" OR biography OR profile OR "attendee list" OR "presented at" OR chaired OR masterclass OR discussion OR summit OR symposium OR convener OR delegate OR "roundtable discussion")`,
-         num: 10,
-       },
-       {
-         q: `"${name}" "${org}" (interview OR profile OR news OR article OR "press release" OR "quoted in" OR featured OR announced OR statement OR commentary OR insights OR appointed OR partnership OR acquisition OR funding OR "thought leadership" OR "expert opinion")`,
-         num: 7,
-       },
-       {
-         q: `"${name}" (leads OR "industry expert" OR "discussion with" OR "roundtable on" OR develops OR launches OR "featured in article" OR "statement by" OR "opinion piece" OR "appointed to board")`,
-         num: 7,
-       },
-       {
-         q: `"${name}" (education OR university OR "X handle" OR "Twitter profile" OR "personal blog" OR hobbies)`,
-         num: 7,
-       },
+       { q: `"${name}" "${org}" (interview OR profile OR news OR "press release")`, num: 7 },
+       { q: `"${name}" (achievement OR award OR keynote OR webinar OR conference)`, num: 7 },
      ];
-   
-     for (const q of queries) {
+     for (const q of baseQs) {
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
            q,
            { "X-API-KEY": SERPER_KEY! },
          );
-         serperQueryCount++;
-         if (r.organic) serpAll.push(...r.organic);
+         serperCalls++;
+         if (r.organic) serp.push(...r.organic);
        } catch (e) {
-         console.warn(`Serper query failed: ${q.q}`, e);
+         console.warn("Serper error:", e);
        }
      }
    
-     /* 2 — LinkedIn */
-     let li = serpAll.find((s) => s.link.includes("linkedin.com/in/"));
+     /* 2 — LinkedIn profile */
+     let li = serp.find(s => s.link.includes("linkedin.com/in/"));
      if (!li) {
-       console.warn("LinkedIn not found, running dedicated search");
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
-           {
-             q: `"${name}" "linkedin.com/in/" OR "${name}" "${org}" linkedin`,
-             num: 5,
-           },
+           { q: `"${name}" "linkedin.com/in/"`, num: 5 },
            { "X-API-KEY": SERPER_KEY! },
          );
-         serperQueryCount++;
+         serperCalls++;
          if (r.organic?.length) {
-           li = r.organic.find((s) => s.link.includes("linkedin.com/in/")) ||
-             r.organic[0];
-           if (li && !serpAll.some((s) => s.link === li!.link)) serpAll.push(li);
+           li = r.organic[0];
+           serp.push(li);
          }
        } catch (e) {
-         console.warn("LinkedIn dedicated query failed", e);
+         console.warn("LinkedIn dedicated query error:", e);
        }
      }
      if (!li?.link) throw new Error(`LinkedIn profile not found for ${name}`);
    
-     /* 3 — ProxyCurl */
+     /* 3 — ProxyCurl (LinkedIn data) */
      const curlRes = await fetch(
        `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } },
      );
-     if (!curlRes.ok) {
-       throw new Error(
-         `ProxyCurl ${curlRes.status} – ${await curlRes.text()}`,
-       );
-     }
-     const curlData = (await curlRes.json()) as ProxyCurlResult;
-     const jobTimeline = (curlData.experiences ?? []).map((e) =>
-       `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`
+     if (!curlRes.ok) throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
+     const pc: ProxyCurlResult = await curlRes.json();
+   
+     const jobTimeline = (pc.experiences ?? []).map(
+       e => `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`,
      );
    
-     /* 4 — Prioritise Serp results */
-     const orgs = [org];
-     curlData.experiences?.forEach((e) => {
-       if (
-         e.company &&
-         !orgs.some((o) => normalizeOrgName(o) === normalizeOrgName(e.company!))
-       ) orgs.push(e.company);
-     });
-     const normOrgs = orgs.map(normalizeOrgName).filter(Boolean);
+     /* 4 — Extra Serper queries per LinkedIn company */
+     const companies = (pc.experiences ?? [])
+       .map(e => e.company)
+       .filter(Boolean)
+       .map(c => c!)
+       .filter(
+         (c, i, arr) =>
+           i === arr.findIndex(x => normalize(x) === normalize(c)) &&
+           normalize(c) !== normalize(org),
+       )
+       .slice(0, 3);
    
-     const dedup = Array.from(new Map(serpAll.map((s) => [s.link, s])).values());
-     const rest = dedup.filter((s) => s.link !== li.link);
-   
-     const ach = [
-       "award",
-       "prize",
-       "honor",
-       "recognition",
-       "achievement",
-       "speaker",
-       "panelist",
-       "webinar",
-       "conference",
-       "presentation",
-       "author",
-       "published",
-       "paper",
-       "study",
-       "interview",
-       "keynote",
-       "medal",
-       "fellowship",
-       "laureate",
-       "bio",
-       "profile",
-       "executive profile",
-     ];
-     const p1 = [li];
-     const p2: SerpResult[] = [];
-     const p3: SerpResult[] = [];
-     const p4: SerpResult[] = [];
-     const p5: SerpResult[] = [];
-   
-     const nameParts = name.toLowerCase().split(" ").filter((p) => p.length > 2);
-     rest.forEach((s) => {
-       if (!s?.title) {
-         p5.push(s);
-         return;
+     for (const c of companies) {
+       try {
+         const r = await postJSON<{ organic?: SerpResult[] }>(
+           SERPER,
+           { q: `"${name}" "${c}"`, num: 7 },
+           { "X-API-KEY": SERPER_KEY! },
+         );
+         serperCalls++;
+         if (r.organic) serp.push(...r.organic);
+       } catch (e) {
+         console.warn(`Serper company query error (${c}):`, e);
        }
-       const text = `${s.title} ${s.snippet ?? ""} ${s.link}`.toLowerCase();
-       if (!nameParts.some((p) => text.includes(p))) {
-         p5.push(s);
-         return;
-       }
-       const isAch = ach.some((k) => text.includes(k));
-       const orgHit = normOrgs.find((o) => text.includes(o));
-       if (isAch && orgHit) p2.push(s);
-       else if (orgHit) p3.push(s);
-       else if (isAch) p4.push(s);
-       else p5.push(s);
-     });
+     }
    
-     const sources: SerpResult[] = [...p1, ...p2, ...p3, ...p4, ...p5]
-       .filter((s, i, a) => a.findIndex((t) => t.link === s.link) === i)
+     /* 5 — Build final source list */
+     const dedup = Array.from(new Map(serp.map(s => [s.link, s])).values());
+     const sources = dedup
+       .filter(s => !NO_SCRAPE.some(sub => s.link.includes(sub)) || s.link.includes("linkedin.com/in/"))
        .slice(0, MAX_SRC);
    
-     /* 5 — Scrape with logs */
+     const possibleSocialLinks = dedup
+       .filter(s => SOCIAL_SUBSTRINGS.some(sub => s.link.includes(sub)))
+       .map(s => s.link);
+   
+     /* 6 — Scrape or short-circuit */
      const extracts: string[] = [];
      for (const s of sources) {
-       console.info("firecrawl-candidate:", s.link);
+       console.info("candidate:", s.link);
+   
        if (s.link.includes("linkedin.com/in/")) {
-         const extract =
-           `LinkedIn Profile for ${name}. Headline: ${curlData.headline ?? "N/A"}. ` +
-           `URL: ${s.link}. Experience: ${jobTimeline.slice(0, 5).join("; ")}.`;
-         extracts.push(extract);
-         console.info("firecrawl-skipped: LinkedIn — using ProxyCurl");
+         extracts.push(`LinkedIn headline: ${pc.headline ?? "N/A"}. URL: ${s.link}.`);
+         console.info("skipped scrape: LinkedIn profile");
          continue;
        }
-       if (FIRECRAWL_SKIP_SUBSTRINGS.some((sub) => s.link.includes(sub))) {
-         console.info("firecrawl-skipped:", s.link);
+   
+       if (NO_SCRAPE.some(sub => s.link.includes(sub))) {
          extracts.push(`${s.title}. ${s.snippet ?? ""}`);
+         console.info("skipped scrape:", s.link);
          continue;
        }
-       const start = Date.now();
+   
+       const t0 = Date.now();
        try {
          const fc = await scrapeWithTimeout(s.link);
-         console.info("firecrawl-ok:", s.link, Date.now() - start, "ms");
+         console.info("scrape OK:", s.link, Date.now() - t0, "ms");
          extracts.push(
-           (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(
-             0,
-             3000,
-           ),
+           (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 3000),
          );
-       } catch (err: unknown) {
+       } catch (err) {
          const msg = err instanceof Error ? err.message : String(err);
-         console.warn("firecrawl-err:", s.link, Date.now() - start, "ms", msg);
+         console.warn("scrape ERR:", s.link, Date.now() - t0, "ms", msg);
          extracts.push(`${s.title}. ${s.snippet ?? ""} (scrape failed)`);
        }
      }
    
-     /* 6 — Build prompt */
+     /* 7 — Prompt */
      const srcBlock = sources
        .map((s, i) => `SOURCE_${i + 1} URL: ${s.link}\nCONTENT:\n${extracts[i]}`)
        .join("\n\n---\n\n");
@@ -386,86 +297,77 @@
      "executive":[{"text":"","source":1}],
      "highlights":[{"text":"","source":1}],
      "funFacts":[{"text":"","source":1}],
+     "socialLinks":[{"text":"","source":1}],
      "researchNotes":[{"text":"","source":1}]
    }`;
    
-     const prompt = `
-   Return **only** JSON matching the template below.
+     const prompt = `Return ONLY JSON matching TEMPLATE.
    
    ### TEMPLATE
-   \`\`\`json
    ${template}
-   \`\`\`
    
    ### EMPLOYMENT TIMELINE
    ${jobTimeline.join("\n")}
    
    ### SOURCES
-   ${srcBlock}`.trim();
+   ${srcBlock}`;
    
-     /* 7 — LLM */
-     const resp = await ai.chat.completions.create({
+     /* 8 — LLM */
+     const llm = await ai.chat.completions.create({
        model: MODEL_ID,
        temperature: 0.1,
        response_format: { type: "json_object" },
        messages: [{ role: "user", content: prompt }],
      });
    
-     let briefJson: JsonBrief;
+     let data: JsonBrief = {
+       executive: [],
+       highlights: [],
+       funFacts: [],
+       socialLinks: [],
+       researchNotes: [],
+     };
      try {
-       const c = resp.choices[0].message.content;
-       if (!c) throw new Error("empty response");
-       briefJson = JSON.parse(c);
+       data = JSON.parse(llm.choices[0].message.content ?? "{}");
      } catch (e) {
        console.error("LLM JSON parse error", e);
-       briefJson = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
      }
    
-     /* 8 — Deduplicate */
-     const dedupRows = (rows?: BriefRow[]): BriefRow[] =>
+     /* 9 — Deduplicate rows */
+     const uniq = (rows?: BriefRow[]) =>
        Array.from(
          new Map(
-           (rows ?? [])
-             .filter(
-               (r) =>
-                 r &&
-                 r.text?.trim() !== "" &&
-                 typeof r.source === "number" &&
-                 r.source >= 1 &&
-                 r.source <= sources.length,
-             )
-             .map((r) => [clean(r.text).toLowerCase(), { ...r, text: clean(r.text) }]),
+           (rows ?? []).map(r => [clean(r.text).toLowerCase(), { ...r, text: clean(r.text) }]),
          ).values(),
        );
-     briefJson.executive = dedupRows(briefJson.executive);
-     briefJson.highlights = dedupRows(briefJson.highlights);
-     briefJson.funFacts = dedupRows(briefJson.funFacts);
-     briefJson.researchNotes = dedupRows(briefJson.researchNotes);
+     data.executive = uniq(data.executive);
+     data.highlights = uniq(data.highlights);
+     data.funFacts = uniq(data.funFacts);
+     data.socialLinks = uniq(data.socialLinks);
+     data.researchNotes = uniq(data.researchNotes);
    
-     /* 9 — Citations */
+     /* 10 — Citations */
      const citations: Citation[] = sources.map((s, i) => ({
        marker: `[${i + 1}]`,
        url: s.link,
        title: s.title,
-       snippet:
-         extracts[i].substring(0, 300) + (extracts[i].length > 300 ? "..." : ""),
+       snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
      }));
    
-     /* 10 — HTML */
-     const html = toHtml(name, org, briefJson, citations, jobTimeline);
+     /* 11 — HTML */
+     const htmlBrief = toHtml(name, org, data, citations, jobTimeline);
    
-     /* 11 — Payload */
+     /* 12 — Payload */
      return {
-       brief: html,
+       brief: htmlBrief,
        citations,
-       tokens: toks(prompt) + toks(JSON.stringify(briefJson)),
-       searches: serperQueryCount,
+       tokens: toks(prompt) + toks(JSON.stringify(data)),
+       searches: serperCalls,
        searchResults: sources.map((s, i) => ({
          url: s.link,
          title: s.title,
-         snippet:
-           extracts[i].substring(0, 300) +
-           (extracts[i].length > 300 ? "..." : ""),
+         snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
        })),
+       possibleSocialLinks,
      };
    }
