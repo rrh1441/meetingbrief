@@ -168,7 +168,7 @@
    ${pSent(json.executive, cites)}
    ${s}<h3><strong>Job History</strong></h3>
    ${ulJobs(jobs)}
-   ${s}<h3><strong>Highlights & Fun Facts</strong></h3>
+   ${s}<h3><strong>Highlights</strong></h3>
    ${ulRows([...json.highlights, ...json.funFacts], cites)}
    ${s}<h3><strong>Detailed Research Notes</strong></h3>
    ${ulRows(json.researchNotes, cites)}
