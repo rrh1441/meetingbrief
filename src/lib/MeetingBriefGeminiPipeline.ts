@@ -152,13 +152,6 @@
        ? `<ul class="list-disc pl-5">\n${jobs.map(j => `  <li>${j}</li>`).join("\n")}\n</ul>`
        : "<p>No job history available.</p>";
    
-   const ulSocial = (links: string[]): string =>
-     links.length
-       ? `<ul class="list-disc pl-5">\n${links
-           .map(l => `  <li><a href="${l}" target="_blank" rel="noopener noreferrer">${l}</a></li>`)
-           .join("\n")}\n</ul>`
-       : "";
-   
    /* ── Renderer ------------------------------------------------------------- */
    const renderHtml = (
      name: string,
@@ -166,7 +159,6 @@
      json: JsonBrief,
      cites: Citation[],
      jobs: string[],
-     social: string[],
    ): string => {
      const s = "<p>&nbsp;</p>";
      return `
@@ -180,8 +172,6 @@
    ${ulRows([...json.highlights, ...json.funFacts], cites)}
    ${s}<h3><strong>Detailed Research Notes</strong></h3>
    ${ulRows(json.researchNotes, cites)}
-   ${s}<h3><strong>Possible Social Links</strong></h3>
-   ${ulSocial(social)}
    </div>`.trim().replace(/^\s*\n/gm, "");
    };
    
@@ -241,7 +231,7 @@
      );
      if (!curlRes.ok)
        throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
-     const proxyData = (await curlRes.json()) as ProxyCurlResult; // ←── type cast fix
+     const proxyData = (await curlRes.json()) as ProxyCurlResult; // fixed typing
    
      const jobTimeline = (proxyData.experiences ?? []).map(
        e =>
@@ -315,17 +305,24 @@
        await Promise.all(
          batch.map(async b => {
            const s = b.src;
+           const g = b.globalIdx;
            if (s.link.includes("linkedin.com/in/")) {
-             extracts[b.globalIdx] = `LinkedIn headline: ${proxyData.headline ?? "N/A"}. URL: ${s.link}.`;
+             extracts[g] = `LinkedIn headline: ${proxyData.headline ?? "N/A"}. URL: ${s.link}.`;
              return;
            }
            if (NO_SCRAPE.some(sub => s.link.includes(sub))) {
-             extracts[b.globalIdx] = `${s.title}. ${s.snippet ?? ""}`;
+             extracts[g] = `${s.title}. ${s.snippet ?? ""}`;
              return;
            }
            const txt = await firecrawl(s.link);
-           extracts[b.globalIdx] =
-             `${txt ?? ""}\n${s.title}. ${s.snippet ?? ""}`.trim().slice(0, 3000);
+           if (txt) {
+             const combined = txt.includes(s.snippet ?? "")
+               ? txt
+               : `${txt}\n${s.title}. ${s.snippet ?? ""}`;
+             extracts[g] = combined.slice(0, 3000);
+           } else {
+             extracts[g] = `${s.title}. ${s.snippet ?? ""}`;
+           }
          }),
        );
        timeSpent += Date.now() - tBatchStart;
@@ -347,6 +344,7 @@
    
      const prompt = `
    Return ONLY JSON matching TEMPLATE.
+   Provide 4–6 distinct items in "researchNotes" if sources permit.
    
    ### TEMPLATE
    ${template}
@@ -377,7 +375,7 @@
        console.error("LLM JSON parse error", e);
      }
    
-     /* ── 9. Deduplicate rows ─────────────────────────────────────────────── */
+     /* ── 9. Deduplicate rows (except researchNotes) ──────────────────────── */
      const uniq = (rows?: BriefRow[]) =>
        Array.from(
          new Map(
@@ -391,7 +389,7 @@
      jsonBrief.executive = uniq(jsonBrief.executive);
      jsonBrief.highlights = uniq(jsonBrief.highlights);
      jsonBrief.funFacts = uniq(jsonBrief.funFacts);
-     jsonBrief.researchNotes = uniq(jsonBrief.researchNotes);
+     // researchNotes left as-is to allow similar notes
    
      /* ── 10. Citations ───────────────────────────────────────────────────── */
      const citations: Citation[] = sources.map((s, idx) => ({
@@ -408,7 +406,6 @@
        jsonBrief,
        citations,
        jobTimeline,
-       possibleSocialLinks,
      );
    
      /* ── 12. Payload ─────────────────────────────────────────────────────── */
