@@ -1,3 +1,6 @@
+/* -------------------------------------------------------------------------- */
+/*  src/app/page.tsx                                                          */
+/* -------------------------------------------------------------------------- */
 "use client";
 
 import { useState } from "react";
@@ -15,14 +18,73 @@ import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 
-// Sample Brief as an HTML string
+/* -------------------------------------------------------------------------- */
+/*  Static demo brief shown when no API data is loaded                        */
+/* -------------------------------------------------------------------------- */
 const sampleBriefHtmlContent = `
 <div>
   <h2><strong>Meeting Brief: Jensen Huang – Nvidia</strong></h2>
-  <!-- content truncated for brevity -->
+  <p>&nbsp;</p>
+  <h3><strong>Executive Summary</strong></h3>
+  <p>
+    Jensen Huang is the Founder and CEO of NVIDIA since 1993. He holds a
+    Bachelor of Science in Electrical Engineering from Oregon State University
+    and a Master of Science in Electrical Engineering from Stanford University.
+    Prior to founding NVIDIA he worked in various roles including dishwasher,
+    busboy and waiter at Denny's. He has led NVIDIA to become a leader in AI and
+    GPU technology over more than three decades of experience in the industry.
+    <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+  </p>
+  <p>&nbsp;</p>
+  <h3><strong>Job History</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>Founder and CEO — NVIDIA (1993 – Present)</li>
+    <li>Dishwasher, Busboy, Waiter — Denny's (1978 – 1983)</li>
+  </ul>
+  <p>&nbsp;</p>
+  <h3><strong>Highlights &amp; Fun Facts</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>
+      Founded NVIDIA in 1993 and has led the company to become a pioneer in AI
+      and GPU computing.
+      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+    </li>
+    <li>
+      Delivered keynote presentations at major industry events such as NVIDIA's
+      GPU Technology Conference and CES 2025.
+      <sup><a href="#source-placeholder-6" target="_blank" rel="noopener noreferrer">6</a></sup>
+    </li>
+    <li>
+      Worked as a dishwasher, busboy and waiter at Denny's from 1978 to 1983
+      before his engineering career.
+      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+    </li>
+  </ul>
+  <p>&nbsp;</p>
+  <h3><strong>Detailed Research Notes</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>
+      Jensen Huang's leadership at NVIDIA has been instrumental in powering the
+      AI revolution through advanced GPU technology.
+      <sup><a href="#source-placeholder-11" target="_blank" rel="noopener noreferrer">11</a></sup>
+    </li>
+    <li>
+      NVIDIA under Huang's leadership focuses on AI GPU computing and expanding
+      into global markets, including China.
+      <sup><a href="#source-placeholder-13" target="_blank" rel="noopener noreferrer">13</a></sup>
+    </li>
+    <li>
+      Conversation starter: Discuss how Huang's early work experiences
+      influenced his leadership style and vision for NVIDIA.
+      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+    </li>
+  </ul>
 </div>
 `;
 
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
 export default function Page() {
   /* ─────────────── state */
   const [form, setForm] = useState({ name: "", organization: "" });
@@ -31,7 +93,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
 
   /* ─────────────── submit */
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -41,7 +103,7 @@ export default function Page() {
       const res = await fetch("/api/meetingbrief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form }),
+        body: JSON.stringify(form),
       });
 
       if (!res.ok) {
@@ -49,7 +111,7 @@ export default function Page() {
         try {
           errorData = await res.json();
         } catch {
-          // Fallback to plain-text body if JSON parse fails
+          /* eslint-disable-next-line no-await-in-loop */
           errorData = await res.text();
         }
         console.error("API Error Data:", errorData);
@@ -60,7 +122,6 @@ export default function Page() {
         );
       }
 
-      // Only the 'brief' field is needed
       const { brief } = (await res.json()) as { brief: string };
       setBriefHtml(brief);
     } catch (err) {
@@ -73,12 +134,13 @@ export default function Page() {
   /* ─────────────── view */
   return (
     <div className="min-h-screen flex flex-col">
-      {/* NAVBAR */}
+      {/* NAVBAR ------------------------------------------------------------- */}
       <nav className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
           <Link href="/" className="font-semibold text-xl">
             MeetingBrief
           </Link>
+
           <div className="hidden md:flex gap-6 items-center">
             <Link href="#features" className="hover:text-indigo-600">
               Features
@@ -99,9 +161,10 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* HERO + FORM + DEMO */}
+      {/* HERO + FORM + DEMO ------------------------------------------------- */}
       <header className="bg-gradient-to-b from-white to-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
+          {/* Hero text */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
               Instant&nbsp;intel for every meeting
@@ -112,7 +175,7 @@ export default function Page() {
             </p>
           </div>
 
-          {/* FORM */}
+          {/* FORM ----------------------------------------------------------- */}
           <motion.form
             id="generate"
             initial={{ opacity: 0, y: 20 }}
@@ -126,24 +189,28 @@ export default function Page() {
               </Label>
               <Input
                 id="name"
-                value={form.name}
                 placeholder="Jensen Huang"
+                value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
             </div>
+
             <div className="flex items-center gap-2">
               <Label htmlFor="org" className="w-20">
                 Company
               </Label>
               <Input
                 id="org"
-                value={form.organization}
                 placeholder="NVIDIA"
-                onChange={(e) => setForm({ ...form, organization: e.target.value })}
+                value={form.organization}
+                onChange={(e) =>
+                  setForm({ ...form, organization: e.target.value })
+                }
                 required
               />
             </div>
+
             <Button type="submit" disabled={loading}>
               {loading ? (
                 <Loader2 className="animate-spin h-4 w-4" />
@@ -153,8 +220,9 @@ export default function Page() {
             </Button>
           </motion.form>
 
-          {/* DEMO / LOADER / OUTPUT */}
+          {/* DEMO / LOADER / OUTPUT ---------------------------------------- */}
           <div className="w-full max-w-5xl mx-auto">
+            {/* Loading skeleton */}
             {loading && (
               <Card className="animate-pulse">
                 <CardHeader>
@@ -162,28 +230,37 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="h-3 w-full bg-slate-200 rounded" />
+                    <div
+                      key={i}
+                      className="h-3 w-full bg-slate-200 rounded"
+                    />
                   ))}
                 </CardContent>
               </Card>
             )}
 
+            {/* Error banner */}
             {error && <p className="text-red-600 mt-4">{error}</p>}
 
+            {/* Brief from API */}
             {!loading && briefHtml && (
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
+                    Brief ready{" "}
+                    <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
-                  <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
+                  <div
+                    dangerouslySetInnerHTML={{ __html: briefHtml }}
+                  />
                 </CardContent>
               </Card>
             )}
 
+            {/* Static demo brief */}
             {!loading && !briefHtml && (
               <Card>
                 <CardHeader>
@@ -202,7 +279,7 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES */}
+      {/* FEATURES ----------------------------------------------------------- */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -231,7 +308,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES */}
+      {/* USE-CASES ---------------------------------------------------------- */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">
@@ -239,10 +316,26 @@ export default function Page() {
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
-              { name: "Recruiters", icon: "🎯", blurb: "Assess executive candidates in minutes." },
-              { name: "Founders", icon: "🚀", blurb: "Know your counterpart’s angle before negotiations." },
-              { name: "Sales", icon: "📈", blurb: "Skip the research rabbit hole and open with insight." },
+              {
+                name: "Investors",
+                icon: "💼",
+                blurb: "Vet founders before they pitch.",
+              },
+              {
+                name: "Recruiters",
+                icon: "🎯",
+                blurb: "Assess executive candidates in minutes.",
+              },
+              {
+                name: "Founders",
+                icon: "🚀",
+                blurb: "Know your counterpart’s angle before negotiations.",
+              },
+              {
+                name: "Sales",
+                icon: "📈",
+                blurb: "Skip the research rabbit hole and open with insight.",
+              },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -260,7 +353,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* PRICING */}
+      {/* PRICING ------------------------------------------------------------ */}
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
@@ -269,10 +362,30 @@ export default function Page() {
           </p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: "Free", price: "$0", meetings: "3 meetings / mo", cta: "Start free" },
-              { name: "Starter", price: "$99", meetings: "20 meetings / mo", cta: "Choose starter" },
-              { name: "Growth", price: "$199", meetings: "60 meetings / mo", cta: "Choose growth" },
-              { name: "Unlimited", price: "$299", meetings: "Unlimited meetings", cta: "Choose unlimited" },
+              {
+                name: "Free",
+                price: "$0",
+                meetings: "3 meetings / mo",
+                cta: "Start free",
+              },
+              {
+                name: "Starter",
+                price: "$99",
+                meetings: "20 meetings / mo",
+                cta: "Choose starter",
+              },
+              {
+                name: "Growth",
+                price: "$199",
+                meetings: "60 meetings / mo",
+                cta: "Choose growth",
+              },
+              {
+                name: "Unlimited",
+                price: "$299",
+                meetings: "Unlimited meetings",
+                cta: "Choose unlimited",
+              },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
@@ -291,7 +404,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* FAQ ---------------------------------------------------------------- */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
@@ -321,7 +434,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* FOOTER ------------------------------------------------------------- */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
