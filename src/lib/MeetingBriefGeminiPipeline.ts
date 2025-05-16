@@ -26,7 +26,9 @@
    const SERPER = "https://google.serper.dev/search";
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
-   const MAX_SRC = 25; // allow more Serper snippets
+   const MAX_SRC = 25;             // max sources fed to LLM
+   const FIRECRAWL_BATCH = 10;     // parallel requests per batch
+   const FIRECRAWL_BUDGET_MS = 35_000; // global time budget for all Firecrawl work
    
    /* ── DOMAIN RULES --------------------------------------------------------- */
    const SOCIAL_DOMAINS = [
@@ -105,20 +107,19 @@
    
    /* ── Firecrawl with retry ------------------------------------------------- */
    const firecrawl = async (url: string): Promise<string | null> => {
-     const attempt = (timeout: number) =>
+     const once = (ms: number) =>
        Promise.race([
          postJSON<FirecrawlScrapeResult>(
            FIRE,
            { url },
            { Authorization: `Bearer ${FIRECRAWL_KEY!}` },
          ),
-         new Promise<never>((_, reject) =>
-           setTimeout(() => reject(new Error("timeout")), timeout),
-         ),
-       ]).then(r => r.article?.text_content ?? null)
+         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+       ])
+         .then(r => r.article?.text_content ?? null)
          .catch(() => null);
    
-     return (await attempt(5000)) ?? (await attempt(10000));
+     return (await once(5_000)) ?? (await once(10_000));
    };
    
    /* ── HTML helpers --------------------------------------------------------- */
@@ -153,7 +154,9 @@
    
    const ulSocial = (links: string[]): string =>
      links.length
-       ? `<ul class="list-disc pl-5">\n${links.map(l => `  <li><a href="${l}" target="_blank" rel="noopener noreferrer">${l}</a></li>`).join("\n")}\n</ul>`
+       ? `<ul class="list-disc pl-5">\n${links
+           .map(l => `  <li><a href="${l}" target="_blank" rel="noopener noreferrer">${l}</a></li>`)
+           .join("\n")}\n</ul>`
        : "";
    
    /* ── Renderer ------------------------------------------------------------- */
@@ -190,14 +193,14 @@
      let serperCalls = 0;
      const serpResults: SerpResult[] = [];
    
-     /* 1 ─ initial Serper queries */
-     const baseQueries = [
+     /* ── 1. Initial Serper queries ───────────────────────────────────────── */
+     const initialQueries = [
        { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
        { q: `"${name}" "${org}" (interview OR profile OR news OR "press release")`, num: 10 },
        { q: `"${name}" (award OR keynote OR webinar OR conference)`, num: 10 },
      ];
    
-     for (const q of baseQueries) {
+     for (const q of initialQueries) {
        try {
          const res = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
@@ -211,9 +214,9 @@
        }
      }
    
-     /* 2 ─ LinkedIn profile */
-     let linkedInProfile = serpResults.find(r => r.link.includes("linkedin.com/in/"));
-     if (!linkedInProfile) {
+     /* ── 2. LinkedIn profile ─────────────────────────────────────────────── */
+     let linkedIn = serpResults.find(r => r.link.includes("linkedin.com/in/"));
+     if (!linkedIn) {
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
@@ -222,29 +225,33 @@
          );
          serperCalls++;
          if (r.organic?.length) {
-           linkedInProfile = r.organic[0];
-           serpResults.push(linkedInProfile);
+           linkedIn = r.organic[0];
+           serpResults.push(linkedIn);
          }
        } catch (e) {
          console.warn("LinkedIn dedicated search error:", e);
        }
      }
-     if (!linkedInProfile?.link) throw new Error(`LinkedIn profile not found for ${name}`);
+     if (!linkedIn?.link) throw new Error(`LinkedIn profile not found for ${name}`);
    
-     /* 3 ─ ProxyCurl */
-     const curlResp = await fetch(
-       `${CURL}?linkedin_profile_url=${encodeURIComponent(linkedInProfile.link)}`,
+     /* ── 3. ProxyCurl ────────────────────────────────────────────────────── */
+     const curlRes = await fetch(
+       `${CURL}?linkedin_profile_url=${encodeURIComponent(linkedIn.link)}`,
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } },
      );
-     if (!curlResp.ok)
-       throw new Error(`ProxyCurl ${curlResp.status} – ${await curlResp.text()}`);
-     const proxyData = (await curlResp.json()) as ProxyCurlResult;
+     if (!curlRes.ok)
+       throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
+     const proxyData: ProxyCurlResult = await curlRes.json();
    
      const jobTimeline = (proxyData.experiences ?? []).map(
-       e => `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`,
+       e =>
+         `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(
+           e.starts_at,
+           e.ends_at,
+         )})`,
      );
    
-     /* 4 ─ extra Serper queries for each LinkedIn company */
+     /* ── 4. Extra Serper queries for prior orgs ──────────────────────────── */
      const companies = (proxyData.experiences ?? [])
        .map(e => e.company)
        .filter(Boolean) as string[];
@@ -271,35 +278,65 @@
        }
      }
    
-     /* 5 ─ build source lists */
+     /* ── 5. Build source lists ───────────────────────────────────────────── */
      const deduped = Array.from(new Map(serpResults.map(r => [r.link, r])).values());
      const sources = deduped
-       .filter(r => !NO_SCRAPE.some(sub => r.link.includes(sub)) || r.link.includes("linkedin.com/in/"))
+       .filter(
+         r =>
+           !NO_SCRAPE.some(sub => r.link.includes(sub)) ||
+           r.link.includes("linkedin.com/in/"),
+       )
        .slice(0, MAX_SRC);
    
      const possibleSocialLinks = SOCIAL_DOMAINS
        .flatMap(d => deduped.filter(r => r.link.includes(d)).map(r => r.link))
        .filter((l, i, arr) => arr.indexOf(l) === i);
    
-     /* 6 ─ scrape */
-     const extracts: string[] = [];
-     for (const s of sources) {
-       if (s.link.includes("linkedin.com/in/")) {
-         extracts.push(`LinkedIn headline: ${proxyData.headline ?? "N/A"}. URL: ${s.link}.`);
-         continue;
+     /* ── 6. Firecrawl in parallel batches with global budget ─────────────── */
+     const extracts: string[] = new Array(sources.length).fill("");
+     let timeSpent = 0;
+     for (let i = 0; i < sources.length; i += FIRECRAWL_BATCH) {
+       const remainingBudget = FIRECRAWL_BUDGET_MS - timeSpent;
+       if (remainingBudget <= 0) {
+         // budget exhausted – use snippets fallback for the rest
+         for (let j = i; j < sources.length; j++) {
+           const s = sources[j];
+           extracts[j] = s.link.includes("linkedin.com/in/")
+             ? `LinkedIn headline: ${proxyData.headline ?? "N/A"}. URL: ${s.link}.`
+             : `${s.title}. ${s.snippet ?? ""}`;
+         }
+         break;
        }
-       if (NO_SCRAPE.some(sub => s.link.includes(sub))) {
-         extracts.push(`${s.title}. ${s.snippet ?? ""}`);
-         continue;
-       }
-       const text = await firecrawl(s.link);
-       const combined = `${text ?? ""}\n${s.title}. ${s.snippet ?? ""}`.trim();
-       extracts.push(combined.slice(0, 3000));
+   
+       const batch = sources
+         .slice(i, i + FIRECRAWL_BATCH)
+         .map((s, idxInBatch) => ({ src: s, globalIdx: i + idxInBatch }));
+   
+       const tBatchStart = Date.now();
+       await Promise.all(
+         batch.map(async b => {
+           const s = b.src;
+           if (s.link.includes("linkedin.com/in/")) {
+             extracts[b.globalIdx] = `LinkedIn headline: ${proxyData.headline ?? "N/A"}. URL: ${s.link}.`;
+             return;
+           }
+           if (NO_SCRAPE.some(sub => s.link.includes(sub))) {
+             extracts[b.globalIdx] = `${s.title}. ${s.snippet ?? ""}`;
+             return;
+           }
+           const txt = await firecrawl(s.link);
+           extracts[b.globalIdx] =
+             `${txt ?? ""}\n${s.title}. ${s.snippet ?? ""}`.trim().slice(0, 3000);
+         }),
+       );
+       timeSpent += Date.now() - tBatchStart;
      }
    
-     /* 7 ─ prompt */
+     /* ── 7. Build LLM prompt ─────────────────────────────────────────────── */
      const srcBlock = sources
-       .map((s, i) => `SOURCE_${i + 1} URL: ${s.link}\nCONTENT:\n${extracts[i]}`)
+       .map(
+         (s, idx) => `SOURCE_${idx + 1} URL: ${s.link}\nCONTENT:\n${extracts[idx]}`,
+       )
        .join("\n\n---\n\n");
    
      const template = `{
@@ -321,7 +358,7 @@
    ### SOURCES
    ${srcBlock}`.trim();
    
-     /* 8 ─ LLM */
+     /* ── 8. OpenAI call ───────────────────────────────────────────────────── */
      const llmResp = await ai.chat.completions.create({
        model: MODEL_ID,
        temperature: 0,
@@ -329,43 +366,62 @@
        messages: [{ role: "user", content: prompt }],
      });
    
-     let briefJson: JsonBrief = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
+     let jsonBrief: JsonBrief = {
+       executive: [],
+       highlights: [],
+       funFacts: [],
+       researchNotes: [],
+     };
      try {
-       briefJson = JSON.parse(llmResp.choices[0].message.content ?? "{}");
+       jsonBrief = JSON.parse(llmResp.choices[0].message.content ?? "{}");
      } catch (e) {
-       console.error("LLM JSON parse error:", e);
+       console.error("LLM JSON parse error", e);
      }
    
-     /* 9 ─ deduplicate rows */
-     const uniqRows = (rows?: BriefRow[]) =>
-       Array.from(new Map((rows ?? []).map(r => [clean(r.text).toLowerCase(), { ...r, text: clean(r.text) }])).values());
+     /* ── 9. Deduplicate rows ─────────────────────────────────────────────── */
+     const uniq = (rows?: BriefRow[]) =>
+       Array.from(
+         new Map(
+           (rows ?? []).map(r => [
+             clean(r.text).toLowerCase(),
+             { ...r, text: clean(r.text) },
+           ]),
+         ).values(),
+       );
    
-     briefJson.executive = uniqRows(briefJson.executive);
-     briefJson.highlights = uniqRows(briefJson.highlights);
-     briefJson.funFacts = uniqRows(briefJson.funFacts);
-     briefJson.researchNotes = uniqRows(briefJson.researchNotes);
+     jsonBrief.executive = uniq(jsonBrief.executive);
+     jsonBrief.highlights = uniq(jsonBrief.highlights);
+     jsonBrief.funFacts = uniq(jsonBrief.funFacts);
+     jsonBrief.researchNotes = uniq(jsonBrief.researchNotes);
    
-     /* 10 ─ citations */
-     const citations: Citation[] = sources.map((s, i) => ({
-       marker: `[${i + 1}]`,
+     /* ── 10. Citations ───────────────────────────────────────────────────── */
+     const citations: Citation[] = sources.map((s, idx) => ({
+       marker: `[${idx + 1}]`,
        url: s.link,
        title: s.title,
-       snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
+       snippet: extracts[idx].slice(0, 300) + (extracts[idx].length > 300 ? "..." : ""),
      }));
    
-     /* 11 ─ HTML */
-     const htmlBrief = renderHtml(name, org, briefJson, citations, jobTimeline, possibleSocialLinks);
+     /* ── 11. HTML report ─────────────────────────────────────────────────── */
+     const htmlBrief = renderHtml(
+       name,
+       org,
+       jsonBrief,
+       citations,
+       jobTimeline,
+       possibleSocialLinks,
+     );
    
-     /* 12 ─ payload */
+     /* ── 12. Payload ─────────────────────────────────────────────────────── */
      return {
        brief: htmlBrief,
        citations,
-       tokens: toks(prompt) + toks(JSON.stringify(briefJson)),
+       tokens: toks(prompt) + toks(JSON.stringify(jsonBrief)),
        searches: serperCalls,
-       searchResults: sources.map((s, i) => ({
+       searchResults: sources.map((s, idx) => ({
          url: s.link,
          title: s.title,
-         snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
+         snippet: extracts[idx].slice(0, 300) + (extracts[idx].length > 300 ? "..." : ""),
        })),
        possibleSocialLinks,
      };
