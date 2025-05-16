@@ -27,6 +27,14 @@
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
    const MAX_SRC = 15; // Max sources to feed into the LLM
+   const FIRECRAWL_SKIP_SUBSTRINGS = [
+     "youtube.com/",
+     "youtu.be/",
+     "x.com/",
+     "twitter.com/",
+     "reddit.com/",
+     "linkedin.com/pulse/",
+   ];
    
    /* ── TYPES ---------------------------------------------------------------- */
    interface SerpResult { title: string; link: string; snippet?: string }
@@ -93,6 +101,18 @@
            .trim();
    };
    
+   // ── Firecrawl wrapper with 4-second timeout ──────────────────────────────
+   const scrapeWithTimeout = (url: string) =>
+     Promise.race([
+       postJSON<FirecrawlScrapeResult>(
+         FIRE,
+         { url, only_main_content: true, include_html: false },
+         { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
+       ),
+       new Promise<never>((_, reject) =>
+         setTimeout(() => reject(new Error("timeout")), 4000)
+       ),
+     ]) as Promise<FirecrawlScrapeResult>;
    
    /* ── HTML RENDER ---------------------------------------------------------- */
    const formatHtmlSentences = (rows: BriefRow[], cites: Citation[]): string => {
@@ -317,12 +337,12 @@
        if (s.link.includes("linkedin.com/in/")) {
          const linkedInExtract = `LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. Profile URL: ${s.link}. Experience summary: ${jobTimeline.slice(0,5).join("; ")}.`;
          extracts.push(linkedInExtract);
+       } else if (FIRECRAWL_SKIP_SUBSTRINGS.some(sub => s.link.includes(sub))) {
+         // Short-circuit: use Serper title/snippet and skip Firecrawl scrape
+         extracts.push(`${s.title}. ${s.snippet ?? ""}`);
        } else {
          try {
-           const firecrawlResult = await postJSON<FirecrawlScrapeResult>(
-             FIRE, { url: s.link, page_options: { only_main_content: true, include_html: false } },
-             { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
-           );
+           const firecrawlResult = await scrapeWithTimeout(s.link);
            extracts.push((firecrawlResult.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 3000));
          } catch (scrapeError: unknown) {
            const errorMessage = scrapeError instanceof Error ? scrapeError.message : "An unknown error occurred";
