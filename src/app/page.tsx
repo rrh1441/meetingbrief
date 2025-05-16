@@ -185,9 +185,6 @@ export default function Page() {
             <Link href="#faq" className="hover:text-indigo-600">
               FAQ
             </Link>
-            <Link href="/signin" className="text-sm font-medium">
-              Sign&nbsp;in
-            </Link>
             <Button size="sm" asChild>
               <Link href="#generate">Generate Brief</Link>
             </Button>
