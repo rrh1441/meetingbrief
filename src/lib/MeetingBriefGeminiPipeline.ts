@@ -101,7 +101,7 @@
            .trim();
    };
    
-   // ── Firecrawl wrapper with 4-second timeout ──────────────────────────────
+   // ── Firecrawl wrapper with 10-second timeout ──────────────────────────────
    const scrapeWithTimeout = (url: string) =>
      Promise.race([
        postJSON<FirecrawlScrapeResult>(
@@ -110,7 +110,7 @@
          { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
        ),
        new Promise<never>((_, reject) =>
-         setTimeout(() => reject(new Error("timeout")), 4000)
+         setTimeout(() => reject(new Error("timeout")), 10000)
        ),
      ]) as Promise<FirecrawlScrapeResult>;
    
