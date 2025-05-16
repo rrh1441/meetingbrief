@@ -83,7 +83,7 @@
        method: "POST",
        headers: { ...hdr, "Content-Type": "application/json" },
        body: JSON.stringify(body),
-     }).then(async (r) => {
+     }).then(async r => {
        if (!r.ok) throw new Error(`HTTP ${r.status} – ${await r.text()}`);
        return r.json() as Promise<T>;
      });
@@ -204,7 +204,7 @@
            serp.push(li);
          }
        } catch (e) {
-         console.warn("LinkedIn dedicated query error:", e);
+         console.warn("LinkedIn dedicated search error:", e);
        }
      }
      if (!li?.link) throw new Error(`LinkedIn profile not found for ${name}`);
@@ -214,8 +214,9 @@
        `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } },
      );
-     if (!curlRes.ok) throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
-     const pc: ProxyCurlResult = await curlRes.json();
+     if (!curlRes.ok)
+       throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
+     const pc = (await curlRes.json()) as ProxyCurlResult;
    
      const jobTimeline = (pc.experiences ?? []).map(
        e => `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`,
@@ -250,7 +251,10 @@
      /* 5 — Build final source list */
      const dedup = Array.from(new Map(serp.map(s => [s.link, s])).values());
      const sources = dedup
-       .filter(s => !NO_SCRAPE.some(sub => s.link.includes(sub)) || s.link.includes("linkedin.com/in/"))
+       .filter(s =>
+         !NO_SCRAPE.some(sub => s.link.includes(sub)) ||
+         s.link.includes("linkedin.com/in/"),
+       )
        .slice(0, MAX_SRC);
    
      const possibleSocialLinks = dedup
@@ -263,7 +267,9 @@
        console.info("candidate:", s.link);
    
        if (s.link.includes("linkedin.com/in/")) {
-         extracts.push(`LinkedIn headline: ${pc.headline ?? "N/A"}. URL: ${s.link}.`);
+         extracts.push(
+           `LinkedIn headline: ${pc.headline ?? "N/A"}. URL: ${s.link}.`,
+         );
          console.info("skipped scrape: LinkedIn profile");
          continue;
        }
@@ -279,9 +285,12 @@
          const fc = await scrapeWithTimeout(s.link);
          console.info("scrape OK:", s.link, Date.now() - t0, "ms");
          extracts.push(
-           (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(0, 3000),
+           (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(
+             0,
+             3000,
+           ),
          );
-       } catch (err) {
+       } catch (err: unknown) {
          const msg = err instanceof Error ? err.message : String(err);
          console.warn("scrape ERR:", s.link, Date.now() - t0, "ms", msg);
          extracts.push(`${s.title}. ${s.snippet ?? ""} (scrape failed)`);
@@ -351,7 +360,9 @@
        marker: `[${i + 1}]`,
        url: s.link,
        title: s.title,
-       snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
+       snippet:
+         extracts[i].slice(0, 300) +
+         (extracts[i].length > 300 ? "..." : ""),
      }));
    
      /* 11 — HTML */
@@ -366,7 +377,9 @@
        searchResults: sources.map((s, i) => ({
          url: s.link,
          title: s.title,
-         snippet: extracts[i].slice(0, 300) + (extracts[i].length > 300 ? "..." : ""),
+         snippet:
+           extracts[i].slice(0, 300) +
+           (extracts[i].length > 300 ? "..." : ""),
        })),
        possibleSocialLinks,
      };
