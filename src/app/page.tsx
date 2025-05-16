@@ -33,7 +33,7 @@ const sampleBriefHtmlContent = `
     Prior to founding NVIDIA he worked in various roles including dishwasher,
     busboy and waiter at Denny's. He has led NVIDIA to become a leader in AI and
     GPU technology over more than three decades of experience in the industry.
-    <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+    <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
   </p>
   <p>&nbsp;</p>
   <h3><strong>Job History</strong></h3>
@@ -47,17 +47,17 @@ const sampleBriefHtmlContent = `
     <li>
       Founded NVIDIA in 1993 and has led the company to become a pioneer in AI
       and GPU computing.
-      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
     </li>
     <li>
       Delivered keynote presentations at major industry events such as NVIDIA's
       GPU Technology Conference and CES 2025.
-      <sup><a href="#source-placeholder-6" target="_blank" rel="noopener noreferrer">6</a></sup>
+      <sup><a href="https://www.youtube.com/watch?v=_waPvOwL9Z8" target="_blank" rel="noopener noreferrer">6</a></sup>
     </li>
     <li>
       Worked as a dishwasher, busboy and waiter at Denny's from 1978 to 1983
       before his engineering career.
-      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
     </li>
   </ul>
   <p>&nbsp;</p>
@@ -66,17 +66,17 @@ const sampleBriefHtmlContent = `
     <li>
       Jensen Huang's leadership at NVIDIA has been instrumental in powering the
       AI revolution through advanced GPU technology.
-      <sup><a href="#source-placeholder-11" target="_blank" rel="noopener noreferrer">11</a></sup>
+      <sup><a href="https://www.newyorker.com/magazine/2023/12/04/how-jensen-huangs-nvidia-is-powering-the-ai-revolution" target="_blank" rel="noopener noreferrer">11</a></sup>
     </li>
     <li>
       NVIDIA under Huang's leadership focuses on AI GPU computing and expanding
       into global markets, including China.
-      <sup><a href="#source-placeholder-13" target="_blank" rel="noopener noreferrer">13</a></sup>
+      <sup><a href="https://www.cnbc.com/2025/05/06/nvidia-ceo-says-missing-china-ai-market-would-be-tremendous-loss-.html" target="_blank" rel="noopener noreferrer">13</a></sup>
     </li>
     <li>
       Conversation starter: Discuss how Huang's early work experiences
       influenced his leadership style and vision for NVIDIA.
-      <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup>
+      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
     </li>
   </ul>
 </div>
