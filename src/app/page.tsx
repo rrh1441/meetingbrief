@@ -201,8 +201,7 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Save hours on prep every week and never walk into a meeting
-              unprepared again
+            Stop digging for info - gain back valuable hours and arrive prepared for every conversation
             </p>
           </div>
 
