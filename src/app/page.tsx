@@ -1,9 +1,10 @@
+/* eslint-disable react/no-danger */
 /* -------------------------------------------------------------------------- */
 /*  src/app/page.tsx                                                          */
 /* -------------------------------------------------------------------------- */
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -17,6 +18,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+/* -------------------------------------------------------------------------- */
+/*  Supabase client (public keys only)                                        */
+/* -------------------------------------------------------------------------- */
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??
+  process.env.SUPABASE_URL ??
+  "";
+const supabaseAnon =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.SUPABASE_ANON_KEY ??
+  "";
+
+if (!supabaseUrl || !supabaseAnon) {
+  throw new Error(
+    "Define NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.",
+  );
+}
+
+const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon);
 
 /* -------------------------------------------------------------------------- */
 /*  Static demo brief shown when no API data is loaded                        */
@@ -92,12 +114,28 @@ export default function Page() {
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /* ---------------------------------------------------------------------- */
+  /*  Analytics: insert one row per search                                   */
+  /* ---------------------------------------------------------------------- */
+  const logSearchEvent = async (name: string, organization: string) => {
+    try {
+      await supabase
+        .from("search_events")
+        .insert([{ name, organization }], { returning: "minimal" });
+    } catch (err) {
+      console.error("Supabase log error:", err);
+    }
+  };
+
   /* ─────────────── submit */
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setBriefHtml(null);
+
+    // Fire-and-forget analytics
+    void logSearchEvent(form.name.trim(), form.organization.trim());
 
     try {
       const res = await fetch("/api/meetingbrief", {
@@ -107,18 +145,17 @@ export default function Page() {
       });
 
       if (!res.ok) {
-        let errorData;
+        let payload: unknown;
         try {
-          errorData = await res.json();
+          payload = await res.json();
         } catch {
-          /* eslint-disable-next-line no-await-in-loop */
-          errorData = await res.text();
+          payload = await res.text();
         }
-        console.error("API Error Data:", errorData);
         throw new Error(
-          typeof errorData === "string"
-            ? errorData
-            : errorData.message || `Request failed with status ${res.status}`,
+          typeof payload === "string"
+            ? payload
+            : (payload as { message?: string })?.message ??
+                `Request failed (${res.status})`,
         );
       }
 
@@ -145,9 +182,6 @@ export default function Page() {
             <Link href="#features" className="hover:text-indigo-600">
               Features
             </Link>
-            <Link href="#pricing" className="hover:text-indigo-600">
-              Pricing
-            </Link>
             <Link href="#faq" className="hover:text-indigo-600">
               FAQ
             </Link>
@@ -170,7 +204,8 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-            Save hours on prep every week and never walk into a meeting unprepared again.
+              Save hours on prep every week and never walk into a meeting
+              unprepared again
             </p>
           </div>
 
@@ -221,7 +256,6 @@ export default function Page() {
 
           {/* DEMO / LOADER / OUTPUT ---------------------------------------- */}
           <div className="w-full max-w-5xl mx-auto">
-            {/* Loading skeleton */}
             {loading && (
               <Card className="animate-pulse">
                 <CardHeader>
@@ -229,19 +263,14 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-3 w-full bg-slate-200 rounded"
-                    />
+                    <div key={i} className="h-3 w-full bg-slate-200 rounded" />
                   ))}
                 </CardContent>
               </Card>
             )}
 
-            {/* Error banner */}
             {error && <p className="text-red-600 mt-4">{error}</p>}
 
-            {/* Brief from API */}
             {!loading && briefHtml && (
               <Card>
                 <CardHeader>
@@ -259,7 +288,6 @@ export default function Page() {
               </Card>
             )}
 
-            {/* Static demo brief */}
             {!loading && !briefHtml && (
               <Card>
                 <CardHeader>
@@ -315,26 +343,10 @@ export default function Page() {
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              {
-                name: "Investors",
-                icon: "💼",
-                blurb: "Vet founders before they pitch.",
-              },
-              {
-                name: "Recruiters",
-                icon: "🎯",
-                blurb: "Assess executive candidates in minutes.",
-              },
-              {
-                name: "Founders",
-                icon: "🚀",
-                blurb: "Know your counterpart’s angle before negotiations.",
-              },
-              {
-                name: "Sales",
-                icon: "📈",
-                blurb: "Skip the research rabbit hole and open with insight.",
-              },
+              { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
+              { name: "Recruiters", icon: "🎯", blurb: "Assess executive candidates in minutes." },
+              { name: "Founders",  icon: "🚀", blurb: "Know your counterpart’s angle before negotiations." },
+              { name: "Sales",     icon: "📈", blurb: "Skip the research rabbit hole and open with insight." },
             ].map((u) => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
@@ -386,12 +398,6 @@ export default function Page() {
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
-          <div className="flex gap-6 mt-4 sm:mt-0">
-            <Link href="/privacy">Privacy</Link>
-            <Link href="https://twitter.com/meetingbrief">X/Twitter</Link>
-            <Link href="https://github.com/yourorg/meetingbrief">GitHub</Link>
-            <Link href="/status">Status</Link>
-          </div>
         </div>
       </footer>
     </div>
