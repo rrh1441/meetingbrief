@@ -355,7 +355,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ ---------------------------------------------------------------- */}
+      {/* FAQ ------- --------------------------------------------------------- */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
