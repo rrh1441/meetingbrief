@@ -170,8 +170,7 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Auto-generated deep research with{" "}
-              <strong>sources, hooks, and risk flags</strong> — ready in seconds.
+            Save hours on prep every week and never walk into a meeting unprepared again.
             </p>
           </div>
 
@@ -346,57 +345,6 @@ export default function Page() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-slate-600">{u.blurb}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* PRICING ------------------------------------------------------------ */}
-      <section id="pricing" className="py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
-          <h2 className="text-3xl font-semibold">Flexible plans</h2>
-          <p className="text-slate-600">
-            Start free, upgrade when you need scale.
-          </p>
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              {
-                name: "Free",
-                price: "$0",
-                meetings: "3 meetings / mo",
-                cta: "Start free",
-              },
-              {
-                name: "Starter",
-                price: "$99",
-                meetings: "20 meetings / mo",
-                cta: "Choose starter",
-              },
-              {
-                name: "Growth",
-                price: "$199",
-                meetings: "60 meetings / mo",
-                cta: "Choose growth",
-              },
-              {
-                name: "Unlimited",
-                price: "$299",
-                meetings: "Unlimited meetings",
-                cta: "Choose unlimited",
-              },
-            ].map((p) => (
-              <Card key={p.name} className="flex flex-col shadow-sm">
-                <CardHeader>
-                  <CardTitle>{p.name}</CardTitle>
-                  <CardDescription className="text-4xl font-bold">
-                    {p.price}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col gap-4">
-                  <p>{p.meetings}</p>
-                  <Button className="mt-auto w-full">{p.cta}</Button>
                 </CardContent>
               </Card>
             ))}
