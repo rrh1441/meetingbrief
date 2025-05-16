@@ -121,7 +121,7 @@ export default function Page() {
     try {
       await supabase
         .from("search_events")
-        .insert([{ name, organization }], { returning: "minimal" });
+        .insert([{ name, organization }]); // <— returning removed
     } catch (err) {
       console.error("Supabase log error:", err);
     }
