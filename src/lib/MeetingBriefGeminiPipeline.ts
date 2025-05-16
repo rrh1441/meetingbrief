@@ -241,7 +241,7 @@
      );
      if (!curlRes.ok)
        throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
-     const proxyData: ProxyCurlResult = await curlRes.json();
+     const proxyData = (await curlRes.json()) as ProxyCurlResult; // ←── type cast fix
    
      const jobTimeline = (proxyData.experiences ?? []).map(
        e =>
@@ -298,7 +298,6 @@
      for (let i = 0; i < sources.length; i += FIRECRAWL_BATCH) {
        const remainingBudget = FIRECRAWL_BUDGET_MS - timeSpent;
        if (remainingBudget <= 0) {
-         // budget exhausted – use snippets fallback for the rest
          for (let j = i; j < sources.length; j++) {
            const s = sources[j];
            extracts[j] = s.link.includes("linkedin.com/in/")
