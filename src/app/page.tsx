@@ -123,13 +123,13 @@ export default function Page() {
 
   /* timer state */
   const [stepIdx, setStepIdx] = useState(0);
-  const [remaining, setRemaining] = useState(35); // seconds
+  const [remaining, setRemaining] = useState(45); // seconds
 
   /* advance every second while loading */
   useEffect(() => {
     if (!loading) {
       setStepIdx(0);
-      setRemaining(35);
+      setRemaining(45);
       return;
     }
     const t0 = Date.now();
@@ -137,18 +137,18 @@ export default function Page() {
       const elapsed = Math.floor((Date.now() - t0) / 1000);
 
       /* update time remaining */
-      const r = 35 - elapsed;
+      const r = 45 - elapsed;
       setRemaining(r > 5 ? r : 5);           // clamp at 5 s
 
-      /* advance step every 6 s until 35 s total */
-      if (elapsed < 35 && elapsed % 6 === 0) {
+      /* advance step every 9 s until 45 s total */
+      if (elapsed < 45 && elapsed % 9 === 0) {
         setStepIdx((i) =>
           i < STEPS.length - 1 ? i + 1 : i,
         );
       }
 
-      /* stop ticker after 35 s */
-      if (elapsed >= 35) clearInterval(id);
+      /* stop ticker after 45 s */
+      if (elapsed >= 45) clearInterval(id);
     }, 1_000);
     return () => clearInterval(id);
   }, [loading]);
