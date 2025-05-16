@@ -3,7 +3,8 @@
    --------------------------------------------------------------------------
    HARD CONTRACT
    ─ model returns only:
-        { executive: [], highlights: [], funFacts: [], socialLinks: [], researchNotes: [] }
+        { executive: [], highlights: [], funFacts: [], researchNotes: [] }
+        + socialLinks printed as last section (not part of LLM JSON)
    ─ each element { text: string, source: number }
    ─ no headings, no prose, no “source 3” strings inside text
    ------------------------------------------------------------------------ */
@@ -26,20 +27,25 @@
    const SERPER = "https://google.serper.dev/search";
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
-   const MAX_SRC = 15;
+   const MAX_SRC = 25; // give the LLM more material
    
-   /* ── DOMAINS TO SHORT-CIRCUIT -------------------------------------------- */
-   const SOCIAL_SUBSTRINGS = ["instagram.com/", "facebook.com/", "fb.com/"];
-   const GENERIC_SKIP_SUBSTRINGS = [
-     "youtube.com/",
-     "youtu.be/",
+   /* ── DOMAINS -------------------------------------------------------------- */
+   const SOCIAL_DOMAINS = [
      "x.com/",
      "twitter.com/",
+     "mastodon.social/",
+     "facebook.com/",
+     "fb.com/",
+     "instagram.com/",
+   ];
+   const GENERIC_NO_SCRAPE = [
+     "youtube.com/",
+     "youtu.be/",
      "reddit.com/",
      "linkedin.com/pulse/",
      "linkedin.com/posts/",
    ];
-   const NO_SCRAPE = [...SOCIAL_SUBSTRINGS, ...GENERIC_SKIP_SUBSTRINGS];
+   const NO_SCRAPE = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE];
    
    /* ── TYPES ---------------------------------------------------------------- */
    interface SerpResult { title: string; link: string; snippet?: string }
@@ -53,7 +59,6 @@
      executive: BriefRow[];
      highlights: BriefRow[];
      funFacts: BriefRow[];
-     socialLinks: BriefRow[];
      researchNotes: BriefRow[];
    }
    export interface Citation {
@@ -98,18 +103,29 @@
        .replace(/[.,]/g, "")
        .trim();
    
-   /* ── Firecrawl wrapper (15-s timeout) ------------------------------------ */
-   const scrapeWithTimeout = (url: string) =>
-     Promise.race([
-       postJSON<FirecrawlScrapeResult>(
-         FIRE,
-         { url },
-         { Authorization: `Bearer ${FIRECRAWL_KEY!}` },
-       ),
-       new Promise<never>((_, reject) =>
-         setTimeout(() => reject(new Error("timeout")), 15_000),
-       ),
-     ]) as Promise<FirecrawlScrapeResult>;
+   /* ── Firecrawl with retry ------------------------------------------------- */
+   const firecrawl = async (url: string): Promise<string | null> => {
+     const tryOnce = (timeout: number) =>
+       Promise.race([
+         postJSON<FirecrawlScrapeResult>(
+           FIRE,
+           { url },
+           { Authorization: `Bearer ${FIRECRAWL_KEY!}` },
+         ),
+         new Promise<never>((_, reject) =>
+           setTimeout(() => reject(new Error("timeout")), timeout),
+         ),
+       ]).then(r => r.article?.text_content ?? null);
+   
+     try {
+       const first = await tryOnce(5000);
+       if (first) return first;
+       const second = await tryOnce(10000);
+       return second;
+     } catch {
+       return null;
+     }
+   };
    
    /* ── HTML helpers --------------------------------------------------------- */
    const pSent = (rows: BriefRow[], cites: Citation[]) =>
@@ -137,29 +153,10 @@
        ? `<ul class="list-disc pl-5">\n${jobs.map(j => `  <li>${j}</li>`).join("\n")}\n</ul>`
        : "<p>No job history available.</p>";
    
-   const toHtml = (
-     name: string,
-     org: string,
-     data: JsonBrief,
-     cites: Citation[],
-     jobs: string[],
-   ) => {
-     const s = "<p>&nbsp;</p>";
-     return `
-   <div>
-     <h2><strong>Meeting Brief: ${name} – ${org}</strong></h2>
-   ${s}<h3><strong>Executive Summary</strong></h3>
-   ${pSent(data.executive, cites)}
-   ${s}<h3><strong>Job History</strong></h3>
-   ${ulJobs(jobs)}
-   ${s}<h3><strong>Highlights & Fun Facts</strong></h3>
-   ${ulRows([...data.highlights, ...data.funFacts], cites)}
-   ${s}<h3><strong>Social Links (unverified)</strong></h3>
-   ${ulRows(data.socialLinks, cites)}
-   ${s}<h3><strong>Detailed Research Notes</strong></h3>
-   ${ulRows(data.researchNotes, cites)}
-   </div>`.trim().replace(/^\s*\n/gm, "");
-   };
+   const ulSocial = (links: string[]) =>
+     links.length
+       ? `<ul class="list-disc pl-5">\n${links.map(l => `  <li><a href="${l}" target="_blank" rel="noopener noreferrer">${l}</a></li>`).join("\n")}\n</ul>`
+       : "";
    
    /* ── MAIN ----------------------------------------------------------------- */
    export async function buildMeetingBriefGemini(
@@ -169,13 +166,13 @@
      let serperCalls = 0;
      const serp: SerpResult[] = [];
    
-     /* 1 — Initial Serper queries */
-     const baseQs = [
+     /* 1 — Serper queries */
+     const queries = [
        { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
-       { q: `"${name}" "${org}" (interview OR profile OR news OR "press release")`, num: 7 },
-       { q: `"${name}" (achievement OR award OR keynote OR webinar OR conference)`, num: 7 },
+       { q: `"${name}" "${org}" (interview OR profile OR news OR "press release")`, num: 10 },
+       { q: `"${name}" (award OR keynote OR webinar OR conference)`, num: 10 },
      ];
-     for (const q of baseQs) {
+     for (const q of queries) {
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
@@ -195,7 +192,7 @@
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
-           { q: `"${name}" "linkedin.com/in/"`, num: 5 },
+           { q: `"${name}" "linkedin.com/in/"`, num: 7 },
            { "X-API-KEY": SERPER_KEY! },
          );
          serperCalls++;
@@ -209,20 +206,20 @@
      }
      if (!li?.link) throw new Error(`LinkedIn profile not found for ${name}`);
    
-     /* 3 — ProxyCurl (LinkedIn data) */
+     /* 3 — ProxyCurl */
      const curlRes = await fetch(
        `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } },
      );
      if (!curlRes.ok)
        throw new Error(`ProxyCurl ${curlRes.status} – ${await curlRes.text()}`);
-     const pc = (await curlRes.json()) as ProxyCurlResult;
+     const pc = await curlRes.json() as unknown as ProxyCurlResult;
    
      const jobTimeline = (pc.experiences ?? []).map(
        e => `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`,
      );
    
-     /* 4 — Extra Serper queries per LinkedIn company */
+     /* 4 — Additional queries per LinkedIn company */
      const companies = (pc.experiences ?? [])
        .map(e => e.company)
        .filter(Boolean)
@@ -238,7 +235,7 @@
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
-           { q: `"${name}" "${c}"`, num: 7 },
+           { q: `"${name}" "${c}"`, num: 10 },
            { "X-API-KEY": SERPER_KEY! },
          );
          serperCalls++;
@@ -248,53 +245,31 @@
        }
      }
    
-     /* 5 — Build final source list */
+     /* 5 — Build lists */
      const dedup = Array.from(new Map(serp.map(s => [s.link, s])).values());
      const sources = dedup
-       .filter(s =>
-         !NO_SCRAPE.some(sub => s.link.includes(sub)) ||
-         s.link.includes("linkedin.com/in/"),
-       )
+       .filter(s => !NO_SCRAPE.some(sub => s.link.includes(sub)) || s.link.includes("linkedin.com/in/"))
        .slice(0, MAX_SRC);
    
-     const possibleSocialLinks = dedup
-       .filter(s => SOCIAL_SUBSTRINGS.some(sub => s.link.includes(sub)))
-       .map(s => s.link);
+     const possibleSocialLinks = SOCIAL_DOMAINS
+       .flatMap(dom => dedup.filter(s => s.link.includes(dom)).map(s => s.link))
+       .filter((l, i, arr) => arr.indexOf(l) === i);
    
-     /* 6 — Scrape or short-circuit */
+     /* 6 — Scrape */
      const extracts: string[] = [];
      for (const s of sources) {
-       console.info("candidate:", s.link);
-   
        if (s.link.includes("linkedin.com/in/")) {
-         extracts.push(
-           `LinkedIn headline: ${pc.headline ?? "N/A"}. URL: ${s.link}.`,
-         );
-         console.info("skipped scrape: LinkedIn profile");
+         extracts.push(`LinkedIn headline: ${pc.headline ?? "N/A"}. URL: ${s.link}.`);
          continue;
        }
-   
        if (NO_SCRAPE.some(sub => s.link.includes(sub))) {
-         extracts.push(`${s.title}. ${s.snippet ?? ""}`);
-         console.info("skipped scrape:", s.link);
+         extracts.push(`${s.title}. ${s.snippet ?? ""}`); // snippet only
          continue;
        }
-   
-       const t0 = Date.now();
-       try {
-         const fc = await scrapeWithTimeout(s.link);
-         console.info("scrape OK:", s.link, Date.now() - t0, "ms");
-         extracts.push(
-           (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(
-             0,
-             3000,
-           ),
-         );
-       } catch (err: unknown) {
-         const msg = err instanceof Error ? err.message : String(err);
-         console.warn("scrape ERR:", s.link, Date.now() - t0, "ms", msg);
-         extracts.push(`${s.title}. ${s.snippet ?? ""} (scrape failed)`);
-       }
+       const text = await firecrawl(s.link);
+       extracts.push(
+         `${text ?? ""}\n${s.title}. ${s.snippet ?? ""}`.trim().slice(0, 3000),
+       );
      }
    
      /* 7 — Prompt */
@@ -302,30 +277,50 @@
        .map((s, i) => `SOURCE_${i + 1} URL: ${s.link}\nCONTENT:\n${extracts[i]}`)
        .join("\n\n---\n\n");
    
+     const example = `{
+     "executive":[
+       {"text":"Sales Director at Flashpoint since 2024, previously Performance Analyst at SIGAR where he co-received a CIGIE Audit Excellence award. Over 12 years of threat-intelligence experience. Holds a B.A. in International Affairs from The George Washington University.","source":1}
+     ],
+     "highlights":[
+       {"text":"Co-recipient of the CIGIE Audit Excellence award for uncovering improper taxes at SIGAR.","source":3},
+       {"text":"Speaker on Flashpoint webinar 'Retail Security Unwrapped'.","source":2}
+     ],
+     "funFacts":[
+       {"text":"Published a GWU study-abroad journal from Costa Rica.","source":6}
+     ],
+     "researchNotes":[
+       {"text":"Flashpoint targets Fortune 500 security and fraud teams.","source":5}
+     ]
+   }`;
+   
      const template = `{
      "executive":[{"text":"","source":1}],
      "highlights":[{"text":"","source":1}],
      "funFacts":[{"text":"","source":1}],
-     "socialLinks":[{"text":"","source":1}],
      "researchNotes":[{"text":"","source":1}]
    }`;
    
-     const prompt = `Return ONLY JSON matching TEMPLATE.
-   
+     const prompt = `
+   Return ONLY JSON matching TEMPLATE.
+   Follow EXAMPLE style and grammar.
+   Do NOT pull content from SOCIAL_LINKS.
+     
    ### TEMPLATE
    ${template}
+   
+   ### EXAMPLE
+   ${example}
    
    ### EMPLOYMENT TIMELINE
    ${jobTimeline.join("\n")}
    
    ### SOURCES
-   ${srcBlock}`;
+   ${srcBlock}`.trim();
    
      /* 8 — LLM */
      const llm = await ai.chat.completions.create({
        model: MODEL_ID,
-       temperature: 0.1,
-       response_format: { type: "json_object" },
+       temperature: 0,
        messages: [{ role: "user", content: prompt }],
      });
    
@@ -333,7 +328,6 @@
        executive: [],
        highlights: [],
        funFacts: [],
-       socialLinks: [],
        researchNotes: [],
      };
      try {
@@ -352,7 +346,6 @@
      data.executive = uniq(data.executive);
      data.highlights = uniq(data.highlights);
      data.funFacts = uniq(data.funFacts);
-     data.socialLinks = uniq(data.socialLinks);
      data.researchNotes = uniq(data.researchNotes);
    
      /* 10 — Citations */
@@ -366,7 +359,11 @@
      }));
    
      /* 11 — HTML */
-     const htmlBrief = toHtml(name, org, data, citations, jobTimeline);
+     const htmlBrief = `
+   ${toHtml(name, org, data, citations, jobTimeline)}
+   <p>&nbsp;</p>
+   <h3><strong>Possible Social Links</strong></h3>
+   ${ulSocial(possibleSocialLinks)}`.trim();
    
      /* 12 — Payload */
      return {
