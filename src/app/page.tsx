@@ -45,17 +45,12 @@ const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon);
 /* -------------------------------------------------------------------------- */
 const sampleBriefHtmlContent = `
 <div>
-  <h2><strong>Meeting Brief: Jensen Huang – Nvidia</strong></h2>
+  <h2><strong>Meeting Brief: Jensen Huang – NVIDIA</strong></h2>
   <p>&nbsp;</p>
   <h3><strong>Executive Summary</strong></h3>
   <p>
-    Jensen Huang is the Founder and CEO of NVIDIA since 1993. He holds a
-    Bachelor of Science in Electrical Engineering from Oregon State University
-    and a Master of Science in Electrical Engineering from Stanford University.
-    Prior to founding NVIDIA he worked in various roles including dishwasher,
-    busboy and waiter at Denny's. He has led NVIDIA to become a leader in AI and
-    GPU technology over more than three decades of experience in the industry.
-    <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
+    Jensen Huang is the founder and CEO of NVIDIA, a position he has held since
+    founding the company in 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
   </p>
   <p>&nbsp;</p>
   <h3><strong>Job History</strong></h3>
@@ -64,41 +59,41 @@ const sampleBriefHtmlContent = `
     <li>Dishwasher, Busboy, Waiter — Denny's (1978 – 1983)</li>
   </ul>
   <p>&nbsp;</p>
-  <h3><strong>Highlights &amp; Fun Facts</strong></h3>
+  <h3><strong>Highlights</strong></h3>
   <ul class="list-disc pl-5">
     <li>
-      Founded NVIDIA in 1993 and has led the company to become a pioneer in AI
-      and GPU computing.
-      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
+      Jensen Huang co‑founded NVIDIA in 1993 and has led it to become the most
+      valuable public company in the world as of 2024.<sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer">14</a></sup>
     </li>
     <li>
-      Delivered keynote presentations at major industry events such as NVIDIA's
-      GPU Technology Conference and CES 2025.
-      <sup><a href="https://www.youtube.com/watch?v=_waPvOwL9Z8" target="_blank" rel="noopener noreferrer">6</a></sup>
+      Before founding NVIDIA, Jensen Huang worked at Denny's as a dishwasher,
+      busboy and waiter from 1978 to 1983.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
     </li>
     <li>
-      Worked as a dishwasher, busboy and waiter at Denny's from 1978 to 1983
-      before his engineering career.
-      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
+      Jensen Huang's journey from working at Denny's to leading a trillion‑dollar tech company inspired Denny's to create a special
+      'NVIDIA Breakfast Bytes' menu item in his honor.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
+    </li>
+    <li>
+      NVIDIA was originally launched from a local Denny's restaurant where Jensen Huang and his co‑founders met and planned the company.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
     </li>
   </ul>
   <p>&nbsp;</p>
   <h3><strong>Detailed Research Notes</strong></h3>
   <ul class="list-disc pl-5">
     <li>
-      Jensen Huang's leadership at NVIDIA has been instrumental in powering the
-      AI revolution through advanced GPU technology.
-      <sup><a href="https://www.newyorker.com/magazine/2023/12/04/how-jensen-huangs-nvidia-is-powering-the-ai-revolution" target="_blank" rel="noopener noreferrer">11</a></sup>
+      Jensen Huang has served as president, CEO and board member of NVIDIA continuously since its founding in 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
     </li>
     <li>
-      NVIDIA under Huang's leadership focuses on AI GPU computing and expanding
-      into global markets, including China.
-      <sup><a href="https://www.cnbc.com/2025/05/06/nvidia-ceo-says-missing-china-ai-market-would-be-tremendous-loss-.html" target="_blank" rel="noopener noreferrer">13</a></sup>
+      He has publicly emphasized the transformative impact of AI and accelerated computing in recent keynote addresses including GTC 2025.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
     </li>
     <li>
-      Conversation starter: Discuss how Huang's early work experiences
-      influenced his leadership style and vision for NVIDIA.
-      <sup><a href="https://www.linkedin.com/in/jenhsunhuang/" target="_blank" rel="noopener noreferrer">1</a></sup>
+      Jensen Huang has acknowledged the global competition in AI, noting that China is 'not behind' in artificial intelligence development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
+    </li>
+    <li>
+      His early work experience at Denny's included roles as dishwasher, busboy and waiter which he credits with teaching him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
+    </li>
+    <li>
+      NVIDIA's founding story is closely tied to Silicon Valley culture with a commemorative plaque unveiled at the Denny's where the company was conceived.<sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer">19</a></sup>
     </li>
   </ul>
 </div>
