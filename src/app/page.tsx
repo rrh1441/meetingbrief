@@ -123,20 +123,33 @@ export default function Page() {
 
   /* timer state */
   const [stepIdx, setStepIdx] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+  const [remaining, setRemaining] = useState(35); // seconds
 
-  /* advance step every 6 s while loading */
+  /* advance every second while loading */
   useEffect(() => {
     if (!loading) {
       setStepIdx(0);
-      setElapsed(0);
+      setRemaining(35);
       return;
     }
-    const start = Date.now();
+    const t0 = Date.now();
     const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - start) / 1000));
-      setStepIdx((i) => (i + 1) % STEPS.length);
-    }, 6_000);
+      const elapsed = Math.floor((Date.now() - t0) / 1000);
+
+      /* update time remaining */
+      const r = 35 - elapsed;
+      setRemaining(r > 5 ? r : 5);           // clamp at 5 s
+
+      /* advance step every 6 s until 35 s total */
+      if (elapsed < 35 && elapsed % 6 === 0) {
+        setStepIdx((i) =>
+          i < STEPS.length - 1 ? i + 1 : i,
+        );
+      }
+
+      /* stop ticker after 35 s */
+      if (elapsed >= 35) clearInterval(id);
+    }, 1_000);
     return () => clearInterval(id);
   }, [loading]);
 
@@ -160,7 +173,7 @@ export default function Page() {
     setError(null);
     setBriefHtml(null);
 
-    /* fire-and-forget analytics */
+    // Fire-and-forget analytics
     void logSearchEvent(form.name.trim(), form.organization.trim());
 
     try {
@@ -171,8 +184,18 @@ export default function Page() {
       });
 
       if (!res.ok) {
-        const { error: msg } = await res.json().catch(() => ({}));
-        throw new Error(msg ?? `Request failed (${res.status})`);
+        let payload: unknown;
+        try {
+          payload = await res.json();
+        } catch {
+          payload = await res.text();
+        }
+        throw new Error(
+          typeof payload === "string"
+            ? payload
+            : (payload as { message?: string })?.message ??
+                `Request failed (${res.status})`,
+        );
       }
 
       const { brief } = (await res.json()) as { brief: string };
@@ -217,7 +240,7 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Stop digging for info&nbsp;— gain back valuable hours and arrive prepared
+            Stop digging for info - gain back valuable hours and arrive prepared for every conversation
             </p>
           </div>
 
@@ -273,13 +296,10 @@ export default function Page() {
                 <CardHeader>
                   <CardTitle>{STEPS[stepIdx]}</CardTitle>
                   <CardDescription>
-                    {elapsed}s elapsed
+                    {remaining > 5 ? `${remaining}s remaining` : "≈ 5 s remaining"}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex items-center gap-2 text-slate-600">
-                  <Loader2 className="animate-spin h-4 w-4" />
-                  <span>Working…</span>
-                </CardContent>
+                <CardContent />
               </Card>
             )}
 
