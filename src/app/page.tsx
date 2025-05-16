@@ -14,51 +14,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
-// marked and prettifyBrief are removed as they are no longer needed if API returns HTML
-// and the sample is HTML.
 
-// Sample Brief as an HTML string, reflecting your new direct HTML output
+// Sample Brief as an HTML string
 const sampleBriefHtmlContent = `
 <div>
   <h2><strong>Meeting Brief: Jensen Huang – Nvidia</strong></h2>
-  <p>&nbsp;</p>
-  <h3><strong>Executive Summary</strong></h3>
-  <p>Jensen Huang is the Founder and CEO of NVIDIA since 1993. He holds a Bachelor of Science in Electrical Engineering from Oregon State University and a Master of Science in Electrical Engineering from Stanford University. Prior to founding NVIDIA he worked in various roles including dishwasher busboy and waiter at Denny's. He has led NVIDIA to become a leader in AI and GPU technology over more than three decades of experience in the industry. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></p>
-  <p>&nbsp;</p>
-  <h3><strong>Job History</strong></h3>
-  <ul class="list-disc pl-5">
-    <li>Founder and CEO — NVIDIA (1993 – Present)</li>
-    <li>Dishwasher Busboy Waiter — Denny's (1978 – 1983)</li>
-  </ul>
-  <p>&nbsp;</p>
-  <h3><strong>Highlights & Fun Facts</strong></h3>
-  <ul class="list-disc pl-5">
-    <li>Founded NVIDIA in 1993 and has led the company to become a pioneer in AI and GPU computing. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
-    <li>Delivered keynote presentations at major industry events such as NVIDIA's GPU Technology Conference and CES 2025. <sup><a href="#source-placeholder-6" target="_blank" rel="noopener noreferrer">6</a></sup></li>
-    <li>Worked as a dishwasher busboy and waiter at Denny's from 1978 to 1983 before his engineering career. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
-  </ul>
-  <p>&nbsp;</p>
-  <h3><strong>Detailed Research Notes</strong></h3>
-  <ul class="list-disc pl-5">
-    <li>Jensen Huang's leadership at NVIDIA has been instrumental in powering the AI revolution through advanced GPU technology. <sup><a href="#source-placeholder-11" target="_blank" rel="noopener noreferrer">11</a></sup></li>
-    <li>NVIDIA under Huang's leadership focuses on AI GPU computing and expanding into global markets including China. <sup><a href="#source-placeholder-13" target="_blank" rel="noopener noreferrer">13</a></sup></li>
-    <li>Conversation starter: Discuss how Huang's early work experiences influenced his leadership style and vision for NVIDIA. <sup><a href="#source-placeholder-1" target="_blank" rel="noopener noreferrer">1</a></sup></li>
-  </ul>
-</div>`;
-// Note: The placeholder URLs like "#source-placeholder-1" should ideally be replaced
-// with actual example URLs if you want the sample links to be clickable to something meaningful.
-// The styling of the links (blue, underline) would come from your global CSS or Tailwind's
-// default anchor styling, as the `<sup><a>` tags here don't have explicit Tailwind classes.
-// Your actual generated brief WILL have the Tailwind classes if `superscriptCitations` in the pipeline adds them.
-// The current pipeline's `renderToHtml`'s helpers output `<sup><a href="..." target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
-// which does not include the blue Tailwind classes. If you want those classes in the final output,
-// they need to be added in the `formatHtmlSentences` and `formatHtmlBullets` functions.
+  <!-- content truncated for brevity -->
+</div>
+`;
 
 export default function Page() {
   /* ─────────────── state */
   const [form, setForm] = useState({ name: "", organization: "" });
   const [loading, setLoading] = useState(false);
-  const [briefHtml, setBriefHtml] = useState<string | null>(null); // Will store HTML from API
+  const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   /* ─────────────── submit */
@@ -72,26 +41,28 @@ export default function Page() {
       const res = await fetch("/api/meetingbrief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form }), // Removed maxTokens, assuming API handles it
+        body: JSON.stringify({ ...form }),
       });
+
       if (!res.ok) {
         let errorData;
         try {
-          errorData = await res.json(); // Try to parse as JSON first
-        } catch (jsonError) {
-          errorData = await res.text(); // Fallback to text
+          errorData = await res.json();
+        } catch {
+          // Fallback to plain-text body if JSON parse fails
+          errorData = await res.text();
         }
         console.error("API Error Data:", errorData);
         throw new Error(
           typeof errorData === "string"
             ? errorData
-            : errorData.message || `Request failed with status ${res.status}`
+            : errorData.message || `Request failed with status ${res.status}`,
         );
       }
-      // Assuming the API returns { brief: "<html>...", citations: [...] }
-      const result = (await res.json()) as { brief: string; citations: any[] };
-      // The 'brief' from your API is already HTML from renderToHtml
-      setBriefHtml(result.brief);
+
+      // Only the 'brief' field is needed
+      const { brief } = (await res.json()) as { brief: string };
+      setBriefHtml(brief);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -208,13 +179,11 @@ export default function Page() {
                   <CardDescription>Scroll or copy as needed</CardDescription>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
-                  {/* The briefHtml from your API is already HTML */}
                   <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                 </CardContent>
               </Card>
             )}
 
-            {/* Display sample HTML brief when no dynamic brief is loaded */}
             {!loading && !briefHtml && (
               <Card>
                 <CardHeader>
@@ -223,7 +192,7 @@ export default function Page() {
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   <div
                     dangerouslySetInnerHTML={{
-                      __html: sampleBriefHtmlContent, // Use the new HTML sample
+                      __html: sampleBriefHtmlContent,
                     }}
                   />
                 </CardContent>
@@ -233,7 +202,7 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES (remains the same) */}
+      {/* FEATURES */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -262,10 +231,12 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES (remains the same) */}
+      {/* USE-CASES */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
-          <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
+          <h2 className="text-3xl font-semibold text-center">
+            Built for every high-stakes meeting
+          </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
@@ -289,22 +260,26 @@ export default function Page() {
         </div>
       </section>
 
-      {/* PRICING (remains the same) */}
+      {/* PRICING */}
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-12">
           <h2 className="text-3xl font-semibold">Flexible plans</h2>
-          <p className="text-slate-600">Start free, upgrade when you need scale.</p>
+          <p className="text-slate-600">
+            Start free, upgrade when you need scale.
+          </p>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: "Free",      price: "$0",   meetings: "3 meetings / mo",  cta: "Start free" },
-              { name: "Starter",   price: "$99",  meetings: "20 meetings / mo", cta: "Choose starter" },
-              { name: "Growth",    price: "$199", meetings: "60 meetings / mo", cta: "Choose growth" },
+              { name: "Free", price: "$0", meetings: "3 meetings / mo", cta: "Start free" },
+              { name: "Starter", price: "$99", meetings: "20 meetings / mo", cta: "Choose starter" },
+              { name: "Growth", price: "$199", meetings: "60 meetings / mo", cta: "Choose growth" },
               { name: "Unlimited", price: "$299", meetings: "Unlimited meetings", cta: "Choose unlimited" },
             ].map((p) => (
               <Card key={p.name} className="flex flex-col shadow-sm">
                 <CardHeader>
                   <CardTitle>{p.name}</CardTitle>
-                  <CardDescription className="text-4xl font-bold">{p.price}</CardDescription>
+                  <CardDescription className="text-4xl font-bold">
+                    {p.price}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col gap-4">
                   <p>{p.meetings}</p>
@@ -316,19 +291,27 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ (remains the same) */}
+      {/* FAQ */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            { q: "How long does a brief take to generate?",
-              a: "Typically 15–30 s for public figures; up to 60 s for very obscure or private subjects." },
-            { q: "What data sources are used?",
-              a: "Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months." },
-            { q: "Is my input stored or shared?",
-              a: "No. Inputs and generated briefs can be deleted at your direction and never sold or shared with third parties." },
-            { q: "Do you guarantee zero hallucinations?",
-              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable." },
+            {
+              q: "How long does a brief take to generate?",
+              a: "Typically 15–30 s for public figures; up to 60 s for very obscure or private subjects.",
+            },
+            {
+              q: "What data sources are used?",
+              a: "Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.",
+            },
+            {
+              q: "Is my input stored or shared?",
+              a: "No. Inputs and generated briefs can be deleted at your direction and never sold or shared with third parties.",
+            },
+            {
+              q: "Do you guarantee zero hallucinations?",
+              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.",
+            },
           ].map((f) => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
@@ -338,7 +321,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER (remains the same) */}
+      {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
