@@ -4,7 +4,7 @@
 /* -------------------------------------------------------------------------- */
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react"; /* ← added useRef */
 import Link from "next/link";
 import {
   Card,
@@ -125,6 +125,9 @@ export default function Page() {
   const [stepIdx, setStepIdx] = useState(0);
   const [remaining, setRemaining] = useState(45); // seconds
 
+  /* form ref for Safari “unsaved text” workaround */
+  const formRef = useRef<HTMLFormElement | null>(null); /* ← NEW */
+
   /* advance every second while loading */
   useEffect(() => {
     if (!loading) {
@@ -169,6 +172,14 @@ export default function Page() {
   /* ─────────────── submit */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    /* Safari prompt fix: mark current field values as defaults */
+    formRef.current
+      ?.querySelectorAll<HTMLInputElement>("input")
+      .forEach((el) => {
+        el.defaultValue = el.value;          /* ← NEW */
+      });
+
     setLoading(true);
     setError(null);
     setBriefHtml(null);
@@ -246,6 +257,7 @@ export default function Page() {
 
           {/* FORM ----------------------------------------------------------- */}
           <motion.form
+            ref={formRef} /* ← NEW */
             id="generate"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
