@@ -9,7 +9,7 @@
    ------------------------------------------------------------------------ */
 
    import OpenAI from "openai";
-   import fetch from "node-fetch"; // Make sure you have 'node-fetch' and '@types/node-fetch' installed
+   import fetch from "node-fetch"; // Ensure 'node-fetch' and '@types/node-fetch' are installed
    
    export const runtime = "nodejs";
    
@@ -26,7 +26,7 @@
    const SERPER = "https://google.serper.dev/search";
    const FIRE = "https://api.firecrawl.dev/v1/scrape";
    const CURL = "https://nubela.co/proxycurl/api/v2/linkedin";
-   const MAX_SRC = 15; // Max sources to feed into the LLM
+   const MAX_SRC = 15; // Max sources passed to the LLM
    const FIRECRAWL_SKIP_SUBSTRINGS = [
      "youtube.com/",
      "youtu.be/",
@@ -77,7 +77,7 @@
      snippet: string;
    }
    export interface MeetingBriefPayload {
-     brief: string; // HTML
+     brief: string;
      citations: Citation[];
      tokens: number;
      searches: number;
@@ -98,10 +98,8 @@
        body: JSON.stringify(body),
      }).then(async (r) => {
        if (!r.ok) {
-         const errorText = await r.text();
-         throw new Error(
-           `HTTP error! status: ${r.status}, message: ${errorText}, url: ${url}`,
-         );
+         const text = await r.text();
+         throw new Error(`HTTP ${r.status} – ${text} – ${url}`);
        }
        return r.json() as Promise<T>;
      });
@@ -110,28 +108,27 @@
    const span = (s?: Ymd | null, e?: Ymd | null): string =>
      `${yr(s)} – ${e ? yr(e) : "Present"}`;
    const toks = (s: string): number => Math.ceil(s.length / 4);
-   
    const clean = (t: string): string =>
      t.replace(/\s*\(?\bsource\s*\d+\)?/gi, "").trim();
    
-   const normalizeOrgName = (companyName: string): string => {
-     if (!companyName) return "";
-     return companyName
-       .toLowerCase()
-       .replace(
-         /[,.]?\s*(inc|llc|ltd|gmbh|corp|corporation|limited|company|co)\s*$/i,
-         "",
-       )
-       .replace(/[.,]/g, "")
-       .trim();
-   };
+   const normalizeOrgName = (company: string): string =>
+     company
+       ? company
+           .toLowerCase()
+           .replace(
+             /[,.]?\s*(inc|llc|ltd|gmbh|corp|corporation|limited|company|co)\s*$/i,
+             "",
+           )
+           .replace(/[.,]/g, "")
+           .trim()
+       : "";
    
-   /* ── Firecrawl wrapper with 10-second timeout ---------------------------- */
+   /* ── Firecrawl wrapper (10-s timeout) ------------------------------------ */
    const scrapeWithTimeout = (url: string) =>
      Promise.race([
        postJSON<FirecrawlScrapeResult>(
          FIRE,
-         { url }, // minimal valid body
+         { url },
          { Authorization: `Bearer ${FIRECRAWL_KEY!}` },
        ),
        new Promise<never>((_, reject) =>
@@ -144,57 +141,56 @@
      rows
        .map((r) => {
          const c = cites[r.source - 1];
-         const link = c
+         const sup = c
            ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
            : `<sup>[${r.source}]</sup>`;
-         return `<p>${clean(r.text)} ${link}</p>`;
+         return `<p>${clean(r.text)} ${sup}</p>`;
        })
        .join("\n");
    
-   const formatHtmlJobHistory = (items: string[]): string =>
-     items.length === 0
-       ? "<p>No job history available.</p>"
-       : `<ul class="list-disc pl-5">\n${items
-           .map((i) => `  <li>${i.startsWith("* ") ? i.slice(2) : i}</li>`)
-           .join("\n")}\n</ul>`;
-   
-   const formatHtmlBullets = (rows: BriefRow[], cites: Citation[]): string =>
+   const formatHtmlList = (rows: BriefRow[], cites: Citation[]): string =>
      rows.length === 0
        ? ""
        : `<ul class="list-disc pl-5">\n${rows
            .map((r) => {
              const c = cites[r.source - 1];
-             const link = c
+             const sup = c
                ? `<sup><a href="${c.url}" target="_blank" rel="noopener noreferrer">${r.source}</a></sup>`
                : `<sup>[${r.source}]</sup>`;
-             return `  <li>${clean(r.text)} ${link}</li>`;
+             return `  <li>${clean(r.text)} ${sup}</li>`;
            })
            .join("\n")}\n</ul>`;
    
-   function renderToHtml(
+   const formatHtmlJobs = (jobs: string[]): string =>
+     jobs.length
+       ? `<ul class="list-disc pl-5">\n${jobs
+           .map((j) => `  <li>${j.startsWith("* ") ? j.slice(2) : j}</li>`)
+           .join("\n")}\n</ul>`
+       : "<p>No job history available.</p>";
+   
+   function toHtml(
      name: string,
      org: string,
      data: JsonBrief,
-     citations: Citation[],
+     cites: Citation[],
      jobs: string[],
    ): string {
      const spacer = "<p>&nbsp;</p>";
-     const hiFun: BriefRow[] = [...data.highlights, ...data.funFacts];
      return `
    <div>
      <h2><strong>Meeting Brief: ${name} – ${org}</strong></h2>
    ${spacer}
      <h3><strong>Executive Summary</strong></h3>
-   ${formatHtmlSentences(data.executive, citations)}
+   ${formatHtmlSentences(data.executive, cites)}
    ${spacer}
      <h3><strong>Job History</strong></h3>
-   ${formatHtmlJobHistory(jobs)}
+   ${formatHtmlJobs(jobs)}
    ${spacer}
      <h3><strong>Highlights & Fun Facts</strong></h3>
-   ${formatHtmlBullets(hiFun, citations)}
+   ${formatHtmlList([...data.highlights, ...data.funFacts], cites)}
    ${spacer}
      <h3><strong>Detailed Research Notes</strong></h3>
-   ${formatHtmlBullets(data.researchNotes, citations)}
+   ${formatHtmlList(data.researchNotes, cites)}
    </div>`.trim().replace(/^\s*\n/gm, "");
    }
    
@@ -204,7 +200,7 @@
      org: string,
    ): Promise<MeetingBriefPayload> {
      let serperQueryCount = 0;
-     const allSerpResults: SerpResult[] = [];
+     const serpAll: SerpResult[] = [];
    
      /* 1 — Serper searches */
      const queries = [
@@ -235,18 +231,16 @@
            { "X-API-KEY": SERPER_KEY! },
          );
          serperQueryCount++;
-         if (r.organic) allSerpResults.push(...r.organic);
+         if (r.organic) serpAll.push(...r.organic);
        } catch (e) {
-         console.warn(`Serper query failed "${q.q}"`, e);
+         console.warn(`Serper query failed: ${q.q}`, e);
        }
      }
    
-     /* 3 — LinkedIn profile */
-     let linkedInProfile = allSerpResults.find((s) =>
-       s.link.includes("linkedin.com/in/")
-     );
-     if (!linkedInProfile) {
-       console.warn("LinkedIn profile not in initial results; retrying search.");
+     /* 2 — LinkedIn */
+     let li = serpAll.find((s) => s.link.includes("linkedin.com/in/"));
+     if (!li) {
+       console.warn("LinkedIn not found, running dedicated search");
        try {
          const r = await postJSON<{ organic?: SerpResult[] }>(
            SERPER,
@@ -258,59 +252,45 @@
          );
          serperQueryCount++;
          if (r.organic?.length) {
-           linkedInProfile = r.organic.find((s) =>
-             s.link.includes("linkedin.com/in/")
-           ) || r.organic[0];
-           if (
-             linkedInProfile &&
-             !allSerpResults.some((s) => s.link === linkedInProfile!.link)
-           ) {
-             allSerpResults.push(linkedInProfile);
-           }
+           li = r.organic.find((s) => s.link.includes("linkedin.com/in/")) ||
+             r.organic[0];
+           if (li && !serpAll.some((s) => s.link === li!.link)) serpAll.push(li);
          }
        } catch (e) {
-         console.warn("Dedicated LinkedIn search failed", e);
+         console.warn("LinkedIn dedicated query failed", e);
        }
      }
-     if (!linkedInProfile?.link) {
-       throw new Error(`LinkedIn profile not found for ${name}`);
-     }
+     if (!li?.link) throw new Error(`LinkedIn profile not found for ${name}`);
    
-     /* 4 — ProxyCurl for LinkedIn data */
+     /* 3 — ProxyCurl */
      const curlRes = await fetch(
-       `${CURL}?linkedin_profile_url=${encodeURIComponent(linkedInProfile.link)}`,
+       `${CURL}?linkedin_profile_url=${encodeURIComponent(li.link)}`,
        { headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } },
      );
      if (!curlRes.ok) {
        throw new Error(
-         `ProxyCurl error ${curlRes.status} – ${await curlRes.text()}`,
+         `ProxyCurl ${curlRes.status} – ${await curlRes.text()}`,
        );
      }
-     const proxyCurlData = (await curlRes.json()) as ProxyCurlResult;
-     const jobTimeline = (proxyCurlData.experiences ?? []).map((e) =>
+     const curlData = (await curlRes.json()) as ProxyCurlResult;
+     const jobTimeline = (curlData.experiences ?? []).map((e) =>
        `${e.title ?? "Role"} — ${e.company ?? "Company"} (${span(e.starts_at, e.ends_at)})`
      );
    
-     /* 5 — Prioritise & dedupe Serper results */
-     const significantOrgNames: string[] = [org];
-     proxyCurlData.experiences?.forEach((e) => {
+     /* 4 — Prioritise Serp results */
+     const orgs = [org];
+     curlData.experiences?.forEach((e) => {
        if (
          e.company &&
-         !significantOrgNames.some(
-           (o) => normalizeOrgName(o) === normalizeOrgName(e.company!),
-         )
-       ) {
-         significantOrgNames.push(e.company);
-       }
+         !orgs.some((o) => normalizeOrgName(o) === normalizeOrgName(e.company!))
+       ) orgs.push(e.company);
      });
-     const normalisedOrgs = significantOrgNames.map(normalizeOrgName).filter(Boolean);
+     const normOrgs = orgs.map(normalizeOrgName).filter(Boolean);
    
-     const dedupedSerps = Array.from(
-       new Map(allSerpResults.map((s) => [s.link, s])).values(),
-     );
-     const otherSerps = dedupedSerps.filter((s) => s.link !== linkedInProfile.link);
+     const dedup = Array.from(new Map(serpAll.map((s) => [s.link, s])).values());
+     const rest = dedup.filter((s) => s.link !== li.link);
    
-     const achKeys = [
+     const ach = [
        "award",
        "prize",
        "honor",
@@ -334,51 +314,45 @@
        "profile",
        "executive profile",
      ];
-     const cat1 = [linkedInProfile];
-     const cat2: SerpResult[] = [];
-     const cat3: SerpResult[] = [];
-     const cat4: SerpResult[] = [];
-     const cat5: SerpResult[] = [];
+     const p1 = [li];
+     const p2: SerpResult[] = [];
+     const p3: SerpResult[] = [];
+     const p4: SerpResult[] = [];
+     const p5: SerpResult[] = [];
    
      const nameParts = name.toLowerCase().split(" ").filter((p) => p.length > 2);
-     otherSerps.forEach((s) => {
-       if (!s?.link || !s.title) {
-         cat5.push(s);
+     rest.forEach((s) => {
+       if (!s?.title) {
+         p5.push(s);
          return;
        }
        const text = `${s.title} ${s.snippet ?? ""} ${s.link}`.toLowerCase();
        if (!nameParts.some((p) => text.includes(p))) {
-         cat5.push(s);
+         p5.push(s);
          return;
        }
-       const isAch = achKeys.some((k) => text.includes(k));
-       const orgHit = normalisedOrgs.find((o) => text.includes(o));
-       if (isAch && orgHit) cat2.push(s);
-       else if (orgHit) cat3.push(s);
-       else if (isAch) cat4.push(s);
-       else cat5.push(s);
+       const isAch = ach.some((k) => text.includes(k));
+       const orgHit = normOrgs.find((o) => text.includes(o));
+       if (isAch && orgHit) p2.push(s);
+       else if (orgHit) p3.push(s);
+       else if (isAch) p4.push(s);
+       else p5.push(s);
      });
    
-     const finalSourcesInput: SerpResult[] = [
-       ...cat1,
-       ...cat2,
-       ...cat3,
-       ...cat4,
-       ...cat5,
-     ]
-       .filter((s, i, arr) => arr.findIndex((t) => t.link === s.link) === i)
+     const sources: SerpResult[] = [...p1, ...p2, ...p3, ...p4, ...p5]
+       .filter((s, i, a) => a.findIndex((t) => t.link === s.link) === i)
        .slice(0, MAX_SRC);
    
-     /* 6 — Scrape Firecrawl with verbose logs */
+     /* 5 — Scrape with logs */
      const extracts: string[] = [];
-     for (const s of finalSourcesInput) {
+     for (const s of sources) {
        console.info("firecrawl-candidate:", s.link);
        if (s.link.includes("linkedin.com/in/")) {
-         const linkedInExtract =
-           `LinkedIn Profile for ${name}. Headline: ${proxyCurlData.headline ?? "N/A"}. ` +
+         const extract =
+           `LinkedIn Profile for ${name}. Headline: ${curlData.headline ?? "N/A"}. ` +
            `URL: ${s.link}. Experience: ${jobTimeline.slice(0, 5).join("; ")}.`;
-         extracts.push(linkedInExtract);
-         console.info("firecrawl-skipped: linkedIn – using ProxyCurl data");
+         extracts.push(extract);
+         console.info("firecrawl-skipped: LinkedIn — using ProxyCurl");
          continue;
        }
        if (FIRECRAWL_SKIP_SUBSTRINGS.some((sub) => s.link.includes(sub))) {
@@ -386,28 +360,26 @@
          extracts.push(`${s.title}. ${s.snippet ?? ""}`);
          continue;
        }
-       const t0 = Date.now();
+       const start = Date.now();
        try {
          const fc = await scrapeWithTimeout(s.link);
-         console.info("firecrawl-ok:", s.link, Date.now() - t0, "ms");
+         console.info("firecrawl-ok:", s.link, Date.now() - start, "ms");
          extracts.push(
            (fc.article?.text_content ?? `${s.title}. ${s.snippet ?? ""}`).slice(
              0,
              3000,
            ),
          );
-       } catch (err: any) {
-         const msg = err instanceof Error ? err.message : "unknown";
-         console.warn("firecrawl-err:", s.link, Date.now() - t0, "ms", msg);
+       } catch (err: unknown) {
+         const msg = err instanceof Error ? err.message : String(err);
+         console.warn("firecrawl-err:", s.link, Date.now() - start, "ms", msg);
          extracts.push(`${s.title}. ${s.snippet ?? ""} (scrape failed)`);
        }
      }
    
-     /* 7 — Build prompt */
-     const srcBlock = finalSourcesInput
-       .map(
-         (s, i) => `SOURCE_${i + 1} URL: ${s.link}\nCONTENT:\n${extracts[i]}`,
-       )
+     /* 6 — Build prompt */
+     const srcBlock = sources
+       .map((s, i) => `SOURCE_${i + 1} URL: ${s.link}\nCONTENT:\n${extracts[i]}`)
        .join("\n\n---\n\n");
    
      const template = `{
@@ -431,8 +403,8 @@
    ### SOURCES
    ${srcBlock}`.trim();
    
-     /* 8 — LLM call */
-     const llmResp = await ai.chat.completions.create({
+     /* 7 — LLM */
+     const resp = await ai.chat.completions.create({
        model: MODEL_ID,
        temperature: 0.1,
        response_format: { type: "json_object" },
@@ -441,21 +413,16 @@
    
      let briefJson: JsonBrief;
      try {
-       const content = llmResp.choices[0].message.content;
-       if (!content) throw new Error("LLM empty response");
-       briefJson = JSON.parse(content);
+       const c = resp.choices[0].message.content;
+       if (!c) throw new Error("empty response");
+       briefJson = JSON.parse(c);
      } catch (e) {
-       console.error("JSON parse error", e);
-       briefJson = {
-         executive: [],
-         highlights: [],
-         funFacts: [],
-         researchNotes: [],
-       };
+       console.error("LLM JSON parse error", e);
+       briefJson = { executive: [], highlights: [], funFacts: [], researchNotes: [] };
      }
    
-     /* 9 — Deduplicate rows */
-     const fix = (rows?: BriefRow[]): BriefRow[] =>
+     /* 8 — Deduplicate */
+     const dedupRows = (rows?: BriefRow[]): BriefRow[] =>
        Array.from(
          new Map(
            (rows ?? [])
@@ -465,36 +432,35 @@
                  r.text?.trim() !== "" &&
                  typeof r.source === "number" &&
                  r.source >= 1 &&
-                 r.source <= finalSourcesInput.length,
+                 r.source <= sources.length,
              )
              .map((r) => [clean(r.text).toLowerCase(), { ...r, text: clean(r.text) }]),
          ).values(),
        );
-     briefJson.executive = fix(briefJson.executive);
-     briefJson.highlights = fix(briefJson.highlights);
-     briefJson.funFacts = fix(briefJson.funFacts);
-     briefJson.researchNotes = fix(briefJson.researchNotes);
+     briefJson.executive = dedupRows(briefJson.executive);
+     briefJson.highlights = dedupRows(briefJson.highlights);
+     briefJson.funFacts = dedupRows(briefJson.funFacts);
+     briefJson.researchNotes = dedupRows(briefJson.researchNotes);
    
-     /* 10 — Citations */
-     const citations: Citation[] = finalSourcesInput.map((s, i) => ({
+     /* 9 — Citations */
+     const citations: Citation[] = sources.map((s, i) => ({
        marker: `[${i + 1}]`,
        url: s.link,
        title: s.title,
        snippet:
-         extracts[i].substring(0, 300) +
-         (extracts[i].length > 300 ? "..." : ""),
+         extracts[i].substring(0, 300) + (extracts[i].length > 300 ? "..." : ""),
      }));
    
-     /* 11 — HTML */
-     const htmlBrief = renderToHtml(name, org, briefJson, citations, jobTimeline);
+     /* 10 — HTML */
+     const html = toHtml(name, org, briefJson, citations, jobTimeline);
    
-     /* 12 — Payload */
+     /* 11 — Payload */
      return {
-       brief: htmlBrief,
+       brief: html,
        citations,
        tokens: toks(prompt) + toks(JSON.stringify(briefJson)),
        searches: serperQueryCount,
-       searchResults: finalSourcesInput.map((s, i) => ({
+       searchResults: sources.map((s, i) => ({
          url: s.link,
          title: s.title,
          snippet:
