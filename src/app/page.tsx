@@ -3,7 +3,7 @@
 /* -------------------------------------------------------------------------- */
 "use client";
 
-import { useState, useEffect, useRef, type FormEvent } from "react"; /* ← added useRef */
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -124,8 +124,8 @@ export default function Page() {
   const [stepIdx, setStepIdx] = useState(0);
   const [remaining, setRemaining] = useState(45); // seconds
 
-  /* form ref for Safari “unsaved text” workaround */
-  const formRef = useRef<HTMLFormElement | null>(null); /* ← NEW */
+  /* form ref for Safari "unsaved text" workaround */
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   /* advance every second while loading */
   useEffect(() => {
@@ -163,9 +163,24 @@ export default function Page() {
       await supabase
         .from("search_events")
         .insert([{ name, organization }]);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Supabase log error:", err);
     }
+  };
+
+  const copyBrief = () => {
+    const el = document.getElementById("brief-content");
+    if (!el) return;
+    navigator.clipboard.writeText(el.innerText).catch((err: unknown) => {
+      console.error("Copy failed", err);
+    });
+  };
+
+  const downloadPdf = async () => {
+    const el = document.getElementById("brief-content");
+    if (!el) return;
+    const html2pdf = (await import("html2pdf.js")).default;
+    html2pdf().from(el).save("meeting-brief.pdf");
   };
 
   /* ─────────────── submit */
@@ -175,9 +190,9 @@ export default function Page() {
     /* Safari prompt fix: mark current field values as defaults */
     formRef.current
       ?.querySelectorAll<HTMLInputElement>("input")
-      .forEach((el) => {
-        el.defaultValue = el.value;          /* ← NEW */
-      });
+        .forEach((el) => {
+          el.defaultValue = el.value;
+        });
 
     setLoading(true);
     setError(null);
@@ -210,7 +225,7 @@ export default function Page() {
 
       const { brief } = (await res.json()) as { brief: string };
       setBriefHtml(brief);
-    } catch (err) {
+    } catch (err: unknown) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
@@ -255,9 +270,9 @@ export default function Page() {
           </div>
 
           {/* FORM ----------------------------------------------------------- */}
-          <motion.form
-            ref={formRef} /* ← NEW */
-            id="generate"
+            <motion.form
+              ref={formRef}
+              id="generate"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
             onSubmit={submit}
@@ -324,9 +339,18 @@ export default function Page() {
                     <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
+                  <div className="mt-2 flex gap-2">
+                    <Button variant="outline" size="sm" onClick={copyBrief}>
+                      Copy
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={downloadPdf}>
+                      Download PDF
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
                   <div
+                    id="brief-content"
                     dangerouslySetInnerHTML={{ __html: briefHtml }}
                   />
                 </CardContent>
@@ -340,6 +364,7 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   <div
+                    id="brief-content"
                     dangerouslySetInnerHTML={{
                       __html: sampleBriefHtmlContent,
                     }}
