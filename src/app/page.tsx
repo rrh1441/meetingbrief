@@ -248,31 +248,6 @@ export default function Page() {
     }
   };
 
-  const downloadPdf = async () => {
-    if (!briefHtml) return;
-    try {
-      if (!(window as any).html2pdf) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src =
-            "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
-          script.onload = resolve;
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      }
-      const element = document.getElementById("brief-content");
-      if (element && (window as any).html2pdf) {
-        (window as any).html2pdf().from(element).save("meeting-brief.pdf");
-      } else {
-        throw new Error("PDF library failed to load");
-      }
-    } catch (err) {
-      console.error("PDF download failed:", err);
-      toast("Failed to download PDF");
-    }
-  };
-
   /* ─────────────── view */
   return (
     <div className="min-h-screen flex flex-col">
@@ -384,19 +359,10 @@ export default function Page() {
                     <Button size="sm" variant="outline" onClick={copyHtml}>
                       Copy Brief
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={downloadPdf}
-                      className="ml-2"
-                    >
-                      Download PDF
-                    </Button>
                   </CardAction>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
                   <div
-                    id="brief-content"
                     dangerouslySetInnerHTML={{ __html: briefHtml }}
                   />
                 </CardContent>
