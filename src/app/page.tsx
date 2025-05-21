@@ -168,6 +168,21 @@ export default function Page() {
     }
   };
 
+  const copyBrief = () => {
+    const el = document.getElementById("brief-content");
+    if (!el) return;
+    navigator.clipboard.writeText(el.innerText).catch((err) => {
+      console.error("Copy failed", err);
+    });
+  };
+
+  const downloadPdf = async () => {
+    const el = document.getElementById("brief-content");
+    if (!el) return;
+    const html2pdf = (await import("html2pdf.js")).default;
+    html2pdf().from(el).save("meeting-brief.pdf");
+  };
+
   /* ─────────────── submit */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -324,9 +339,18 @@ export default function Page() {
                     <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
+                  <div className="mt-2 flex gap-2">
+                    <Button variant="outline" size="sm" onClick={copyBrief}>
+                      Copy
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={downloadPdf}>
+                      Download PDF
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
                   <div
+                    id="brief-content"
                     dangerouslySetInnerHTML={{ __html: briefHtml }}
                   />
                 </CardContent>
@@ -340,6 +364,7 @@ export default function Page() {
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   <div
+                    id="brief-content"
                     dangerouslySetInnerHTML={{
                       __html: sampleBriefHtmlContent,
                     }}
