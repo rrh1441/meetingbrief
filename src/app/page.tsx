@@ -8,6 +8,7 @@ import Link from "next/link";
 import {
   Card,
   CardHeader,
+  CardAction,
   CardTitle,
   CardDescription,
   CardContent,
@@ -18,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 /* -------------------------------------------------------------------------- */
 /*  Supabase client (public keys only)                                        */
@@ -217,6 +219,35 @@ export default function Page() {
     }
   };
 
+  const copyHtml = async () => {
+    if (!briefHtml) return;
+    try {
+      if (navigator.clipboard && "write" in navigator.clipboard) {
+        const type = "text/html";
+        const blob = new Blob([briefHtml], { type });
+        await navigator.clipboard.write([
+          new ClipboardItem({ [type]: blob }),
+        ]);
+      } else {
+        const el = document.createElement("div");
+        el.innerHTML = briefHtml;
+        document.body.appendChild(el);
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        document.execCommand("copy");
+        sel?.removeAllRanges();
+        document.body.removeChild(el);
+      }
+      toast("Brief copied to clipboard");
+    } catch (err) {
+      console.error(err);
+      toast("Failed to copy");
+    }
+  };
+
   /* ─────────────── view */
   return (
     <div className="min-h-screen flex flex-col">
@@ -324,6 +355,11 @@ export default function Page() {
                     <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
                   <CardDescription>Scroll or copy as needed</CardDescription>
+                  <CardAction>
+                    <Button size="sm" variant="outline" onClick={copyHtml}>
+                      Copy Brief
+                    </Button>
+                  </CardAction>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
                   <div
