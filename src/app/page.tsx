@@ -243,7 +243,7 @@ export default function Page() {
       }
       toast("Brief copied to clipboard");
     } catch (err) {
-      console.error(err);
+      console.error("Copy to clipboard failed:", err);
       toast("Failed to copy");
     }
   };
