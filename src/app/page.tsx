@@ -442,8 +442,16 @@ export default function Page() {
 
       {/* FOOTER ------------------------------------------------------------- */}
       <footer className="bg-white border-t border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500">
+        <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500 gap-4">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
+          <div className="flex gap-4">
+            <Link href="/privacy" className="hover:text-indigo-600">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="hover:text-indigo-600">
+              Terms of Service
+            </Link>
+          </div>
         </div>
       </footer>
     </div>
