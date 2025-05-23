@@ -1,10 +1,15 @@
 /* -------------------------------------------------------------------------- */
 /*  src/app/page.tsx                                                          */
 /* -------------------------------------------------------------------------- */
-"use client";
+'use client'
 
-import { useState, useEffect, useRef, type FormEvent } from "react"; /* ← added useRef */
-import Link from "next/link";
+import {
+  useState,
+  useEffect,
+  useRef,
+  type FormEvent,
+} from 'react'
+import Link from 'next/link'
 import {
   Card,
   CardHeader,
@@ -12,14 +17,14 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle2 } from "lucide-react";
-import { motion } from "framer-motion";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { toast } from "sonner";
+} from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Loader2, CheckCircle2 } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 /* -------------------------------------------------------------------------- */
 /*  Supabase client (public keys only)                                        */
@@ -27,19 +32,19 @@ import { toast } from "sonner";
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ??
   process.env.SUPABASE_URL ??
-  "";
+  ''
 const supabaseAnon =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   process.env.SUPABASE_ANON_KEY ??
-  "";
+  ''
 
 if (!supabaseUrl || !supabaseAnon) {
   throw new Error(
-    "Define NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.",
-  );
+    'Define NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.',
+  )
 }
 
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon);
+const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon)
 
 /* -------------------------------------------------------------------------- */
 /*  Static demo brief shown when no API data is loaded                        */
@@ -67,188 +72,178 @@ const sampleBriefHtmlContent = `
       valuable public company in the world as of 2024.<sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer">14</a></sup>
     </li>
     <li>
-      Before founding NVIDIA, Jensen Huang worked at Denny's as a dishwasher,
+      Before founding NVIDIA, Huang worked at Denny's as a dishwasher,
       busboy and waiter from 1978 to 1983.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
     </li>
     <li>
-      Jensen Huang's journey from working at Denny's to leading a trillion-dollar tech company inspired Denny's to create a special
-      'NVIDIA Breakfast Bytes' menu item in his honor.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
+      His journey from Denny's to a trillion-dollar tech company inspired
+      Denny's to create a special 'NVIDIA Breakfast Bytes' menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
     </li>
     <li>
-      NVIDIA was originally launched from a local Denny's restaurant where Jensen Huang and his co-founders met and planned the company.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
+      NVIDIA was originally planned in a local Denny's where the founders met.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
     </li>
   </ul>
   <p>&nbsp;</p>
   <h3><strong>Detailed Research Notes</strong></h3>
   <ul class="list-disc pl-5">
     <li>
-      Jensen Huang has served as president, CEO and board member of NVIDIA continuously since its founding in 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
+      Huang has served as president, CEO and board member of NVIDIA continuously
+      since 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
     </li>
     <li>
-      He has publicly emphasized the transformative impact of AI and accelerated computing in recent keynote addresses including GTC 2025.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
+      He highlighted AI's impact in his GTC 2025 keynote.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
     </li>
     <li>
-      Jensen Huang has acknowledged the global competition in AI, noting that China is 'not behind' in artificial intelligence development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
+      Huang stated that China is 'not behind' in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
     </li>
     <li>
-      His early work experience at Denny's included roles as dishwasher, busboy and waiter which he credits with teaching him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
+      Early Denny's work taught him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
     </li>
     <li>
-      NVIDIA's founding story is closely tied to Silicon Valley culture with a commemorative plaque unveiled at the Denny's where the company was conceived.<sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer">19</a></sup>
+      A plaque marks the Denny's where NVIDIA was conceived.<sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer">19</a></sup>
     </li>
   </ul>
 </div>
-`;
+`
 
 /* -------------------------------------------------------------------------- */
 /*  Fixed status phrases for local countdown                                  */
 /* -------------------------------------------------------------------------- */
 const STEPS = [
-  "Sourcing search results …",
-  "Verifying profile …",
-  "Expanding coverage …",
-  "Pulling page details …",
-  "Generating summary …",
-  "Wrapping up …",
-] as const;
+  'Sourcing search results …',
+  'Verifying profile …',
+  'Expanding coverage …',
+  'Pulling page details …',
+  'Generating summary …',
+  'Wrapping up …',
+] as const
 
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 export default function Page() {
-  /* ─────────────── state */
-  const [form, setForm] = useState({ name: "", organization: "" });
-  const [loading, setLoading] = useState(false);
-  const [briefHtml, setBriefHtml] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [form, setForm]           = useState({ name: '', organization: '' })
+  const [loading, setLoading]     = useState(false)
+  const [briefHtml, setBriefHtml] = useState<string | null>(null)
+  const [error, setError]         = useState<string | null>(null)
 
-  /* timer state */
-  const [stepIdx, setStepIdx] = useState(0);
-  const [remaining, setRemaining] = useState(45); // seconds
+  const [stepIdx, setStepIdx]     = useState(0)
+  const [remaining, setRemaining] = useState(45)
 
-  /* form ref for Safari “unsaved text” workaround */
-  const formRef = useRef<HTMLFormElement | null>(null); /* ← NEW */
+  const formRef = useRef<HTMLFormElement | null>(null)
 
-  /* advance every second while loading */
+  /* countdown ticker */
   useEffect(() => {
     if (!loading) {
-      setStepIdx(0);
-      setRemaining(45);
-      return;
+      setStepIdx(0)
+      setRemaining(45)
+      return
     }
-    const t0 = Date.now();
+    const t0 = Date.now()
     const id = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - t0) / 1000);
-
-      /* update time remaining */
-      const r = 45 - elapsed;
-      setRemaining(r > 5 ? r : 5);           // clamp at 5 s
-
-      /* advance step every 9 s until 45 s total */
+      const elapsed = Math.floor((Date.now() - t0) / 1000)
+      setRemaining(Math.max(5, 45 - elapsed))
       if (elapsed < 45 && elapsed % 9 === 0) {
-        setStepIdx((i) =>
-          i < STEPS.length - 1 ? i + 1 : i,
-        );
+        setStepIdx(i => Math.min(i + 1, STEPS.length - 1))
       }
+      if (elapsed >= 45) clearInterval(id)
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [loading])
 
-      /* stop ticker after 45 s */
-      if (elapsed >= 45) clearInterval(id);
-    }, 1_000);
-    return () => clearInterval(id);
-  }, [loading]);
-
-  /* ---------------------------------------------------------------------- */
-  /*  Analytics: insert one row per search                                   */
-  /* ---------------------------------------------------------------------- */
+  /* analytics helper */
   const logSearchEvent = async (name: string, organization: string) => {
     try {
-      await supabase
-        .from("search_events")
-        .insert([{ name, organization }]);
+      await supabase.from('search_events').insert([{ name, organization }])
     } catch (err) {
-      console.error("Supabase log error:", err);
+      console.error('Supabase log error:', err)
     }
-  };
+  }
 
-  /* ─────────────── submit */
+  /* submit */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    /* Safari prompt fix: mark current field values as defaults */
+    e.preventDefault()
     formRef.current
-      ?.querySelectorAll<HTMLInputElement>("input")
-      .forEach((el) => {
-        el.defaultValue = el.value;          /* ← NEW */
-      });
+      ?.querySelectorAll<HTMLInputElement>('input')
+      .forEach(el => (el.defaultValue = el.value))
 
-    setLoading(true);
-    setError(null);
-    setBriefHtml(null);
-
-    // Fire-and-forget analytics
-    void logSearchEvent(form.name.trim(), form.organization.trim());
+    setLoading(true)
+    setError(null)
+    setBriefHtml(null)
+    void logSearchEvent(form.name.trim(), form.organization.trim())
 
     try {
-      const res = await fetch("/api/meetingbrief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/meetingbrief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
-      });
-
-      if (!res.ok) {
-        let payload: unknown;
-        try {
-          payload = await res.json();
-        } catch {
-          payload = await res.text();
-        }
-        throw new Error(
-          typeof payload === "string"
-            ? payload
-            : (payload as { message?: string })?.message ??
-                `Request failed (${res.status})`,
-        );
-      }
-
-      const { brief } = (await res.json()) as { brief: string };
-      setBriefHtml(brief);
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const { brief } = (await res.json()) as { brief: string }
+      setBriefHtml(brief)
     } catch (err) {
-      setError((err as Error).message);
+      setError((err as Error).message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
+  /* copy */
   const copyHtml = async () => {
-    if (!briefHtml) return;
+    if (!briefHtml) return
     try {
-      if (navigator.clipboard && "write" in navigator.clipboard) {
-        const type = "text/html";
-        const blob = new Blob([briefHtml], { type });
+      const mime = 'text/html'
+      if ('clipboard' in navigator && 'write' in navigator.clipboard) {
         await navigator.clipboard.write([
-          new ClipboardItem({ [type]: blob }),
-        ]);
+          new ClipboardItem({ [mime]: new Blob([briefHtml], { type: mime }) }),
+        ])
       } else {
-        const el = document.createElement("div");
-        el.innerHTML = briefHtml;
-        document.body.appendChild(el);
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-        document.execCommand("copy");
-        sel?.removeAllRanges();
-        document.body.removeChild(el);
+        const ta = document.createElement('textarea')
+        ta.value = briefHtml
+        ta.style.position = 'fixed'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
       }
-      toast("Brief copied to clipboard");
+      toast('Brief copied to clipboard')
     } catch (err) {
-      console.error("Copy to clipboard failed:", err);
-      toast("Failed to copy");
+      console.error('copyHtml() error:', err)
+      toast('Copy failed')
     }
-  };
+  }
 
-  /* ─────────────── view */
+  /* download */
+  const downloadPdf = async () => {
+    if (!briefHtml) {
+      toast('Nothing to export')
+      return
+    }
+    try {
+      const res = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ htmlContent: briefHtml }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url
+      a.download = 'meeting-brief.pdf'
+      document.body.appendChild(a)
+      a.click()
+      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      toast('PDF downloaded')
+    } catch (err) {
+      console.error('downloadPdf() error:', err)
+      toast('PDF export failed')
+    }
+  }
+
+  /* view */
   return (
     <div className="min-h-screen flex flex-col">
       {/* NAVBAR ------------------------------------------------------------- */}
@@ -257,7 +252,6 @@ export default function Page() {
           <Link href="/" className="font-semibold text-xl">
             MeetingBrief
           </Link>
-
           <div className="hidden md:flex gap-6 items-center">
             <Link href="#features" className="hover:text-indigo-600">
               Features
@@ -275,19 +269,17 @@ export default function Page() {
       {/* HERO + FORM + DEMO ------------------------------------------------- */}
       <header className="bg-gradient-to-b from-white to-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
-          {/* Hero text */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-            Stop digging for info - gain back valuable hours and arrive prepared for every conversation
+              Stop digging for info – gain back valuable hours and arrive prepared for every conversation
             </p>
           </div>
 
-          {/* FORM ----------------------------------------------------------- */}
           <motion.form
-            ref={formRef} /* ← NEW */
+            ref={formRef}
             id="generate"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
@@ -295,9 +287,7 @@ export default function Page() {
             className="w-full max-w-xl mx-auto bg-white rounded-2xl shadow-lg p-6 flex flex-col gap-4"
           >
             <div className="flex items-center gap-2">
-              <Label htmlFor="name" className="w-20">
-                Person
-              </Label>
+              <Label htmlFor="name" className="w-20">Person</Label>
               <Input
                 id="name"
                 placeholder="Jensen Huang"
@@ -308,37 +298,28 @@ export default function Page() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Label htmlFor="org" className="w-20">
-                Company
-              </Label>
+              <Label htmlFor="org" className="w-20">Company</Label>
               <Input
                 id="org"
                 placeholder="NVIDIA"
                 value={form.organization}
-                onChange={(e) =>
-                  setForm({ ...form, organization: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, organization: e.target.value })}
                 required
               />
             </div>
 
             <Button type="submit" disabled={loading}>
-              {loading ? (
-                <Loader2 className="animate-spin h-4 w-4" />
-              ) : (
-                "Generate Brief"
-              )}
+              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Generate Brief'}
             </Button>
           </motion.form>
 
-          {/* DEMO / LOADER / OUTPUT ---------------------------------------- */}
           <div className="w-full max-w-5xl mx-auto">
             {loading && (
               <Card>
                 <CardHeader>
                   <CardTitle>{STEPS[stepIdx]}</CardTitle>
                   <CardDescription>
-                    {remaining > 5 ? `${remaining}s remaining` : "≈ 5 s remaining"}
+                    {remaining > 5 ? `${remaining}s remaining` : '≈ 5 s remaining'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent />
@@ -351,20 +332,20 @@ export default function Page() {
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    Brief ready{" "}
-                    <CheckCircle2 className="inline h-5 w-5 text-green-600" />
+                    Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
                   </CardTitle>
-                  <CardDescription>Scroll or copy as needed</CardDescription>
-                  <CardAction>
+                  <CardDescription>Scroll, copy, or export</CardDescription>
+                  <CardAction className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={copyHtml}>
                       Copy Brief
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={downloadPdf}>
+                      Download PDF
                     </Button>
                   </CardAction>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
-                  <div
-                    dangerouslySetInnerHTML={{ __html: briefHtml }}
-                  />
+                  <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                 </CardContent>
               </Card>
             )}
@@ -375,11 +356,7 @@ export default function Page() {
                   <CardTitle>Real Example Brief</CardTitle>
                 </CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: sampleBriefHtmlContent,
-                    }}
-                  />
+                  <div dangerouslySetInnerHTML={{ __html: sampleBriefHtmlContent }} />
                 </CardContent>
               </Card>
             )}
@@ -391,26 +368,13 @@ export default function Page() {
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
-            {
-              title: "Deep open source coverage",
-              desc: "LinkedIn, filings, press, podcasts & more in one pass.",
-            },
-            {
-              title: "Footnoted sources",
-              desc: "Every claim backed by a link — no hidden hallucinations.",
-            },
-            {
-              title: "Conversational hooks",
-              desc: "2–3 rapport-building facts to break the ice.",
-            },
-          ].map((f) => (
+            { title: 'Deep open source coverage', desc: 'LinkedIn, filings, press, podcasts & more in one pass.' },
+            { title: 'Footnoted sources',          desc: 'Every claim backed by a link — no hidden hallucinations.' },
+            { title: 'Conversational hooks',       desc: '2–3 rapport-building facts to break the ice.' },
+          ].map(f => (
             <Card key={f.title} className="shadow-sm">
-              <CardHeader>
-                <CardTitle>{f.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-slate-600">
-                <p>{f.desc}</p>
-              </CardContent>
+              <CardHeader><CardTitle>{f.title}</CardTitle></CardHeader>
+              <CardContent className="text-slate-600"><p>{f.desc}</p></CardContent>
             </Card>
           ))}
         </div>
@@ -419,26 +383,21 @@ export default function Page() {
       {/* USE-CASES ---------------------------------------------------------- */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
-          <h2 className="text-3xl font-semibold text-center">
-            Built for every high-stakes meeting
-          </h2>
+          <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: "Investors", icon: "💼", blurb: "Vet founders before they pitch." },
-              { name: "Recruiters", icon: "🎯", blurb: "Assess executive candidates in minutes." },
-              { name: "Founders",  icon: "🚀", blurb: "Know your counterpart’s angle before negotiations." },
-              { name: "Sales",     icon: "📈", blurb: "Skip the research rabbit hole and open with insight." },
-            ].map((u) => (
+              { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
+              { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
+              { name: 'Founders',  icon: '🚀', blurb: 'Know your counterpart’s angle before negotiations.' },
+              { name: 'Sales',     icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
+            ].map(u => (
               <Card key={u.name} className="text-center shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex flex-col items-center gap-2">
-                    <span className="text-4xl">{u.icon}</span>
-                    {u.name}
+                    <span className="text-4xl">{u.icon}</span>{u.name}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-slate-600">{u.blurb}</p>
-                </CardContent>
+                <CardContent><p className="text-slate-600">{u.blurb}</p></CardContent>
               </Card>
             ))}
           </div>
@@ -451,22 +410,22 @@ export default function Page() {
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
             {
-              q: "How long does a brief take to generate?",
-              a: "Around 45 seconds!",
+              q: 'How long does a brief take to generate?',
+              a: 'Around 45 seconds!',
             },
             {
-              q: "What data sources are used?",
-              a: "Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.",
+              q: 'What data sources are used?',
+              a: 'Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.',
             },
             {
-              q: "Is my input stored or shared?",
-              a: "No. Inputs and generated briefs can be deleted at your direction and never sold or shared with third parties.",
+              q: 'Is my input stored or shared?',
+              a: 'No. Inputs and generated briefs can be deleted at your direction and are never sold or shared with third parties.',
             },
             {
-              q: "Do you guarantee zero hallucinations?",
-              a: "Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.",
+              q: 'Do you guarantee zero hallucinations?',
+              a: 'Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.',
             },
-          ].map((f) => (
+          ].map(f => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
               <p className="text-slate-600 mt-2">{f.a}</p>
@@ -480,15 +439,11 @@ export default function Page() {
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500 gap-4">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
           <div className="flex gap-4">
-            <Link href="/privacy" className="hover:text-indigo-600">
-              Privacy Policy
-            </Link>
-            <Link href="/terms" className="hover:text-indigo-600">
-              Terms of Service
-            </Link>
+            <Link href="/privacy" className="hover:text-indigo-600">Privacy Policy</Link>
+            <Link href="/terms"   className="hover:text-indigo-600">Terms of Service</Link>
           </div>
         </div>
       </footer>
     </div>
-  );
+  )
 }
