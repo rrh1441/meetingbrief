@@ -1,17 +1,16 @@
 /* -------------------------------------------------------------------------- */
 /*  src/app/api/generate-pdf/route.ts                                         */
-/*  POST { htmlContent: string, filename?: string }  →  PDF stream           */
 /* -------------------------------------------------------------------------- */
 import { NextResponse } from 'next/server'
 import chromium from '@sparticuz/chromium'
 import puppeteer from 'puppeteer-core'
 
-export const runtime  = 'nodejs'       // puppeteer requires Node runtime
-export const dynamic  = 'force-dynamic'
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 interface Payload {
   htmlContent?: string
-  filename?:   string
+  filename?: string
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -27,14 +26,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ message: 'htmlContent required' }, { status: 400 })
   }
 
-  /* ---------- launch headless Chrome ------------------------------------ */
   const execPath = await chromium.executablePath()
-  const browser  = await puppeteer.launch({
+  const browser = await puppeteer.launch({
     args: chromium.args,
-    executablePath: execPath || undefined, // local Chrome if execPath === null
+    executablePath: execPath || undefined,
     defaultViewport: chromium.defaultViewport,
     headless: chromium.headless,
-    ignoreHTTPSErrors: true,
   })
 
   try {
@@ -54,9 +51,9 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     return new NextResponse(pdf, {
       headers: {
-        'Content-Type':        'application/pdf',
+        'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length':      String(pdf.length),
+        'Content-Length': String(pdf.length),
       },
     })
   } finally {
