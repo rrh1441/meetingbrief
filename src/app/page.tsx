@@ -118,36 +118,48 @@ const STEPS = [
   'Wrapping up …',
 ] as const
 
-/* remove empty “&nbsp;” paragraphs */
+/* helpers ------------------------------------------------------------------ */
 const normaliseHtml = (html: string) => html.replace(/<p>&nbsp;<\/p>/g, '')
+
+/** keep <a> only inside <sup>; strip href everywhere else */
+const prepareHtmlForClipboard = (raw: string) => {
+  const div = document.createElement('div')
+  div.innerHTML = normaliseHtml(raw)
+
+  div.querySelectorAll<HTMLAnchorElement>('a').forEach(a => {
+    if (a.closest('sup')) return            // keep citation links blue
+    a.removeAttribute('href')
+    a.style.textDecoration = 'none'
+    a.style.color = 'inherit'
+  })
+
+  return {
+    html: div.innerHTML,
+    text: div.innerText,
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 export default function Page() {
-  /* state */
-  const [form, setForm] = useState({ name: '', organization: '' })
-  const [loading, setLoading] = useState(false)
+  /* state ------------------------------------------------------------------ */
+  const [form, setForm]           = useState({ name: '', organization: '' })
+  const [loading,   setLoading]   = useState(false)
   const [briefHtml, setBriefHtml] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error,     setError]     = useState<string | null>(null)
 
-  /* countdown */
-  const [stepIdx, setStepIdx] = useState(0)
+  const [stepIdx,   setStepIdx]   = useState(0)
   const [remaining, setRemaining] = useState(45)
 
-  /* PDF button */
   const [pdfBusy, setPdfBusy] = useState(false)
   const pdfCooldownUntil = useRef<number>(0)
 
   const formRef = useRef<HTMLFormElement | null>(null)
 
-  /* countdown ticker */
+  /* countdown ticker ------------------------------------------------------- */
   useEffect(() => {
-    if (!loading) {
-      setStepIdx(0)
-      setRemaining(45)
-      return
-    }
+    if (!loading) { setStepIdx(0); setRemaining(45); return }
     const t0 = Date.now()
     const id = setInterval(() => {
       const elapsed = Math.floor((Date.now() - t0) / 1000)
@@ -160,22 +172,20 @@ export default function Page() {
     return () => clearInterval(id)
   }, [loading])
 
-  /* analytics */
+  /* analytics -------------------------------------------------------------- */
   const logSearchEvent = async (name: string, organization: string) => {
     try { await supabase.from('search_events').insert([{ name, organization }]) }
     catch (err) { console.error('Supabase log error:', err) }
   }
 
-  /* form submit */
+  /* submit ----------------------------------------------------------------- */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     formRef.current
       ?.querySelectorAll<HTMLInputElement>('input')
       .forEach(el => (el.defaultValue = el.value))
 
-    setLoading(true)
-    setError(null)
-    setBriefHtml(null)
+    setLoading(true); setError(null); setBriefHtml(null)
     void logSearchEvent(form.name.trim(), form.organization.trim())
 
     try {
@@ -194,19 +204,22 @@ export default function Page() {
     }
   }
 
-  /* copy */
+  /* copy ------------------------------------------------------------------- */
   const copyHtml = async () => {
     if (!briefHtml) return
-    const cleaned = normaliseHtml(briefHtml)
+    const { html, text } = prepareHtmlForClipboard(briefHtml)
+
     try {
-      const mime = 'text/html'
       if (navigator.clipboard && 'write' in navigator.clipboard) {
         await navigator.clipboard.write([
-          new ClipboardItem({ [mime]: new Blob([cleaned], { type: mime }) }),
+          new ClipboardItem({
+            'text/html':  new Blob([html],  { type: 'text/html'  }),
+            'text/plain': new Blob([text],  { type: 'text/plain' }),
+          }),
         ])
       } else {
         const ta = document.createElement('textarea')
-        ta.value = cleaned
+        ta.value = text
         ta.style.position = 'fixed'
         ta.style.left = '-9999px'
         document.body.appendChild(ta)
@@ -220,7 +233,7 @@ export default function Page() {
     }
   }
 
-  /* download PDF */
+  /* download PDF ----------------------------------------------------------- */
   const downloadPdf = async () => {
     if (pdfBusy || Date.now() < pdfCooldownUntil.current) return
     setPdfBusy(true)
@@ -253,10 +266,10 @@ export default function Page() {
     }
   }
 
-  /* view */
+  /* view ------------------------------------------------------------------- */
   return (
     <div className="min-h-screen flex flex-col">
-      {/* NAVBAR */}
+      {/* NAVBAR ------------------------------------------------------------- */}
       <nav className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
           <Link href="/" className="font-semibold text-xl">
@@ -272,7 +285,7 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* HERO + FORM + DEMO */}
+      {/* HERO + FORM + DEMO ------------------------------------------------- */}
       <header className="bg-gradient-to-b from-white to-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
           {/* Hero */}
@@ -378,7 +391,7 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES */}
+      {/* FEATURES ----------------------------------------------------------- */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -394,7 +407,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES */}
+      {/* USE-CASES ---------------------------------------------------------- */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
@@ -418,27 +431,15 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* FAQ ---------------------------------------------------------------- */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            {
-              q: 'How long does a brief take to generate?',
-              a: 'Around 45 seconds!',
-            },
-            {
-              q: 'What data sources are used?',
-              a: 'Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.',
-            },
-            {
-              q: 'Is my input stored or shared?',
-              a: 'No. Inputs and generated briefs can be deleted at your direction and are never sold or shared with third parties.',
-            },
-            {
-              q: 'Do you guarantee zero hallucinations?',
-              a: 'Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.',
-            },
+            { q: 'How long does a brief take to generate?', a: 'Around 45 seconds!' },
+            { q: 'What data sources are used?', a: 'Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.' },
+            { q: 'Is my input stored or shared?', a: 'No. Inputs and generated briefs can be deleted at your direction and are never sold or shared with third parties.' },
+            { q: 'Do you guarantee zero hallucinations?', a: 'Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.' },
           ].map(f => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
@@ -448,13 +449,13 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* FOOTER ------------------------------------------------------------- */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500 gap-4">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-indigo-600">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-indigo-600">Terms of Service</Link>
+            <Link href="/terms"   className="hover:text-indigo-600">Terms of Service</Link>
           </div>
         </div>
       </footer>
