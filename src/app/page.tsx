@@ -47,7 +47,7 @@ if (!supabaseUrl || !supabaseAnon) {
 const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon)
 
 /* -------------------------------------------------------------------------- */
-/*  Static demo brief shown when no API data is loaded                        */
+/*  Static demo brief (shown when no API data is loaded)                      */
 /* -------------------------------------------------------------------------- */
 const sampleBriefHtmlContent = `
 <div>
@@ -77,7 +77,7 @@ const sampleBriefHtmlContent = `
     </li>
     <li>
       His journey from Denny's to a trillion-dollar tech company inspired
-      Denny's to create a special 'NVIDIA Breakfast Bytes' menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
+      Denny's to create a special “NVIDIA Breakfast Bytes” menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
     </li>
     <li>
       NVIDIA was originally planned in a local Denny's where the founders met.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
@@ -94,7 +94,7 @@ const sampleBriefHtmlContent = `
       He highlighted AI's impact in his GTC 2025 keynote.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
     </li>
     <li>
-      Huang stated that China is 'not behind' in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
+      Huang stated that China is “not behind” in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
     </li>
     <li>
       Early Denny's work taught him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
@@ -107,7 +107,7 @@ const sampleBriefHtmlContent = `
 `
 
 /* -------------------------------------------------------------------------- */
-/*  Fixed status phrases for local countdown                                  */
+/*  Countdown status text                                                     */
 /* -------------------------------------------------------------------------- */
 const STEPS = [
   'Sourcing search results …',
@@ -118,17 +118,26 @@ const STEPS = [
   'Wrapping up …',
 ] as const
 
+/* remove empty “&nbsp;” paragraphs */
+const normaliseHtml = (html: string) => html.replace(/<p>&nbsp;<\/p>/g, '')
+
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 export default function Page() {
-  const [form, setForm]           = useState({ name: '', organization: '' })
-  const [loading, setLoading]     = useState(false)
+  /* state */
+  const [form, setForm] = useState({ name: '', organization: '' })
+  const [loading, setLoading] = useState(false)
   const [briefHtml, setBriefHtml] = useState<string | null>(null)
-  const [error, setError]         = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const [stepIdx, setStepIdx]     = useState(0)
+  /* countdown */
+  const [stepIdx, setStepIdx] = useState(0)
   const [remaining, setRemaining] = useState(45)
+
+  /* PDF button */
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const pdfCooldownUntil = useRef<number>(0)
 
   const formRef = useRef<HTMLFormElement | null>(null)
 
@@ -151,16 +160,13 @@ export default function Page() {
     return () => clearInterval(id)
   }, [loading])
 
-  /* analytics helper */
+  /* analytics */
   const logSearchEvent = async (name: string, organization: string) => {
-    try {
-      await supabase.from('search_events').insert([{ name, organization }])
-    } catch (err) {
-      console.error('Supabase log error:', err)
-    }
+    try { await supabase.from('search_events').insert([{ name, organization }]) }
+    catch (err) { console.error('Supabase log error:', err) }
   }
 
-  /* submit */
+  /* form submit */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     formRef.current
@@ -191,15 +197,16 @@ export default function Page() {
   /* copy */
   const copyHtml = async () => {
     if (!briefHtml) return
+    const cleaned = normaliseHtml(briefHtml)
     try {
       const mime = 'text/html'
-      if ('clipboard' in navigator && 'write' in navigator.clipboard) {
+      if (navigator.clipboard && 'write' in navigator.clipboard) {
         await navigator.clipboard.write([
-          new ClipboardItem({ [mime]: new Blob([briefHtml], { type: mime }) }),
+          new ClipboardItem({ [mime]: new Blob([cleaned], { type: mime }) }),
         ])
       } else {
         const ta = document.createElement('textarea')
-        ta.value = briefHtml
+        ta.value = cleaned
         ta.style.position = 'fixed'
         ta.style.left = '-9999px'
         document.body.appendChild(ta)
@@ -209,22 +216,23 @@ export default function Page() {
       }
       toast('Brief copied to clipboard')
     } catch (err) {
-      console.error('copyHtml() error:', err)
-      toast('Copy failed')
+      console.error('copyHtml() error:', err); toast('Copy failed')
     }
   }
 
-  /* download */
+  /* download PDF */
   const downloadPdf = async () => {
-    if (!briefHtml) {
-      toast('Nothing to export')
-      return
-    }
+    if (pdfBusy || Date.now() < pdfCooldownUntil.current) return
+    setPdfBusy(true)
+    pdfCooldownUntil.current = Date.now() + 10_000
+
+    if (!briefHtml) { toast('Nothing to export'); setPdfBusy(false); return }
+
     try {
       const res = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ htmlContent: briefHtml }),
+        body: JSON.stringify({ htmlContent: normaliseHtml(briefHtml) }),
       })
       if (!res.ok) throw new Error(await res.text())
       const blob = await res.blob()
@@ -240,25 +248,23 @@ export default function Page() {
     } catch (err) {
       console.error('downloadPdf() error:', err)
       toast('PDF export failed')
+    } finally {
+      setPdfBusy(false)
     }
   }
 
   /* view */
   return (
     <div className="min-h-screen flex flex-col">
-      {/* NAVBAR ------------------------------------------------------------- */}
+      {/* NAVBAR */}
       <nav className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
           <Link href="/" className="font-semibold text-xl">
             MeetingBrief
           </Link>
           <div className="hidden md:flex gap-6 items-center">
-            <Link href="#features" className="hover:text-indigo-600">
-              Features
-            </Link>
-            <Link href="#faq" className="hover:text-indigo-600">
-              FAQ
-            </Link>
+            <Link href="#features" className="hover:text-indigo-600">Features</Link>
+            <Link href="#faq" className="hover:text-indigo-600">FAQ</Link>
             <Button size="sm" asChild>
               <Link href="#generate">Generate Brief</Link>
             </Button>
@@ -266,9 +272,10 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* HERO + FORM + DEMO ------------------------------------------------- */}
+      {/* HERO + FORM + DEMO */}
       <header className="bg-gradient-to-b from-white to-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
+          {/* Hero */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
               Instant&nbsp;intel for every meeting
@@ -278,6 +285,7 @@ export default function Page() {
             </p>
           </div>
 
+          {/* FORM */}
           <motion.form
             ref={formRef}
             id="generate"
@@ -303,7 +311,9 @@ export default function Page() {
                 id="org"
                 placeholder="NVIDIA"
                 value={form.organization}
-                onChange={(e) => setForm({ ...form, organization: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, organization: e.target.value })
+                }
                 required
               />
             </div>
@@ -313,6 +323,7 @@ export default function Page() {
             </Button>
           </motion.form>
 
+          {/* DEMO / LOADER / OUTPUT */}
           <div className="w-full max-w-5xl mx-auto">
             {loading && (
               <Card>
@@ -339,8 +350,13 @@ export default function Page() {
                     <Button size="sm" variant="outline" onClick={copyHtml}>
                       Copy Brief
                     </Button>
-                    <Button size="sm" variant="outline" onClick={downloadPdf}>
-                      Download PDF
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={downloadPdf}
+                      disabled={pdfBusy}
+                    >
+                      {pdfBusy ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
                     </Button>
                   </CardAction>
                 </CardHeader>
@@ -352,9 +368,7 @@ export default function Page() {
 
             {!loading && !briefHtml && (
               <Card>
-                <CardHeader>
-                  <CardTitle>Real Example Brief</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Real Example Brief</CardTitle></CardHeader>
                 <CardContent className="prose prose-lg prose-slate max-w-none text-left max-h-96 overflow-auto prose-li:marker:text-slate-600">
                   <div dangerouslySetInnerHTML={{ __html: sampleBriefHtmlContent }} />
                 </CardContent>
@@ -364,7 +378,7 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES ----------------------------------------------------------- */}
+      {/* FEATURES */}
       <section id="features" className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
           {[
@@ -380,7 +394,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* USE-CASES ---------------------------------------------------------- */}
+      {/* USE-CASES */}
       <section className="py-24 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 space-y-12">
           <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
@@ -404,7 +418,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ ---------------------------------------------------------------- */}
+      {/* FAQ */}
       <section id="faq" className="py-24 bg-slate-50">
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
@@ -434,13 +448,13 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER ------------------------------------------------------------- */}
+      {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-10 flex flex-col sm:flex-row justify-between text-sm text-slate-500 gap-4">
           <p>© {new Date().getFullYear()} MeetingBrief</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-indigo-600">Privacy Policy</Link>
-            <Link href="/terms"   className="hover:text-indigo-600">Terms of Service</Link>
+            <Link href="/terms" className="hover:text-indigo-600">Terms of Service</Link>
           </div>
         </div>
       </footer>

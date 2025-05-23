@@ -26,6 +26,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ message: 'htmlContent required' }, { status: 400 })
   }
 
+  /* ----- launch headless Chrome ----------------------------------------- */
   const execPath = await chromium.executablePath()
   const browser = await puppeteer.launch({
     args: chromium.args,
@@ -35,10 +36,23 @@ export async function POST(req: Request): Promise<NextResponse> {
   })
 
   try {
+    const wrapped = `
+      <!doctype html><html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { margin:24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+          h2 { margin:0 0 12px; font-size:20px; }
+          h3 { margin:18px 0 8px; font-size:16px; }
+          p, li { margin:4px 0; line-height:1.35; }
+        </style>
+      </head>
+      <body>${html}</body></html>`
     const page = await browser.newPage()
-    await page.goto(`data:text/html,${encodeURIComponent(html)}`, {
-      waitUntil: 'networkidle0',
-    })
+    await page.goto(
+      `data:text/html;charset=utf-8,${encodeURIComponent(wrapped)}`,
+      { waitUntil: 'networkidle0' },
+    )
 
     const pdf = await page.pdf({
       format: 'Letter',
