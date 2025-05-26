@@ -9,7 +9,7 @@
    ------------------------------------------------------------------------ */
 
 import OpenAI from "openai";
-import fetch, { Response as FetchResponse, RequestInit } from "node-fetch";
+import fetch, { Response as FetchResponse, RequestInit } from "node-fetch"; // Ensure 'node-fetch' and '@types/node-fetch' are installed
 
 export const runtime = "nodejs";
 
@@ -23,7 +23,6 @@ const {
 
 if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY || !PROXYCURL_KEY) {
   console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL, PROXYCURL). Application will not function correctly.");
-  // Consider throwing an error in a real application to halt execution if keys are essential
 }
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
@@ -62,7 +61,7 @@ interface LinkedInExperience { company?: string; title?: string; starts_at?: Yea
 interface ProxyCurlResult {
     headline?: string;
     experiences?: LinkedInExperience[];
-    [key: string]: unknown; // Changed from any to unknown for broader compatibility
+    [key: string]: unknown; // Changed from any to unknown
 }
 
 interface BriefRow { text: string; source: number }
@@ -82,12 +81,12 @@ export interface MeetingBriefPayload {
 /* ── HELPERS ────────────────────────────────────────────────────────────── */
 const ai = new OpenAI({ apiKey: OPENAI_API_KEY! });
 
-const postJSON = async <T>(
+const postJSON = async <T>( // The flagged line was here (106 in your build)
   url: string,
   body: unknown,
   headers: Record<string, string>,
   method: "POST" | "GET" = "POST",
-): Promise<T> => { // This is line 86 from your previous log, referring to its return type.
+): Promise<T> => {
   const options: RequestInit = {
     method: method,
     headers: { ...headers, "Content-Type": "application/json" },
@@ -97,15 +96,17 @@ const postJSON = async <T>(
   }
 
   const response: FetchResponse = await fetch(url, options);
+
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`postJSON Error: HTTP ${response.status} for ${url}. Body: ${errorText.slice(0, 500)}`);
     throw new Error(`HTTP ${response.status} – ${errorText}`);
   }
-  // Explicitly handle the 'any' from response.json() to satisfy strict linters
-  const jsonDataFromFetch: any = await response.json(); // .json() from node-fetch types returns Promise<any>
-  const unknownResult: unknown = jsonDataFromFetch; // Step through 'unknown'
-  return unknownResult as T; // Cast from 'unknown' to the specific generic type 'T'
+
+  // Explicitly handle 'any' from response.json()
+  const jsonDataFromFetch: any = await response.json(); // .json() from node-fetch types often returns Promise<any>
+  const unknownResult: unknown = jsonDataFromFetch;   // Step through 'unknown'
+  return unknownResult as T;                          // Cast from 'unknown' to the specific generic type 'T'
 };
 
 const formatYearFromProxyCurl = (date?: YearMonthDay): string => date?.year?.toString() ?? "?";
@@ -159,7 +160,7 @@ const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Pr
         console.warn(`[Firecrawl OddResponse] ${attemptInfoForLogs} - URL: ${url}. Unexpected response structure: ${JSON.stringify(response).slice(0,300)}...`);
         return null;
       }
-    } catch (error: unknown) { // FIXED: any to unknown
+    } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       console.error(`[Firecrawl Exception] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms. Error: ${err.message}`, err.stack ? `\nStack: ${err.stack.slice(0,300)}` : '');
       return null;
@@ -246,7 +247,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       );
       serperCallsMade++;
       if (response.organic) collectedSerpResults.push(...response.organic);
-    } catch (e: unknown) { // FIXED
+    } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.warn(`[MB Step 1] Serper query failed for "${query.q}". Error: ${err.message}`);
     }
@@ -265,7 +266,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         collectedSerpResults.push(linkedInProfileResult);
         console.log(`[MB Step 2] Found LinkedIn profile via dedicated search: ${linkedInProfileResult.link}`);
       }
-    } catch (e: unknown) { // FIXED
+    } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.warn(`[MB Step 2] LinkedIn dedicated Serper search failed. Error: ${err.message}`);
     }
@@ -287,14 +288,15 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         const errorText = await response.text();
         console.error(`[MB Step 3] ProxyCurl API Error ${response.status} for ${linkedInProfileResult?.link}: ${errorText.slice(0,500)}`);
       } else {
-        proxyCurlData = await response.json() as ProxyCurlResult; // Assuming response.json() gives any/unknown
+        const jsonData: unknown = await response.json(); // Get as unknown first
+        proxyCurlData = jsonData as ProxyCurlResult;     // Then cast to ProxyCurlResult
         if (proxyCurlData) {
           jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
             `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`,
           );
         }
       }
-    } catch (e: unknown) { // FIXED
+    } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.error(`[MB Step 3] ProxyCurl call failed. Error: ${err.message}`);
     }
@@ -315,7 +317,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         );
         serperCallsMade++;
         if (response.organic) collectedSerpResults.push(...response.organic);
-      } catch (e: unknown) { // FIXED
+      } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
         console.warn(`[MB Step 4] Serper query failed for prior company "${company}". Error: ${err.message}`);
       }
@@ -428,20 +430,28 @@ ${llmSourceBlock}
       const content = llmResponse.choices[0].message.content;
       if (content) {
         try {
-          const parsedContent = JSON.parse(content) as Partial<JsonBriefFromLLM>;
+          const parsedContent = JSON.parse(content) as Partial<JsonBriefFromLLM>; // Cast as Partial for safer access
+          // Validate and structure the parsed content, providing defaults for missing arrays
+          // and ensuring sub-objects have the correct shape.
+          const validateRows = (rows: any[] | undefined): BriefRow[] => {
+            if (!Array.isArray(rows)) return [];
+            return rows.filter(
+              r => r && typeof r.text === 'string' && typeof r.source === 'number' && r.source > 0 && r.source <= sourcesToProcessForLLM.length
+            ) as BriefRow[];
+          };
           llmJsonBrief = {
-            executive: Array.isArray(parsedContent.executive) ? parsedContent.executive.filter(r => r && typeof r.text === 'string' && typeof r.source === 'number') : [],
-            highlights: Array.isArray(parsedContent.highlights) ? parsedContent.highlights.filter(r => r && typeof r.text === 'string' && typeof r.source === 'number') : [],
-            funFacts: Array.isArray(parsedContent.funFacts) ? parsedContent.funFacts.filter(r => r && typeof r.text === 'string' && typeof r.source === 'number') : [],
-            researchNotes: Array.isArray(parsedContent.researchNotes) ? parsedContent.researchNotes.filter(r => r && typeof r.text === 'string' && typeof r.source === 'number') : [],
+            executive: validateRows(parsedContent.executive),
+            highlights: validateRows(parsedContent.highlights),
+            funFacts: validateRows(parsedContent.funFacts),
+            researchNotes: validateRows(parsedContent.researchNotes),
           };
           console.log("[MB Step 8] Successfully parsed LLM JSON response.");
-        } catch (e: unknown) { // FIXED
+        } catch (e: unknown) {
           const err = e instanceof Error ? e : new Error(String(e));
           console.error(`[MB Step 8] LLM response was not valid JSON. Error: ${err.message}. Response snippet: ${(content || "").slice(0,1000)}...`);
         }
       } else { console.warn("[MB Step 8] LLM response content was null or empty. Using empty brief."); }
-    } catch (e: unknown) { // FIXED
+    } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.error(`[MB Step 8] OpenAI API call failed. Error: ${err.message}`);
     }
