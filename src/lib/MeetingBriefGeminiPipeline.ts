@@ -5,7 +5,7 @@
    ─ model returns only:
         { executive: [], highlights: [], funFacts: [], researchNotes: [] }
    ─ each element { text: string, source: number }
-   ─ no headings, no prose, no “source 3” strings inside text
+   ─ no headings, no prose, no "source 3" strings inside text
    ------------------------------------------------------------------------ */
 
 import OpenAI from "openai";
@@ -104,7 +104,7 @@ const postJSON = async <T>( // The flagged line was here (106 in your build)
   }
 
   // Explicitly handle 'any' from response.json()
-  const jsonDataFromFetch: any = await response.json(); // .json() from node-fetch types often returns Promise<any>
+  const jsonDataFromFetch = await response.json(); // .json() from node-fetch types often returns Promise<any>
   const unknownResult: unknown = jsonDataFromFetch;   // Step through 'unknown'
   return unknownResult as T;                          // Cast from 'unknown' to the specific generic type 'T'
 };
@@ -433,11 +433,11 @@ ${llmSourceBlock}
           const parsedContent = JSON.parse(content) as Partial<JsonBriefFromLLM>; // Cast as Partial for safer access
           // Validate and structure the parsed content, providing defaults for missing arrays
           // and ensuring sub-objects have the correct shape.
-          const validateRows = (rows: any[] | undefined): BriefRow[] => {
+          const validateRows = (rows: unknown[] | undefined): BriefRow[] => {
             if (!Array.isArray(rows)) return [];
             return rows.filter(
-              r => r && typeof r.text === 'string' && typeof r.source === 'number' && r.source > 0 && r.source <= sourcesToProcessForLLM.length
-            ) as BriefRow[];
+              r => r && typeof (r as BriefRow).text === 'string' && typeof (r as BriefRow).source === 'number' && (r as BriefRow).source > 0 && (r as BriefRow).source <= sourcesToProcessForLLM.length
+            ).map(r => r as BriefRow); // Ensure the final map also casts to BriefRow
           };
           llmJsonBrief = {
             executive: validateRows(parsedContent.executive),
