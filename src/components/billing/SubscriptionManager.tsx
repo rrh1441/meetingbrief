@@ -8,12 +8,13 @@ interface Subscription {
   id: string;
   plan: string;
   status: string;
-  periodStart: Date | undefined;
-  periodEnd: Date | undefined;
-  cancelAtPeriodEnd: boolean;
+  periodStart?: Date | undefined;
+  periodEnd?: Date | undefined;
+  cancelAtPeriodEnd?: boolean;
   limits?: Record<string, number> | undefined;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
+  priceId?: string;
 }
 
 const PLANS = [
@@ -58,7 +59,7 @@ export function SubscriptionManager() {
   const loadSubscriptions = async () => {
     try {
       const { data } = await authClient.subscription.list();
-      setSubscriptions(data || []);
+      setSubscriptions((data as Subscription[]) || []);
     } catch (error) {
       console.error("Failed to load subscriptions:", error);
     } finally {
