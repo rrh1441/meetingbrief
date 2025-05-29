@@ -29,7 +29,7 @@ export function AuthForm({ mode, onSuccess }: AuthFormProps) {
         });
         
         if (result.error) {
-          setError(result.error.message);
+          setError(result.error.message || "An error occurred during signup");
         } else {
           onSuccess?.();
         }
@@ -40,7 +40,7 @@ export function AuthForm({ mode, onSuccess }: AuthFormProps) {
         });
         
         if (result.error) {
-          setError(result.error.message);
+          setError(result.error.message || "An error occurred during signin");
         } else {
           onSuccess?.();
         }
