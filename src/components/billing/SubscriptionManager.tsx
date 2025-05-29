@@ -64,10 +64,14 @@ export function SubscriptionManager() {
   const handleUpgrade = async (planName: string) => {
     setActionLoading(planName);
     try {
+      const baseUrl = process.env.NODE_ENV === "production" 
+        ? "https://meetingbrief.com" 
+        : window.location.origin;
+        
       const result = await authClient.subscription.upgrade({
         plan: planName,
-        successUrl: `${window.location.origin}/dashboard?success=true`,
-        cancelUrl: `${window.location.origin}/dashboard?canceled=true`,
+        successUrl: `${baseUrl}/dashboard?success=true`,
+        cancelUrl: `${baseUrl}/dashboard?canceled=true`,
       });
 
       if (result.error) {
@@ -86,8 +90,12 @@ export function SubscriptionManager() {
   const handleCancel = async () => {
     setActionLoading("cancel");
     try {
+      const baseUrl = process.env.NODE_ENV === "production" 
+        ? "https://meetingbrief.com" 
+        : window.location.origin;
+        
       const result = await authClient.subscription.cancel({
-        returnUrl: `${window.location.origin}/dashboard`,
+        returnUrl: `${baseUrl}/dashboard`,
       });
 
       if (result.error) {
@@ -184,7 +192,7 @@ export function SubscriptionManager() {
         </div>
       ) : (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-          <p className="text-yellow-800">You don't have an active subscription. Choose a plan below to get started!</p>
+          <p className="text-yellow-800">You don&apos;t have an active subscription. Choose a plan below to get started!</p>
         </div>
       )}
 
