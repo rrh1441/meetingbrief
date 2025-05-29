@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { stripeClient } from "@better-auth/stripe/client";
 
 export const authClient = createAuthClient({
   // Automatically use the current domain in production, localhost for development
@@ -15,4 +16,10 @@ export const authClient = createAuthClient({
       }
     },
   },
+  
+  plugins: [
+    stripeClient({
+      subscription: true, // Enable subscription management
+    }),
+  ],
 }); 

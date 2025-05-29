@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
+import { stripe } from "@better-auth/stripe";
 import { Pool } from "pg";
+import Stripe from "stripe";
 
 // Validate required environment variables
 if (!process.env.DATABASE_URL) {
@@ -11,6 +13,13 @@ if (!process.env.BETTER_AUTH_SECRET && !process.env.AUTH_SECRET) {
   throw new Error("BETTER_AUTH_SECRET or AUTH_SECRET environment variable is required");
 }
 
+// Initialize Stripe client (only if Stripe keys are provided)
+const stripeClient = process.env.STRIPE_SECRET_KEY 
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2025-02-24.acacia",
+    })
+  : undefined;
+
 export const auth = betterAuth({
   database: new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -20,7 +29,7 @@ export const auth = betterAuth({
     connectionTimeoutMillis: 10000, // Timeout after 10 seconds if connection can't be established
   }),
   secret: process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET,
-  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
+  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || "https://meetingbrief.com",
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false, // Set to true if you want email verification
@@ -36,9 +45,63 @@ export const auth = betterAuth({
   },
   // Trust proxy headers (important for Vercel)
   trustedOrigins: process.env.NODE_ENV === "production" 
-    ? [process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || ""] 
+    ? [
+        process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || "https://meetingbrief.com",
+        "https://meetingbrief.com",
+        "https://www.meetingbrief.com"
+      ]
     : ["http://localhost:3000", "http://localhost:3001"],
   plugins: [
+    // Add Stripe plugin if configured
+    ...(stripeClient && process.env.STRIPE_WEBHOOK_SECRET ? [
+      stripe({
+        stripeClient,
+        stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+        createCustomerOnSignUp: true,
+        subscription: {
+          enabled: true,
+          requireEmailVerification: false,
+          plans: [
+            {
+              name: "starter",
+              priceId: process.env.STRIPE_STARTER_PRICE_ID!,
+              limits: {
+                briefsPerMonth: 10,
+                storage: 5, // GB
+              },
+            },
+            {
+              name: "growth",
+              priceId: process.env.STRIPE_GROWTH_PRICE_ID!,
+              limits: {
+                briefsPerMonth: 100,
+                storage: 50, // GB
+              },
+              freeTrial: {
+                days: 14,
+              },
+            },
+            {
+              name: "scale",
+              priceId: process.env.STRIPE_SCALE_PRICE_ID!,
+              limits: {
+                briefsPerMonth: -1, // unlimited
+                storage: 500, // GB
+              },
+            },
+          ],
+          onSubscriptionComplete: async ({ subscription, plan }) => {
+            console.log(`Subscription created: ${subscription.id} for plan: ${plan.name}`);
+          },
+          onSubscriptionCancel: async ({ subscription }) => {
+            console.log(`Subscription canceled: ${subscription.id}`);
+          },
+        },
+        onCustomerCreate: async ({ customer, user }) => {
+          console.log(`Stripe customer created: ${customer.id} for user: ${user.id}`);
+        },
+      })
+    ] : []),
     nextCookies(), // This should be the last plugin in the array
   ],
 }); 
