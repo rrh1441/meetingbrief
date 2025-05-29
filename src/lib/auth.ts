@@ -63,10 +63,18 @@ export const auth = betterAuth({
           requireEmailVerification: false,
           plans: [
             {
+              name: "free",
+              priceId: "", // No price ID for free plan
+              limits: {
+                briefsPerMonth: 5,
+                storage: 1, // GB
+              },
+            },
+            {
               name: "starter",
               priceId: process.env.STRIPE_STARTER_PRICE_ID!,
               limits: {
-                briefsPerMonth: 10,
+                briefsPerMonth: 50,
                 storage: 5, // GB
               },
             },
@@ -74,18 +82,15 @@ export const auth = betterAuth({
               name: "growth",
               priceId: process.env.STRIPE_GROWTH_PRICE_ID!,
               limits: {
-                briefsPerMonth: 100,
+                briefsPerMonth: 150,
                 storage: 50, // GB
-              },
-              freeTrial: {
-                days: 14,
               },
             },
             {
               name: "scale",
               priceId: process.env.STRIPE_SCALE_PRICE_ID!,
               limits: {
-                briefsPerMonth: -1, // unlimited
+                briefsPerMonth: 500,
                 storage: 500, // GB
               },
             },

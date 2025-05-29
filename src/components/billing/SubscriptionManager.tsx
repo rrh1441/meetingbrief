@@ -8,33 +8,38 @@ interface Subscription {
   id: string;
   plan: string;
   status: string;
-  periodStart: string;
-  periodEnd: string;
+  periodStart: Date | undefined;
+  periodEnd: Date | undefined;
   cancelAtPeriodEnd: boolean;
-  limits?: {
-    briefsPerMonth: number;
-    storage: number;
-  };
+  limits?: Record<string, number> | undefined;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
 }
 
 const PLANS = [
   {
+    name: "free",
+    displayName: "Free",
+    price: "$0/month",
+    features: ["5 meeting briefs per month", "1GB storage", "Community support"],
+  },
+  {
     name: "starter",
     displayName: "Starter",
     price: "$9/month",
-    features: ["10 meeting briefs per month", "5GB storage", "Email support"],
+    features: ["50 meeting briefs per month", "5GB storage", "Email support"],
   },
   {
     name: "growth",
     displayName: "Growth",
     price: "$29/month",
-    features: ["100 meeting briefs per month", "50GB storage", "Priority support", "14-day free trial"],
+    features: ["150 meeting briefs per month", "50GB storage", "Priority support"],
   },
   {
     name: "scale",
     displayName: "Scale",
     price: "$99/month",
-    features: ["Unlimited meeting briefs", "500GB storage", "24/7 phone support", "Custom integrations"],
+    features: ["500 meeting briefs per month", "500GB storage", "24/7 phone support", "Custom integrations"],
   },
 ];
 
@@ -64,6 +69,23 @@ export function SubscriptionManager() {
   const handleUpgrade = async (planName: string) => {
     setActionLoading(planName);
     try {
+      // Handle free plan selection differently
+      if (planName === "free") {
+        const result = await authClient.subscription.create({
+          plan: planName,
+        });
+
+        if (result.error) {
+          console.error("Free plan setup failed:", result.error);
+          alert(`Free plan setup failed: ${result.error.message}`);
+        } else {
+          alert("Free plan activated successfully!");
+          await loadSubscriptions();
+        }
+        return;
+      }
+
+      // Handle paid plans through Stripe
       const baseUrl = process.env.NODE_ENV === "production" 
         ? "https://meetingbrief.com" 
         : window.location.origin;
@@ -158,13 +180,21 @@ export function SubscriptionManager() {
                   {activeSubscription.status}
                 </span>
               </p>
-              <p><strong>Period:</strong> {new Date(activeSubscription.periodStart).toLocaleDateString()} - {new Date(activeSubscription.periodEnd).toLocaleDateString()}</p>
+              <p><strong>Period:</strong> {
+                activeSubscription.periodStart && activeSubscription.periodEnd
+                  ? `${new Date(activeSubscription.periodStart).toLocaleDateString()} - ${new Date(activeSubscription.periodEnd).toLocaleDateString()}`
+                  : 'N/A'
+              }</p>
             </div>
             <div>
               {activeSubscription.limits && (
                 <>
-                  <p><strong>Monthly Briefs:</strong> {activeSubscription.limits.briefsPerMonth === -1 ? "Unlimited" : activeSubscription.limits.briefsPerMonth}</p>
-                  <p><strong>Storage:</strong> {activeSubscription.limits.storage}GB</p>
+                  <p><strong>Monthly Briefs:</strong> {
+                    activeSubscription.limits.briefsPerMonth === -1 
+                      ? "Unlimited" 
+                      : activeSubscription.limits.briefsPerMonth || 'N/A'
+                  }</p>
+                  <p><strong>Storage:</strong> {activeSubscription.limits.storage || 'N/A'}GB</p>
                 </>
               )}
             </div>
