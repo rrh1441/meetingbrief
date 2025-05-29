@@ -1,6 +1,18 @@
 import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
-  // You can pass client configuration here
-  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  // Automatically use the current domain in production, localhost for development
+  baseURL: typeof window !== "undefined" 
+    ? window.location.origin 
+    : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  
+  // Additional fetch options for better error handling
+  fetchOptions: {
+    onError: (e) => {
+      // Log authentication errors for debugging
+      if (process.env.NODE_ENV === "development") {
+        console.error("Auth client error:", e);
+      }
+    },
+  },
 }); 
