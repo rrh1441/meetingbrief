@@ -25,6 +25,7 @@ import { Loader2, CheckCircle2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+import { useAuth } from '@/hooks/useAuth'
 
 /* -------------------------------------------------------------------------- */
 /*  Supabase client (public keys only)                                        */
@@ -77,7 +78,7 @@ const sampleBriefHtmlContent = `
     </li>
     <li>
       His journey from Denny's to a trillion-dollar tech company inspired
-      Denny's to create a special “NVIDIA Breakfast Bytes” menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
+      Denny's to create a special "NVIDIA Breakfast Bytes" menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
     </li>
     <li>
       NVIDIA was originally planned in a local Denny's where the founders met.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
@@ -94,7 +95,7 @@ const sampleBriefHtmlContent = `
       He highlighted AI's impact in his GTC 2025 keynote.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
     </li>
     <li>
-      Huang stated that China is “not behind” in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
+      Huang stated that China is "not behind" in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
     </li>
     <li>
       Early Denny's work taught him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
@@ -143,6 +144,8 @@ const prepareHtmlForClipboard = (raw: string) => {
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 export default function Page() {
+  const { user, loading: authLoading } = useAuth()
+
   /* state ------------------------------------------------------------------ */
   const [form, setForm]           = useState({ name: '', organization: '' })
   const [loading,   setLoading]   = useState(false)
@@ -278,9 +281,38 @@ export default function Page() {
           <div className="hidden md:flex gap-6 items-center">
             <Link href="#features" className="hover:text-indigo-600">Features</Link>
             <Link href="#faq" className="hover:text-indigo-600">FAQ</Link>
-            <Button size="sm" asChild>
-              <Link href="#generate">Generate Brief</Link>
-            </Button>
+            {user ? (
+              <Button size="sm" asChild>
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/auth/signin">Sign In</Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href="/auth/signup">Sign Up</Link>
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Navigation */}
+          <div className="md:hidden">
+            {user ? (
+              <Button size="sm" asChild>
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/auth/signin">Sign In</Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href="/auth/signup">Sign Up</Link>
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </nav>
@@ -296,6 +328,16 @@ export default function Page() {
             <p className="mt-4 text-lg text-slate-600">
               Stop digging for info – gain back valuable hours and arrive prepared for every conversation
             </p>
+            {!user && (
+              <div className="mt-8 flex gap-4 justify-center">
+                <Button size="lg" asChild>
+                  <Link href="/auth/signup">Get Started Free</Link>
+                </Button>
+                <Button variant="outline" size="lg" asChild>
+                  <Link href="/auth/signin">Sign In</Link>
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* FORM */}
@@ -415,7 +457,7 @@ export default function Page() {
             {[
               { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
               { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
-              { name: 'Founders',  icon: '🚀', blurb: 'Know your counterpart’s angle before negotiations.' },
+              { name: 'Founders',  icon: '🚀', blurb: 'Know your counterpart's angle before negotiations.' },
               { name: 'Sales',     icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
             ].map(u => (
               <Card key={u.name} className="text-center shadow-sm">
