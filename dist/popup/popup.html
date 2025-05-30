@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeetingBrief</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 380px;
+            min-height: 500px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #ffffff;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0073b1 0%, #005885 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .profile-preview {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+
+        .profile-preview.loading {
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .profile-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .profile-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: #6c757d;
+        }
+
+        .profile-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .profile-info p {
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .profile-details {
+            font-size: 12px;
+            color: #6c757d;
+            line-height: 1.4;
+        }
+
+        .notes-section {
+            margin-bottom: 20px;
+        }
+
+        .notes-section label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        .notes-section textarea {
+            width: 100%;
+            height: 80px;
+            padding: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 12px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .notes-section textarea:focus {
+            outline: none;
+            border-color: #0073b1;
+            box-shadow: 0 0 0 3px rgba(0, 115, 177, 0.1);
+        }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: #0073b1;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #005885;
+        }
+
+        .btn-primary:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #0073b1;
+            border: 1px solid #0073b1;
+        }
+
+        .btn-secondary:hover {
+            background: #f8f9fa;
+        }
+
+        .status {
+            text-align: center;
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.info {
+            background: #cce7ff;
+            color: #004085;
+            border: 1px solid #99d3ff;
+        }
+
+        .auth-section {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .auth-section h2 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            color: #495057;
+        }
+
+        .auth-section p {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+
+        .usage-info {
+            background: #e8f4ff;
+            border: 1px solid #b8daff;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #004085;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>MeetingBrief</h1>
+        <p>AI-powered meeting preparation</p>
+    </div>
+
+    <div class="content">
+        <!-- Loading state -->
+        <div id="loading" class="status info">
+            <div class="spinner"></div>
+            Analyzing LinkedIn profile...
+        </div>
+
+        <!-- Authentication required -->
+        <div id="auth-required" class="hidden">
+            <div class="auth-section">
+                <h2>Sign in to Create Briefs</h2>
+                <p>Connect with your Google account to generate unlimited meeting briefs from LinkedIn profiles.</p>
+                <button id="sign-in-btn" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    Sign in with Google
+                </button>
+            </div>
+        </div>
+
+        <!-- Main interface -->
+        <div id="main-interface" class="hidden">
+            <!-- Status messages -->
+            <div id="status" class="hidden"></div>
+
+            <!-- Usage info -->
+            <div id="usage-info" class="usage-info hidden"></div>
+
+            <!-- Profile preview -->
+            <div id="profile-preview" class="profile-preview loading">
+                Extracting profile information...
+            </div>
+
+            <!-- Notes section -->
+            <div class="notes-section">
+                <label for="notes">Additional Notes (Optional)</label>
+                <textarea id="notes" placeholder="Add any specific topics, context, or questions for the meeting..."></textarea>
+            </div>
+
+            <!-- Actions -->
+            <div class="actions">
+                <button id="create-brief-btn" class="btn btn-primary" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
+                        <polyline points="14,2 14,8 20,8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10,9 9,9 8,9"/>
+                    </svg>
+                    Create Meeting Brief
+                </button>
+                
+                <a href="https://meetingbrief.com/dashboard" target="_blank" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                        <polyline points="9,22 9,12 15,12 15,22"/>
+                    </svg>
+                    View Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="../dist/popup.js"></script>
+</body>
+</html> 

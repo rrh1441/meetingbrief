@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "MeetingBrief - LinkedIn to AI Brief",
+  "version": "1.0.0",
+  "description": "Generate AI-powered meeting briefs from LinkedIn profiles",
+  "permissions": [
+    "storage",
+    "identity",
+    "activeTab",
+    "notifications",
+    "https://meetingbrief.com/*"
+  ],
+  "host_permissions": [
+    "https://linkedin.com/*",
+    "https://www.linkedin.com/*",
+    "https://meetingbrief.com/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["dist/content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Create Meeting Brief"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "oauth2": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/*"],
+      "matches": ["https://www.linkedin.com/*"]
+    }
+  ]
+} 
