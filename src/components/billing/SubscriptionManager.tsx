@@ -22,19 +22,31 @@ const PLANS = [
     name: "starter",
     displayName: "Starter",
     price: "$29/month",
-    features: ["50 meeting briefs per month", "5GB storage", "Email support"],
+    features: [
+      "50 meeting briefs per month",
+      "LinkedIn Chrome Extension (Coming Soon)",
+      "Calendar Integration (Coming Soon)"
+    ],
   },
   {
     name: "growth",
     displayName: "Growth",
     price: "$59/month",
-    features: ["150 meeting briefs per month", "50GB storage", "Priority support"],
+    features: [
+      "150 meeting briefs per month",
+      "LinkedIn Chrome Extension (Coming Soon)",
+      "Calendar Integration (Coming Soon)"
+    ],
   },
   {
     name: "scale",
     displayName: "Scale",
     price: "$149/month",
-    features: ["500 meeting briefs per month", "500GB storage", "24/7 phone support", "Custom integrations"],
+    features: [
+      "500 meeting briefs per month",
+      "LinkedIn Chrome Extension (Coming Soon)",
+      "Calendar Integration (Coming Soon)"
+    ],
   },
 ];
 
