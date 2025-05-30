@@ -64,6 +64,9 @@ export const auth = betterAuth({
         subscription: {
           enabled: true,
           requireEmailVerification: false,
+          checkoutOptions: {
+            allow_promotion_codes: true,
+          },
           plans: [
             {
               name: "free",
