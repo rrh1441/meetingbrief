@@ -240,7 +240,7 @@ export function BriefGenerator() {
         
         {!canGenerate && (
           <p className="text-sm text-red-600 text-center">
-            You've reached your monthly brief limit. Upgrade your plan to generate more briefs.
+            You&apos;ve reached your monthly brief limit. Upgrade your plan to generate more briefs.
           </p>
         )}
       </motion.form>
