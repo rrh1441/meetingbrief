@@ -41,7 +41,7 @@ const SOCIAL_DOMAINS = [
 ];
 const GENERIC_NO_SCRAPE_DOMAINS = [
   "youtube.com/", "youtu.be/",
-  "reddit.com/", "linkedin.com/pulse/", "linkedin.com/posts/",
+  "reddit.com/", "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/",
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
