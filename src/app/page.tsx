@@ -457,7 +457,7 @@ export default function Page() {
             {[
               { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
               { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
-              { name: 'Founders',  icon: '🚀', blurb: 'Know your counterpart's angle before negotiations.' },
+              { name: 'Founders',  icon: '🚀', blurb: "Know your counterpart's angle before negotiations." },
               { name: 'Sales',     icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
             ].map(u => (
               <Card key={u.name} className="text-center shadow-sm">
