@@ -199,6 +199,18 @@ export async function POST(request: NextRequest) {
         planName = "free";
         monthlyLimit = 2; // Only 2 briefs per month for anonymous users
         
+        // Create anonymous user record if it doesn't exist
+        try {
+          await client.query(
+            `INSERT INTO "user" (id, name, email, "emailVerified", image, "createdAt", "updatedAt")
+             VALUES ($1, 'Anonymous', null, false, null, NOW(), NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [userId]
+          );
+        } catch (error) {
+          console.error("Error creating anonymous user:", error);
+        }
+        
         // Enhanced rate limiting for anonymous users
         const rateLimitCheck = checkRateLimit(userId, 2);
         if (!rateLimitCheck.allowed) {
