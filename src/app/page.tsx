@@ -26,6 +26,7 @@ import { motion } from 'framer-motion'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
+import { UsageTracker, type UsageData } from '@/lib/usage-tracker'
 
 /* -------------------------------------------------------------------------- */
 /*  Supabase client (public keys only)                                        */
@@ -143,6 +144,7 @@ export default function Page() {
   const [loading,   setLoading]   = useState(false)
   const [briefHtml, setBriefHtml] = useState<string | null>(null)
   const [error,     setError]     = useState<string | null>(null)
+  const [usage, setUsage]         = useState<UsageData | null>(null)
 
   const [stepIdx,   setStepIdx]   = useState(0)
   const [remaining, setRemaining] = useState(45)
@@ -151,6 +153,15 @@ export default function Page() {
   const pdfCooldownUntil = useRef<number>(0)
 
   const formRef = useRef<HTMLFormElement | null>(null)
+
+  /* load usage data -------------------------------------------------------- */
+  useEffect(() => {
+    const loadUsage = async () => {
+      const usageData = await UsageTracker.getUsageData(!!user);
+      setUsage(usageData);
+    };
+    loadUsage();
+  }, [user]);
 
   /* countdown ticker ------------------------------------------------------- */
   useEffect(() => {
@@ -176,6 +187,22 @@ export default function Page() {
   /* submit ----------------------------------------------------------------- */
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+
+    // Check if user can generate
+    if (usage?.needsSignup) {
+      toast("You've used your 2 free briefs! Sign up for 5 free briefs per month.");
+      return;
+    }
+
+    if (usage && usage.count >= usage.limit) {
+      if (usage.isAuthenticated) {
+        toast("Monthly brief limit reached. Please upgrade your plan to generate more briefs.");
+      } else {
+        toast("You've used your 2 free briefs! Sign up for 5 free briefs per month.");
+      }
+      return;
+    }
+
     formRef.current
       ?.querySelectorAll<HTMLInputElement>('input')
       .forEach(el => (el.defaultValue = el.value))
@@ -187,11 +214,24 @@ export default function Page() {
       const res = await fetch('/api/meetingbrief', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(form),
       })
       if (!res.ok) throw new Error(await res.text())
       const { brief } = (await res.json()) as { brief: string }
       setBriefHtml(brief)
+
+      // Update usage after successful generation
+      if (!user) {
+        // For anonymous users, increment local storage
+        UsageTracker.incrementAnonymousUsage();
+        const updatedUsage = await UsageTracker.getUsageData(false);
+        setUsage(updatedUsage);
+      } else {
+        // For authenticated users, refresh from API
+        const updatedUsage = await UsageTracker.getUsageData(true);
+        setUsage(updatedUsage);
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -368,6 +408,24 @@ export default function Page() {
             <Button type="submit" disabled={loading}>
               {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Generate Brief'}
             </Button>
+
+            {/* Usage Display */}
+            {usage && (
+              <div className="text-sm text-slate-600 text-center">
+                {usage.isAuthenticated ? (
+                  <span>
+                    {usage.count}/{usage.limit} briefs used this month
+                  </span>
+                ) : (
+                  <span>
+                    {usage.count}/{usage.limit} free briefs used
+                    {usage.needsSignup && (
+                      <span> • <Link href="/auth/signup" className="text-indigo-600 hover:underline">Sign up for 5 free briefs/month</Link></span>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
           </motion.form>
 
           {/* DEMO / LOADER / OUTPUT */}
