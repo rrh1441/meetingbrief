@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { Pool } from "pg";
+import { 
+  checkRateLimit, 
+  createRateLimitResponse,
+  createSecureErrorResponse,
+  validateUserId,
+  SECURITY_LIMITS
+} from "@/lib/api-security";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -13,8 +20,19 @@ export async function GET() {
       headers: await headers(),
     });
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Validate user ID
+    if (!validateUserId(session.user.id)) {
+      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    }
+
+    // Rate limiting
+    const rateLimitCheck = checkRateLimit(session.user.id);
+    if (!rateLimitCheck.allowed) {
+      return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
     }
 
     const client = await pool.connect();
@@ -25,22 +43,25 @@ export async function GET() {
          FROM user_briefs 
          WHERE user_id = $1 
          ORDER BY created_at DESC
-         LIMIT 50`,
-        [session.user.id]
+         LIMIT $2`,
+        [session.user.id, SECURITY_LIMITS.MAX_QUERY_RESULTS]
       );
 
+      // Sanitize the output data (basic HTML stripping for extra safety)
+      const sanitizedBriefs = result.rows.map(brief => ({
+        ...brief,
+        // Basic sanitization - remove any script tags that might have somehow gotten in
+        brief_content: brief.brief_content?.replace(/<script[^>]*>.*?<\/script>/gi, ''),
+      }));
+
       return NextResponse.json({
-        briefs: result.rows,
+        briefs: sanitizedBriefs,
       });
 
     } finally {
       client.release();
     }
   } catch (error) {
-    console.error("Brief history fetch error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch brief history" },
-      { status: 500 }
-    );
+    return createSecureErrorResponse(error, "Failed to fetch brief history");
   }
 }

@@ -8,6 +8,14 @@ import { buildMeetingBriefGemini } from "@/lib/MeetingBriefGeminiPipeline";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { Pool } from "pg";
+import { 
+  checkRateLimit, 
+  validateStringInput, 
+  checkRequestSize, 
+  createRateLimitResponse,
+  createSecureErrorResponse,
+  validateUserId
+} from "@/lib/api-security";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -62,39 +70,90 @@ function normalizeCitations(
 
 export async function POST(request: NextRequest) {
   try {
+    // Check request size
+    const sizeCheck = checkRequestSize(request);
+    if (sizeCheck) return sizeCheck;
+
     // Check authentication
     const session = await auth.api.getSession({
       headers: await headers(),
     });
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { name, organization } = body;
+    // Validate user ID
+    if (!validateUserId(session.user.id)) {
+      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    }
 
-    if (!name || !organization) {
+    // Rate limiting - stricter limit for AI calls (expensive)
+    const rateLimitCheck = checkRateLimit(session.user.id, 5);
+    if (!rateLimitCheck.allowed) {
+      return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
+    }
+
+    // Parse and validate request body
+    let body;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: "Missing required fields: name, organization" },
+        { error: "Invalid JSON" },
         { status: 400 }
       );
     }
 
+    // Validate and sanitize inputs
+    const nameValidation = validateStringInput(body.name, "Name");
+    if (!nameValidation.isValid) {
+      return NextResponse.json(
+        { error: nameValidation.error },
+        { status: 400 }
+      );
+    }
+
+    const orgValidation = validateStringInput(body.organization, "Organization");
+    if (!orgValidation.isValid) {
+      return NextResponse.json(
+        { error: orgValidation.error },
+        { status: 400 }
+      );
+    }
+
+    const sanitizedName = nameValidation.sanitized!;
+    const sanitizedOrganization = orgValidation.sanitized!;
+
     const client = await pool.connect();
     
     try {
-      // Check usage limits
-      const subscription = await auth.api.getSubscription({
-        headers: await headers(),
-      });
+      // Check usage limits by querying subscription table directly
+      let planName: keyof typeof PLAN_LIMITS = "free";
+      let monthlyLimit: number = PLAN_LIMITS.free;
 
-      let planName = "free";
-      let monthlyLimit = PLAN_LIMITS.free;
+      try {
+        const subscriptionResult = await client.query(
+          `SELECT plan, status, "periodStart", "periodEnd" 
+           FROM subscription 
+           WHERE "userId" = $1 
+           AND status IN ('active', 'trialing')
+           ORDER BY "createdAt" DESC
+           LIMIT 1`,
+          [session.user.id]
+        );
 
-      if (subscription?.data?.subscription) {
-        planName = subscription.data.subscription.plan || "free";
-        monthlyLimit = PLAN_LIMITS[planName as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+        if (subscriptionResult.rows.length > 0) {
+          const subscription = subscriptionResult.rows[0];
+          const plan = subscription.plan || "free";
+          if (plan in PLAN_LIMITS) {
+            planName = plan as keyof typeof PLAN_LIMITS;
+            monthlyLimit = PLAN_LIMITS[planName];
+          }
+        }
+      } catch (error) {
+        console.error("Subscription query error:", error);
+        // Continue with free plan defaults for security
       }
 
       // Get current usage
@@ -121,20 +180,20 @@ export async function POST(request: NextRequest) {
       // Check if user has exceeded their limit
       if (currentMonthCount >= monthlyLimit) {
         return NextResponse.json(
-          { error: "Monthly brief limit exceeded. Please upgrade your plan." },
+          { error: "Monthly brief limit exceeded" },
           { status: 429 }
         );
       }
 
-      // Generate the brief
-      const result = await buildMeetingBriefGemini(name, organization);
+      // Generate the brief with sanitized inputs
+      const result = await buildMeetingBriefGemini(sanitizedName, sanitizedOrganization);
       const normalizedBrief = normalizeCitations(result.brief, result.citations);
 
-      // Save to database
+      // Save to database with sanitized inputs
       await client.query(
         `INSERT INTO user_briefs (user_id, name, organization, brief_content)
          VALUES ($1, $2, $3, $4)`,
-        [session.user.id, name, organization, normalizedBrief]
+        [session.user.id, sanitizedName, sanitizedOrganization, normalizedBrief]
       );
 
       return NextResponse.json({ brief: normalizedBrief });
@@ -143,8 +202,6 @@ export async function POST(request: NextRequest) {
       client.release();
     }
   } catch (error: unknown) {
-    console.error("MeetingBrief API error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return createSecureErrorResponse(error);
   }
 }

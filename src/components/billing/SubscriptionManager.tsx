@@ -73,7 +73,6 @@ export function SubscriptionManager() {
         plan: planName,
         successUrl: `${baseUrl}/dashboard?success=true`,
         cancelUrl: `${baseUrl}/dashboard?canceled=true`,
-        allowPromotionCodes: true, // Enable promo codes for paid plans
       });
 
       if (result.error) {

@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { Pool } from "pg";
+import { 
+  checkRateLimit, 
+  createRateLimitResponse,
+  createSecureErrorResponse,
+  validateUserId
+} from "@/lib/api-security";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -21,25 +27,50 @@ export async function GET() {
       headers: await headers(),
     });
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Validate user ID
+    if (!validateUserId(session.user.id)) {
+      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    }
+
+    // Rate limiting
+    const rateLimitCheck = checkRateLimit(session.user.id);
+    if (!rateLimitCheck.allowed) {
+      return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
     }
 
     const client = await pool.connect();
     
     try {
-      // Get user's subscription info from Better Auth
-      const subscription = await auth.api.getSubscription({
-        headers: await headers(),
-      });
+      // Get user's subscription info directly from database
+      let planName: keyof typeof PLAN_LIMITS = "free";
+      let monthlyLimit: number = PLAN_LIMITS.free;
 
-      // Determine plan and limits
-      let planName = "free";
-      let monthlyLimit = PLAN_LIMITS.free;
+      try {
+        const subscriptionResult = await client.query(
+          `SELECT plan, status, "periodStart", "periodEnd" 
+           FROM subscription 
+           WHERE "userId" = $1 
+           AND status IN ('active', 'trialing')
+           ORDER BY "createdAt" DESC
+           LIMIT 1`,
+          [session.user.id]
+        );
 
-      if (subscription?.data?.subscription) {
-        planName = subscription.data.subscription.plan || "free";
-        monthlyLimit = PLAN_LIMITS[planName as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+        if (subscriptionResult.rows.length > 0) {
+          const subscription = subscriptionResult.rows[0];
+          const plan = subscription.plan || "free";
+          if (plan in PLAN_LIMITS) {
+            planName = plan as keyof typeof PLAN_LIMITS;
+            monthlyLimit = PLAN_LIMITS[planName];
+          }
+        }
+      } catch (error) {
+        console.error("Subscription query error:", error);
+        // Continue with free plan defaults for security
       }
 
       // Get current usage from database
@@ -78,10 +109,6 @@ export async function GET() {
       client.release();
     }
   } catch (error) {
-    console.error("Brief usage fetch error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch usage data" },
-      { status: 500 }
-    );
+    return createSecureErrorResponse(error, "Failed to fetch usage data");
   }
 } 
