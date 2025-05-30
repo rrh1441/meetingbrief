@@ -311,7 +311,9 @@ export default function Page() {
             MeetingBrief
           </Link>
           <div className="hidden md:flex gap-6 items-center">
-            <Link href="#features" className="hover:text-indigo-600">Features</Link>
+            <Link href="#how-it-works" className="hover:text-indigo-600">How It Works</Link>
+            <Link href="#why-meetingbrief" className="hover:text-indigo-600">Why MeetingBrief</Link>
+            <Link href="#pricing" className="hover:text-indigo-600">Pricing</Link>
             <Link href="#faq" className="hover:text-indigo-600">FAQ</Link>
             {user ? (
               <Button size="sm" asChild>
@@ -483,42 +485,130 @@ export default function Page() {
         </div>
       </header>
 
-      {/* FEATURES ----------------------------------------------------------- */}
-      <section id="features" className="py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 grid gap-8 grid-cols-1 sm:grid-cols-3">
-          {[
-            { title: 'Deep open source coverage', desc: 'LinkedIn, filings, press, podcasts & more in one pass.' },
-            { title: 'Footnoted sources',          desc: 'Every claim backed by a link — no hidden hallucinations.' },
-            { title: 'Conversational hooks',       desc: '2–3 rapport-building facts to break the ice.' },
-          ].map(f => (
-            <Card key={f.title} className="shadow-sm">
-              <CardHeader><CardTitle>{f.title}</CardTitle></CardHeader>
-              <CardContent className="text-slate-600"><p>{f.desc}</p></CardContent>
-            </Card>
-          ))}
+      {/* HOW IT WORKS -------------------------------------------------------- */}
+      <section id="how-it-works" className="py-24 bg-white">
+        <div className="max-w-5xl mx-auto px-4 text-center">
+          <h2 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
+            Three clicks from blank page to board-room ready
+          </h2>
+          <p className="mt-4 text-lg text-slate-600">
+            MeetingBrief automates the entire research stack so you never scramble for context.
+          </p>
+          <div className="mt-12 grid gap-8 sm:grid-cols-3">
+            {[
+              { title: 'Paste a name & company', desc: 'Our parser cleans and normalizes the query.' },
+              { title: 'AI scouts the web', desc: 'Search, scrape, and rank thousands of records in seconds.' },
+              { title: 'Footnoted briefing appears', desc: 'Action-ready insights—export or share instantly.' },
+            ].map(step => (
+              <div key={step.title} className="flex flex-col items-center">
+                <CheckCircle2 className="h-10 w-10 text-indigo-600 mb-4" />
+                <h3 className="text-base font-medium text-slate-900 mb-2">{step.title}</h3>
+                <p className="text-slate-600 text-sm">{step.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* USE-CASES ---------------------------------------------------------- */}
-      <section className="py-24 bg-slate-50">
-        <div className="max-w-5xl mx-auto px-4 space-y-12">
-          <h2 className="text-3xl font-semibold text-center">Built for every high-stakes meeting</h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      {/* WHY MEETINGBRIEF ---------------------------------------------------- */}
+      <section id="why-meetingbrief" className="py-24 bg-slate-50">
+        <div className="max-w-6xl mx-auto px-4">
+          <h2 className="text-3xl font-semibold text-center text-slate-900 mb-12">
+            Research that moves as fast as your calendar
+          </h2>
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: 'Investors', icon: '💼', blurb: 'Vet founders before they pitch.' },
-              { name: 'Recruiters', icon: '🎯', blurb: 'Assess executive candidates in minutes.' },
-              { name: 'Founders',  icon: '🚀', blurb: "Know your counterpart's angle before negotiations." },
-              { name: 'Sales',     icon: '📈', blurb: 'Skip the research rabbit hole and open with insight.' },
-            ].map(u => (
-              <Card key={u.name} className="text-center shadow-sm">
+              { title: 'Credible by default', desc: 'Every claim is source-linked for auditability.' },
+              { title: 'Privacy first', desc: 'Data is encrypted at rest and in transit; never shared.' },
+              { title: 'Built for teams', desc: 'Per-seat credits, SSO, and role-based access on all plans.' },
+              { title: 'Zero busywork', desc: 'Browser extension and Calendar sync file requests for you.' },
+            ].map(feature => (
+              <Card key={feature.title} className="text-center shadow-sm">
                 <CardHeader>
-                  <CardTitle className="flex flex-col items-center gap-2">
-                    <span className="text-4xl">{u.icon}</span>{u.name}
-                  </CardTitle>
+                  <CardTitle className="text-lg">{feature.title}</CardTitle>
                 </CardHeader>
-                <CardContent><p className="text-slate-600">{u.blurb}</p></CardContent>
+                <CardContent>
+                  <p className="text-slate-600">{feature.desc}</p>
+                </CardContent>
               </Card>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* PRICING ------------------------------------------------------------- */}
+      <section id="pricing" className="py-24 bg-white">
+        <div className="max-w-5xl mx-auto px-4 text-center">
+          <h2 className="text-3xl font-semibold text-slate-900 mb-4">
+            Simple, predictable pricing
+          </h2>
+          <p className="text-lg text-slate-600 mb-12">
+            Credits refresh every month—use them when you need them.
+          </p>
+          
+          <div className="grid gap-8 sm:grid-cols-3 max-w-4xl mx-auto">
+            {[
+              { plan: 'Starter', price: '$29', credits: '50', ideal: 'Solo operators validating leads' },
+              { plan: 'Growth', price: '$59', credits: '150', ideal: 'Recruiters & founders in active deal flow' },
+              { plan: 'Scale', price: '$149', credits: '500', ideal: 'Teams that brief every meeting' },
+            ].map(pricing => (
+              <Card key={pricing.plan} className="shadow-lg relative">
+                <CardHeader>
+                  <CardTitle className="text-xl">{pricing.plan}</CardTitle>
+                  <div className="text-3xl font-bold text-indigo-600">
+                    {pricing.price}<span className="text-base font-normal text-slate-600">/month</span>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-semibold text-slate-900">{pricing.credits}</div>
+                    <div className="text-sm text-slate-600">credits per month</div>
+                  </div>
+                  <p className="text-sm text-slate-600">{pricing.ideal}</p>
+                  <Button className="w-full" asChild>
+                    <Link href="/auth/signup">Choose {pricing.plan}</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          
+          <p className="mt-8 text-sm text-slate-500">
+            30-day money-back guarantee • Secure Stripe checkout • Per-seat licensing
+          </p>
+        </div>
+      </section>
+
+      {/* SOCIAL PROOF & TRUST ------------------------------------------------ */}
+      <section className="py-24 bg-slate-50">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="grid gap-8 md:grid-cols-2 mb-12">
+            <Card className="shadow-sm">
+              <CardContent className="p-6">
+                <blockquote className="text-lg text-slate-700 italic mb-4">
+                  &quot;MeetingBrief cut our pre-call prep from 30 minutes to 3. Our partners thought we had an army of analysts.&quot;
+                </blockquote>
+                <cite className="text-sm font-medium text-slate-900">— Alex A., Venture Capital</cite>
+              </CardContent>
+            </Card>
+            
+            <Card className="shadow-sm">
+              <CardContent className="p-6">
+                <blockquote className="text-lg text-slate-700 italic mb-4">
+                  &quot;We scrapped manual candidate research because MeetingBrief flagged risks in minutes that saved us hours&quot;
+                </blockquote>
+                <cite className="text-sm font-medium text-slate-900">— Joe D., Executive Search</cite>
+              </CardContent>
+            </Card>
+          </div>
+          
+          <div className="text-center">
+            <p className="text-sm text-slate-600 font-medium">
+              <span className="inline-block mx-1">256-bit encryption</span> •
+              <span className="inline-block mx-1">US-based data centers</span> •
+              <span className="inline-block mx-1">GDPR compliant</span> •
+              <span className="inline-block mx-1">Continuous penetration testing</span>
+            </p>
           </div>
         </div>
       </section>
@@ -528,10 +618,10 @@ export default function Page() {
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            { q: 'How long does a brief take to generate?', a: 'Around 45 seconds!' },
-            { q: 'What data sources are used?', a: 'Real-time web search, corporate filings, reputable news, podcasts, social-media posts, and public databases from the last 24 months.' },
-            { q: 'Is my input stored or shared?', a: 'No. Inputs and generated briefs can be deleted at your direction and are never sold or shared with third parties.' },
-            { q: 'Do you guarantee zero hallucinations?', a: 'Each claim is footnoted with a source so you can verify yourself. While LLMs can err, transparent citations keep errors detectable.' },
+            { q: 'How fast is a brief generated?', a: 'Under 45 seconds for most searches; complex entities may take up to 2 minutes.' },
+            { q: 'Where do your sources come from?', a: 'Web search, dynamic scraping, and verified databases—each line footnoted.' },
+            { q: 'Is my query private?', a: 'Yes. Queries and briefs are stored encrypted and never shared or used to train models.' },
+            { q: 'How accurate are the insights?', a: 'Very. The searches are designed to avoid hallucinations and only return accurate hits. We show our work so that you can validate anything you need.' },
           ].map(f => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>

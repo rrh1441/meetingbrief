@@ -11,7 +11,7 @@ export default function TermsOfService() {
         <div className="space-y-4">
           <div>
             <p><strong>Effective Date:</strong> June 1, 2024</p>
-            <p><strong>Entity:</strong> Simple Apps, LLC DBA IntelEngine</p>
+            <p><strong>Entity:</strong> Simple Apps, LLC DBA BriefStack</p>
           </div>
 
           <p>
@@ -57,7 +57,7 @@ export default function TermsOfService() {
           <div>
             <h2 className="text-xl font-semibold mt-8 mb-4">5. Intellectual Property</h2>
             <p>
-              All intellectual property rights in the Service are owned by or licensed to IntelEngine. 
+              All intellectual property rights in the Service are owned by or licensed to BriefStack. 
               You retain ownership of any data you submit but grant us a license to use it solely to 
               operate the Service.
             </p>

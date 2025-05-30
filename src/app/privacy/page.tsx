@@ -11,11 +11,11 @@ export default function PrivacyPolicy() {
         <div className="space-y-4">
           <div>
             <p><strong>Effective Date:</strong> June 1, 2024</p>
-            <p><strong>Entity:</strong> Simple Apps, LLC DBA IntelEngine</p>
+            <p><strong>Entity:</strong> Simple Apps, LLC DBA BriefStack</p>
           </div>
 
           <p>
-            IntelEngine (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) operates the MeetingBrief
+            BriefStack (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) operates the MeetingBrief
             service. This Privacy Policy explains how we collect, use, and protect the information you 
             provide when using MeetingBrief.
           </p>

@@ -61,7 +61,7 @@ export default function DashboardPage() {
               <span className="text-gray-700">Welcome, {user.name || user.email}</span>
               <button
                 onClick={signOut}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Sign Out
               </button>
