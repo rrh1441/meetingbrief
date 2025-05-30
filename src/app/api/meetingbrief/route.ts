@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const sizeCheck = checkRequestSize(request);
     if (sizeCheck) return sizeCheck;
 
-    // Check authentication
+    // Check authentication - allow anonymous users for limited briefs
     const headersList = await headers();
     
     // Get session using Better Auth
@@ -82,22 +82,7 @@ export async function POST(request: NextRequest) {
       headers: headersList,
     });
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Validate user ID
-    if (!validateUserId(session.user.id)) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
-    }
-
-    // Rate limiting - stricter limit for AI calls (expensive)
-    const rateLimitCheck = checkRateLimit(session.user.id, 5);
-    if (!rateLimitCheck.allowed) {
-      return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
-    }
-
-    // Parse and validate request body
+    // Parse and validate request body first
     let body;
     try {
       body = await request.json();
@@ -131,32 +116,66 @@ export async function POST(request: NextRequest) {
     const client = await pool.connect();
     
     try {
-      // Check usage limits by querying subscription table directly
-      let planName: keyof typeof PLAN_LIMITS = "free";
-      let monthlyLimit: number = PLAN_LIMITS.free;
+      let userId: string;
+      let planName: keyof typeof PLAN_LIMITS;
+      let monthlyLimit: number;
 
-      try {
-        const subscriptionResult = await client.query(
-          `SELECT plan, status, "periodStart", "periodEnd" 
-           FROM subscription 
-           WHERE "userId" = $1 
-           AND status IN ('active', 'trialing')
-           ORDER BY "createdAt" DESC
-           LIMIT 1`,
-          [session.user.id]
-        );
-
-        if (subscriptionResult.rows.length > 0) {
-          const subscription = subscriptionResult.rows[0];
-          const plan = subscription.plan || "free";
-          if (plan in PLAN_LIMITS) {
-            planName = plan as keyof typeof PLAN_LIMITS;
-            monthlyLimit = PLAN_LIMITS[planName];
-          }
+      if (session?.user?.id) {
+        // Authenticated user - check their plan
+        userId = session.user.id;
+        
+        // Validate user ID
+        if (!validateUserId(userId)) {
+          return NextResponse.json({ error: "Invalid session" }, { status: 401 });
         }
-      } catch (error) {
-        console.error("Subscription query error:", error);
-        // Continue with free plan defaults for security
+
+        // Rate limiting for authenticated users
+        const rateLimitCheck = checkRateLimit(userId, 5);
+        if (!rateLimitCheck.allowed) {
+          return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
+        }
+
+        // Check subscription plan
+        planName = "free";
+        monthlyLimit = PLAN_LIMITS.free;
+
+        try {
+          const subscriptionResult = await client.query(
+            `SELECT plan, status, "periodStart", "periodEnd" 
+             FROM subscription 
+             WHERE "userId" = $1 
+             AND status IN ('active', 'trialing')
+             ORDER BY "createdAt" DESC
+             LIMIT 1`,
+            [userId]
+          );
+
+          if (subscriptionResult.rows.length > 0) {
+            const subscription = subscriptionResult.rows[0];
+            const plan = subscription.plan || "free";
+            if (plan in PLAN_LIMITS) {
+              planName = plan as keyof typeof PLAN_LIMITS;
+              monthlyLimit = PLAN_LIMITS[planName];
+            }
+          }
+        } catch (error) {
+          console.error("Subscription query error:", error);
+        }
+      } else {
+        // Anonymous user - allow 2 free briefs using IP-based tracking
+        const clientIP = request.headers.get('x-forwarded-for') || 
+                         request.headers.get('x-real-ip') || 
+                         'unknown';
+        
+        userId = `anon_${clientIP}`;
+        planName = "free";
+        monthlyLimit = 2; // Only 2 briefs for anonymous users
+        
+        // Basic rate limiting for anonymous users (stricter)
+        const rateLimitCheck = checkRateLimit(userId, 2);
+        if (!rateLimitCheck.allowed) {
+          return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
+        }
       }
 
       // Get current usage
@@ -164,7 +183,7 @@ export async function POST(request: NextRequest) {
         `SELECT current_month_count, current_month_start
          FROM user_brief_counts 
          WHERE user_id = $1`,
-        [session.user.id]
+        [userId]
       );
 
       let currentMonthCount = 0;
@@ -182,8 +201,11 @@ export async function POST(request: NextRequest) {
 
       // Check if user has exceeded their limit
       if (currentMonthCount >= monthlyLimit) {
+        const errorMessage = session?.user?.id 
+          ? "Monthly brief limit exceeded. Please upgrade your plan."
+          : "You've used your 2 free anonymous briefs. Please sign in for more.";
         return NextResponse.json(
-          { error: "Monthly brief limit exceeded" },
+          { error: errorMessage },
           { status: 429 }
         );
       }
@@ -196,10 +218,28 @@ export async function POST(request: NextRequest) {
       await client.query(
         `INSERT INTO user_briefs (user_id, name, organization, brief_content)
          VALUES ($1, $2, $3, $4)`,
-        [session.user.id, sanitizedName, sanitizedOrganization, normalizedBrief]
+        [userId, sanitizedName, sanitizedOrganization, normalizedBrief]
       );
 
-      return NextResponse.json({ brief: normalizedBrief });
+      // Update usage count
+      await client.query(
+        `INSERT INTO user_brief_counts (user_id, current_month_count, current_month_start)
+         VALUES ($1, 1, $2)
+         ON CONFLICT (user_id)
+         DO UPDATE SET 
+           current_month_count = CASE 
+             WHEN user_brief_counts.current_month_start = $2 THEN user_brief_counts.current_month_count + 1
+             ELSE 1
+           END,
+           current_month_start = $2`,
+        [userId, new Date(new Date().getFullYear(), new Date().getMonth(), 1)]
+      );
+
+      return NextResponse.json({ 
+        brief: normalizedBrief,
+        remainingBriefs: monthlyLimit - currentMonthCount - 1,
+        isAnonymous: !session?.user?.id
+      });
 
     } finally {
       client.release();
