@@ -32,6 +32,7 @@ const normaliseHtml = (html: string) => html.replace(/<p>&nbsp;<\/p>/g, '');
 export function BriefGenerator() {
   const { user } = useAuth();
   const [form, setForm] = useState({ name: '', organization: '' });
+  const [honeypot, setHoneypot] = useState(''); // Bot trap field
   const [loading, setLoading] = useState(false);
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +83,12 @@ export function BriefGenerator() {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
+    // Bot detection - if honeypot is filled, reject request
+    if (honeypot.trim() !== '') {
+      setError('Invalid request detected');
+      return;
+    }
+    
     // Check usage limits
     if (usage && usage.currentMonthCount >= usage.monthlyLimit) {
       toast("Monthly brief limit reached. Please upgrade your plan to generate more briefs.");
@@ -101,7 +108,10 @@ export function BriefGenerator() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          website: honeypot, // Include honeypot field for server validation
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const { brief } = (await res.json()) as { brief: string };
@@ -233,6 +243,20 @@ export function BriefGenerator() {
             value={form.organization}
             onChange={(e) => setForm({ ...form, organization: e.target.value })}
             required
+          />
+        </div>
+
+        {/* Honeypot field - hidden from users but visible to bots */}
+        <div style={{ position: 'absolute', left: '-9999px', opacity: 0, pointerEvents: 'none' }} aria-hidden="true">
+          <Label htmlFor="website">Website (leave blank)</Label>
+          <Input
+            id="website"
+            name="website"
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
           />
         </div>
 

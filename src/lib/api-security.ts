@@ -7,45 +7,256 @@ export const SECURITY_LIMITS = {
   RATE_LIMIT_WINDOW: 60 * 1000, // 1 minute
   RATE_LIMIT_MAX_REQUESTS: 20, // per minute per user
   MAX_QUERY_RESULTS: 100, // Maximum database query results
+  
+  // Anti-abuse limits
+  ANONYMOUS_DAILY_LIMIT: 5, // Max briefs per IP per day
+  ANONYMOUS_HOURLY_LIMIT: 2, // Max briefs per IP per hour
+  SUSPICIOUS_REQUEST_THRESHOLD: 10, // Requests that trigger enhanced checks
+  MIN_REQUEST_INTERVAL: 5000, // 5 seconds between requests
+  BLOCKED_USER_AGENTS: [
+    'bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python-requests',
+    'postman', 'insomnia', 'httpie', 'automated', 'headless'
+  ],
+  BLOCKED_COUNTRIES: ['CN', 'RU', 'KP'], // Block high-abuse countries
 } as const;
 
-// Rate limiting store (in production, use Redis or similar)
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+// Enhanced rate limiting store
+interface UserLimitData {
+  count: number;
+  resetTime: number;
+  hourlyCount: number;
+  hourlyResetTime: number;
+  dailyCount: number;
+  dailyResetTime: number;
+  lastRequestTime: number;
+  suspiciousScore: number;
+  blocked: boolean;
+  blockReason?: string;
+}
+
+const rateLimitStore = new Map<string, UserLimitData>();
+
+// Honeypot field detector
+export function detectHoneypot(body: Record<string, unknown>): boolean {
+  const honeypotFields = ['website', 'url', 'phone', 'email_confirm', 'address'];
+  return honeypotFields.some(field => 
+    body[field] && 
+    typeof body[field] === 'string' && 
+    (body[field] as string).trim() !== ''
+  );
+}
+
+// Bot detection
+export function detectBot(request: NextRequest): { isBot: boolean; reason?: string } {
+  const userAgent = request.headers.get('user-agent')?.toLowerCase() || '';
+  const acceptHeader = request.headers.get('accept') || '';
+  const acceptLanguage = request.headers.get('accept-language') || '';
+  const acceptEncoding = request.headers.get('accept-encoding') || '';
+
+  // Check for obvious bot user agents
+  const isBotUA = SECURITY_LIMITS.BLOCKED_USER_AGENTS.some(bot => 
+    userAgent.includes(bot.toLowerCase())
+  );
+  if (isBotUA) {
+    return { isBot: true, reason: 'Bot user agent detected' };
+  }
+
+  // Check for missing typical browser headers
+  if (!acceptHeader || !acceptLanguage || !acceptEncoding) {
+    return { isBot: true, reason: 'Missing browser headers' };
+  }
+
+  // Check for non-browser accept header
+  if (!acceptHeader.includes('text/html') && !acceptHeader.includes('application/json')) {
+    return { isBot: true, reason: 'Non-browser accept header' };
+  }
+
+  // Check for very short user agent (typically bots)
+  if (userAgent.length < 50) {
+    return { isBot: true, reason: 'Suspiciously short user agent' };
+  }
+
+  return { isBot: false };
+}
+
+// Geographic blocking (simplified - in production use a proper GeoIP service)
+export function checkGeographicRestrictions(request: NextRequest): { blocked: boolean; reason?: string } {
+  const country = request.headers.get('cf-ipcountry') || // Cloudflare
+                  request.headers.get('x-country-code') || // Other CDNs
+                  request.headers.get('x-forwarded-country');
+
+  if (country && SECURITY_LIMITS.BLOCKED_COUNTRIES.includes(country.toUpperCase() as typeof SECURITY_LIMITS.BLOCKED_COUNTRIES[number])) {
+    return { blocked: true, reason: `Geographic restriction: ${country}` };
+  }
+
+  return { blocked: false };
+}
+
+// Enhanced fingerprinting
+export function generateFingerprint(request: NextRequest): string {
+  const ip = request.headers.get('x-forwarded-for') || 
+             request.headers.get('x-real-ip') || 
+             'unknown';
+  const userAgent = request.headers.get('user-agent') || '';
+  const acceptLanguage = request.headers.get('accept-language') || '';
+  const acceptEncoding = request.headers.get('accept-encoding') || '';
+  
+  // Create a more robust fingerprint
+  const fingerprint = [ip, userAgent, acceptLanguage, acceptEncoding].join('|');
+  return `fp_${Buffer.from(fingerprint).toString('base64').slice(0, 16)}`;
+}
 
 export interface RateLimitResult {
   allowed: boolean;
   resetTime?: number;
   remaining?: number;
+  blocked?: boolean;
+  reason?: string;
 }
 
 export function checkRateLimit(userId: string, maxRequests: number = SECURITY_LIMITS.RATE_LIMIT_MAX_REQUESTS): RateLimitResult {
   const now = Date.now();
-  const userLimit = rateLimitStore.get(userId);
+  const userLimit = rateLimitStore.get(userId) || {
+    count: 0,
+    resetTime: now + SECURITY_LIMITS.RATE_LIMIT_WINDOW,
+    hourlyCount: 0,
+    hourlyResetTime: now + (60 * 60 * 1000), // 1 hour
+    dailyCount: 0,
+    dailyResetTime: now + (24 * 60 * 60 * 1000), // 24 hours
+    lastRequestTime: 0,
+    suspiciousScore: 0,
+    blocked: false
+  };
 
-  if (!userLimit || now > userLimit.resetTime) {
-    // Reset or create new limit window
-    rateLimitStore.set(userId, {
-      count: 1,
-      resetTime: now + SECURITY_LIMITS.RATE_LIMIT_WINDOW
-    });
-    return { allowed: true, remaining: maxRequests - 1 };
-  }
-
-  if (userLimit.count >= maxRequests) {
+  // Check if user is blocked
+  if (userLimit.blocked) {
     return { 
       allowed: false, 
-      resetTime: userLimit.resetTime,
-      remaining: 0
+      blocked: true, 
+      reason: userLimit.blockReason || 'Account blocked for suspicious activity' 
     };
   }
 
-  // Increment count
+  // Check minimum interval between requests
+  if (userLimit.lastRequestTime > 0 && 
+      (now - userLimit.lastRequestTime) < SECURITY_LIMITS.MIN_REQUEST_INTERVAL) {
+    userLimit.suspiciousScore += 2;
+    return { 
+      allowed: false, 
+      reason: 'Requests too frequent' 
+    };
+  }
+
+  // Reset counters if windows have expired
+  if (now > userLimit.resetTime) {
+    userLimit.count = 0;
+    userLimit.resetTime = now + SECURITY_LIMITS.RATE_LIMIT_WINDOW;
+  }
+  
+  if (now > userLimit.hourlyResetTime) {
+    userLimit.hourlyCount = 0;
+    userLimit.hourlyResetTime = now + (60 * 60 * 1000);
+  }
+  
+  if (now > userLimit.dailyResetTime) {
+    userLimit.dailyCount = 0;
+    userLimit.dailyResetTime = now + (24 * 60 * 60 * 1000);
+    userLimit.suspiciousScore = Math.max(0, userLimit.suspiciousScore - 5); // Decay suspicious score daily
+  }
+
+  // Enhanced checks for anonymous users
+  if (userId.startsWith('anon_') || userId.startsWith('fp_')) {
+    if (userLimit.hourlyCount >= SECURITY_LIMITS.ANONYMOUS_HOURLY_LIMIT) {
+      return { 
+        allowed: false, 
+        resetTime: userLimit.hourlyResetTime,
+        reason: 'Hourly limit exceeded'
+      };
+    }
+    
+    if (userLimit.dailyCount >= SECURITY_LIMITS.ANONYMOUS_DAILY_LIMIT) {
+      return { 
+        allowed: false, 
+        resetTime: userLimit.dailyResetTime,
+        reason: 'Daily limit exceeded'
+      };
+    }
+  }
+
+  // Check regular rate limits
+  if (userLimit.count >= maxRequests) {
+    userLimit.suspiciousScore += 1;
+    return { 
+      allowed: false, 
+      resetTime: userLimit.resetTime,
+      remaining: 0,
+      reason: 'Rate limit exceeded'
+    };
+  }
+
+  // Check for suspicious behavior and auto-block
+  if (userLimit.suspiciousScore >= SECURITY_LIMITS.SUSPICIOUS_REQUEST_THRESHOLD) {
+    userLimit.blocked = true;
+    userLimit.blockReason = 'Automated blocking due to suspicious activity';
+    rateLimitStore.set(userId, userLimit);
+    return { 
+      allowed: false, 
+      blocked: true, 
+      reason: userLimit.blockReason 
+    };
+  }
+
+  // Increment counts
   userLimit.count++;
+  userLimit.hourlyCount++;
+  userLimit.dailyCount++;
+  userLimit.lastRequestTime = now;
+  
   rateLimitStore.set(userId, userLimit);
+  
   return { 
     allowed: true, 
     remaining: maxRequests - userLimit.count 
   };
+}
+
+// Comprehensive request validation
+export function validateRequest(request: NextRequest): { 
+  valid: boolean; 
+  error?: string; 
+  fingerprint?: string;
+  shouldBlock?: boolean;
+} {
+  // Check request size first
+  const contentLength = request.headers.get('content-length');
+  if (contentLength && parseInt(contentLength) > SECURITY_LIMITS.MAX_REQUEST_SIZE) {
+    return { valid: false, error: "Request too large" };
+  }
+
+  // Check for bot
+  const botCheck = detectBot(request);
+  if (botCheck.isBot) {
+    return { 
+      valid: false, 
+      error: "Automated requests not allowed", 
+      shouldBlock: true 
+    };
+  }
+
+  // Check geographic restrictions
+  const geoCheck = checkGeographicRestrictions(request);
+  if (geoCheck.blocked) {
+    return { 
+      valid: false, 
+      error: "Service not available in your region", 
+      shouldBlock: true 
+    };
+  }
+
+  // Generate fingerprint for enhanced tracking
+  const fingerprint = generateFingerprint(request);
+
+  return { valid: true, fingerprint };
 }
 
 export function sanitizeInput(input: string): string {
@@ -101,10 +312,13 @@ export function checkRequestSize(request: NextRequest): NextResponse | null {
   return null;
 }
 
-export function createRateLimitResponse(resetTime: number, remaining = 0): NextResponse {
+export function createRateLimitResponse(resetTime: number, remaining = 0, reason?: string): NextResponse {
   const resetInSeconds = Math.ceil((resetTime - Date.now()) / 1000);
   return NextResponse.json(
-    { error: "Rate limit exceeded", retryAfter: resetInSeconds },
+    { 
+      error: reason || "Rate limit exceeded", 
+      retryAfter: resetInSeconds 
+    },
     { 
       status: 429,
       headers: {

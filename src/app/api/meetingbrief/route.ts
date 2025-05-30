@@ -11,10 +11,12 @@ import { Pool } from "pg";
 import { 
   checkRateLimit, 
   validateStringInput, 
-  checkRequestSize, 
   createRateLimitResponse,
   createSecureErrorResponse,
-  validateUserId
+  validateUserId,
+  validateRequest,
+  detectHoneypot,
+  generateFingerprint
 } from "@/lib/api-security";
 
 const pool = new Pool({
@@ -70,9 +72,22 @@ function normalizeCitations(
 
 export async function POST(request: NextRequest) {
   try {
-    // Check request size
-    const sizeCheck = checkRequestSize(request);
-    if (sizeCheck) return sizeCheck;
+    // Enhanced request validation with anti-abuse checks
+    const requestValidation = validateRequest(request);
+    if (!requestValidation.valid) {
+      // Log potential abuse attempt
+      console.warn("Blocked request:", {
+        reason: requestValidation.error,
+        ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+        userAgent: request.headers.get('user-agent'),
+        shouldBlock: requestValidation.shouldBlock
+      });
+      
+      return NextResponse.json(
+        { error: requestValidation.error },
+        { status: requestValidation.shouldBlock ? 403 : 400 }
+      );
+    }
 
     // Check authentication - allow anonymous users for limited briefs
     const headersList = await headers();
@@ -89,6 +104,18 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json(
         { error: "Invalid JSON" },
+        { status: 400 }
+      );
+    }
+
+    // Check for honeypot fields (bot trap)
+    if (detectHoneypot(body)) {
+      console.warn("Honeypot triggered:", {
+        ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+        userAgent: request.headers.get('user-agent')
+      });
+      return NextResponse.json(
+        { error: "Invalid request" },
         { status: 400 }
       );
     }
@@ -132,7 +159,11 @@ export async function POST(request: NextRequest) {
         // Rate limiting for authenticated users
         const rateLimitCheck = checkRateLimit(userId, 5);
         if (!rateLimitCheck.allowed) {
-          return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
+          return createRateLimitResponse(
+            rateLimitCheck.resetTime!, 
+            rateLimitCheck.remaining, 
+            rateLimitCheck.reason
+          );
         }
 
         // Check subscription plan
@@ -162,19 +193,32 @@ export async function POST(request: NextRequest) {
           console.error("Subscription query error:", error);
         }
       } else {
-        // Anonymous user - allow 2 free briefs using IP-based tracking
-        const clientIP = request.headers.get('x-forwarded-for') || 
-                         request.headers.get('x-real-ip') || 
-                         'unknown';
-        
-        userId = `anon_${clientIP}`;
+        // Anonymous user - use enhanced fingerprinting and stricter limits
+        const fingerprint = requestValidation.fingerprint || generateFingerprint(request);
+        userId = fingerprint;
         planName = "free";
         monthlyLimit = 2; // Only 2 briefs for anonymous users
         
-        // Basic rate limiting for anonymous users (stricter)
+        // Enhanced rate limiting for anonymous users
         const rateLimitCheck = checkRateLimit(userId, 2);
         if (!rateLimitCheck.allowed) {
-          return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
+          if (rateLimitCheck.blocked) {
+            console.warn("Blocked user attempted request:", {
+              fingerprint: userId,
+              reason: rateLimitCheck.reason,
+              ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip')
+            });
+            return NextResponse.json(
+              { error: "Access temporarily restricted. Please try again later." },
+              { status: 403 }
+            );
+          }
+          
+          return createRateLimitResponse(
+            rateLimitCheck.resetTime!, 
+            rateLimitCheck.remaining, 
+            rateLimitCheck.reason
+          );
         }
       }
 
@@ -234,6 +278,13 @@ export async function POST(request: NextRequest) {
            current_month_start = $2`,
         [userId, new Date(new Date().getFullYear(), new Date().getMonth(), 1)]
       );
+
+      // Log successful request for monitoring
+      console.log("Brief generated:", {
+        userId: userId.startsWith('fp_') ? 'anonymous' : userId,
+        remainingBriefs: monthlyLimit - currentMonthCount - 1,
+        isAnonymous: !session?.user?.id
+      });
 
       return NextResponse.json({ 
         brief: normalizedBrief,
