@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { apiClient } from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +31,9 @@ export function BriefHistory() {
 
   const fetchBriefs = async () => {
     try {
-      const response = await apiClient.get('/api/brief-history');
+      const response = await fetch('/api/brief-history', {
+        credentials: 'include'
+      });
       if (response.ok) {
         const data = await response.json();
         setBriefs(data.briefs || []);

@@ -38,10 +38,10 @@ export const auth = betterAuth({
     minPasswordLength: 8,
   },
   session: {
-    // Use JWT tokens instead of cookies for better security
-    strategy: "jwt",
+    // Use default cookie-based sessions for simplicity and security
     cookieCache: {
-      enabled: false, // Disable cookie caching
+      enabled: true,
+      maxAge: 5 * 60, // 5 minutes cache
     },
     // Session expires after 7 days
     expiresIn: 60 * 60 * 24 * 7,

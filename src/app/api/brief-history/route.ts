@@ -17,17 +17,10 @@ const pool = new Pool({
 export async function GET() {
   try {
     const headersList = await headers();
-    const authorization = headersList.get('authorization');
     
-    if (!authorization?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const token = authorization.slice(7); // Remove 'Bearer ' prefix
-    
-    // Verify JWT token and get session
-    const session = await auth.api.verifyJWT({
-      token,
+    // Get session using Better Auth
+    const session = await auth.api.getSession({
+      headers: headersList,
     });
 
     if (!session?.user?.id) {
