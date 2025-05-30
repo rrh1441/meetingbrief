@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { apiClient } from "@/lib/api-client";
 import { motion } from "framer-motion";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ export function BriefGenerator() {
 
   const fetchUsage = async () => {
     try {
-      const response = await fetch('/api/brief-usage');
+      const response = await apiClient.get('/api/brief-usage');
       if (response.ok) {
         const data = await response.json();
         setUsage(data);
@@ -95,11 +96,7 @@ export function BriefGenerator() {
     setBriefHtml(null);
 
     try {
-      const res = await fetch('/api/meetingbrief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
+      const res = await apiClient.post('/api/meetingbrief', form);
       if (!res.ok) throw new Error(await res.text());
       const { brief } = (await res.json()) as { brief: string };
       setBriefHtml(brief);

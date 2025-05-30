@@ -7,6 +7,18 @@ export const authClient = createAuthClient({
     ? window.location.origin 
     : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   
+  // Use JWT tokens stored in localStorage instead of cookies
+  session: {
+    cookieCache: {
+      enabled: false, // Disable cookie caching for security
+    },
+    storage: typeof window !== "undefined" ? {
+      get: (key: string) => localStorage.getItem(key),
+      set: (key: string, value: string) => localStorage.setItem(key, value),
+      remove: (key: string) => localStorage.removeItem(key),
+    } : undefined,
+  },
+  
   // Additional fetch options for better error handling
   fetchOptions: {
     onError: (e) => {
