@@ -203,9 +203,9 @@ export async function POST(request: NextRequest) {
         try {
           await client.query(
             `INSERT INTO "user" (id, name, email, "emailVerified", image, "createdAt", "updatedAt")
-             VALUES ($1, 'Anonymous', null, false, null, NOW(), NOW())
+             VALUES ($1, 'Anonymous', $2, false, null, NOW(), NOW())
              ON CONFLICT (id) DO NOTHING`,
-            [userId]
+            [userId, `anonymous+${userId}@meetingbrief.app`]
           );
         } catch (error) {
           console.error("Error creating anonymous user:", error);

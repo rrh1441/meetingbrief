@@ -41,7 +41,10 @@ const SOCIAL_DOMAINS = [
 ];
 const GENERIC_NO_SCRAPE_DOMAINS = [
   "youtube.com/", "youtu.be/",
-  "reddit.com/", "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/",
+  "reddit.com/", 
+  "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/", "linkedin.com/pub/",
+  "zoominfo.com/", "clay.earth/", 
+  "newyorkfed.org/medialibrary/", "fsb.org/uploads/", "brokercheck.finra.org/",
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
