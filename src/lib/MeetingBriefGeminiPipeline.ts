@@ -43,8 +43,6 @@ const GENERIC_NO_SCRAPE_DOMAINS = [
   "youtube.com/", "youtu.be/",
   "reddit.com/", 
   "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/", "linkedin.com/pub/",
-  "zoominfo.com/", "clay.earth/", 
-  "newyorkfed.org/medialibrary/", "fsb.org/uploads/", "brokercheck.finra.org/",
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
@@ -136,6 +134,14 @@ let firecrawlGlobalSuccesses = 0;
 
 const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Promise<string | null> => {
   firecrawlGlobalAttempts++;
+  
+  // Skip PDFs and known slow domains - use shorter timeout
+  const isProbablySlowOrPdf = url.includes('.pdf') || 
+    url.includes('newyorkfed.org') || 
+    url.includes('fsb.org') || 
+    url.includes('brokercheck.finra.org') ||
+    url.includes('zoominfo.com');
+  
   const tryScrapeOnce = async (timeoutMs: number): Promise<string | null> => {
     try {
       console.log(`[Firecrawl Attempt] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms`);
@@ -175,11 +181,13 @@ const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Pr
     }
   };
 
-  let content = await tryScrapeOnce(7000);
-  if (content === null) {
+  let content = await tryScrapeOnce(isProbablySlowOrPdf ? 3000 : 7000);
+  if (content === null && !isProbablySlowOrPdf) {
     console.warn(`[Firecrawl Retry] First attempt failed for ${url} (${attemptInfoForLogs}). Retrying.`);
     content = await tryScrapeOnce(15000);
     if (content === null) console.error(`[Firecrawl FailedAllAttempts] URL: ${url} (${attemptInfoForLogs}).`);
+  } else if (content === null && isProbablySlowOrPdf) {
+    console.warn(`[Firecrawl Skip] Skipping retry for slow/PDF URL: ${url} (${attemptInfoForLogs}).`);
   }
   return content;
 };
