@@ -51,8 +51,6 @@ export function detectHoneypot(body: Record<string, unknown>): boolean {
 export function detectBot(request: NextRequest): { isBot: boolean; reason?: string } {
   const userAgent = request.headers.get('user-agent')?.toLowerCase() || '';
   const acceptHeader = request.headers.get('accept') || '';
-  const acceptLanguage = request.headers.get('accept-language') || '';
-  const acceptEncoding = request.headers.get('accept-encoding') || '';
 
   // Check for obvious bot user agents
   const isBotUA = SECURITY_LIMITS.BLOCKED_USER_AGENTS.some(bot => 
@@ -62,19 +60,35 @@ export function detectBot(request: NextRequest): { isBot: boolean; reason?: stri
     return { isBot: true, reason: 'Bot user agent detected' };
   }
 
-  // Check for missing typical browser headers
-  if (!acceptHeader || !acceptLanguage || !acceptEncoding) {
-    return { isBot: true, reason: 'Missing browser headers' };
+  // Check for missing typical browser headers (be more lenient)
+  if (!userAgent || !acceptHeader) {
+    return { isBot: true, reason: 'Missing critical headers' };
   }
 
-  // Check for non-browser accept header
-  if (!acceptHeader.includes('text/html') && !acceptHeader.includes('application/json')) {
-    return { isBot: true, reason: 'Non-browser accept header' };
+  // More lenient accept header check for AJAX requests
+  // Accept various legitimate browser request types
+  const hasValidAccept = acceptHeader.includes('application/json') || 
+                        acceptHeader.includes('text/html') || 
+                        acceptHeader.includes('*/*') ||
+                        acceptHeader.includes('text/plain');
+  
+  if (!hasValidAccept) {
+    return { isBot: true, reason: 'Invalid accept header' };
   }
 
-  // Check for very short user agent (typically bots)
-  if (userAgent.length < 50) {
+  // Check for very short user agent (typically bots) - be more lenient
+  if (userAgent.length < 20) {
     return { isBot: true, reason: 'Suspiciously short user agent' };
+  }
+
+  // Additional check: if user agent looks like a real browser
+  const browserIndicators = ['mozilla', 'webkit', 'chrome', 'safari', 'firefox', 'edge'];
+  const hasBrowserIndicator = browserIndicators.some(indicator => 
+    userAgent.includes(indicator)
+  );
+  
+  if (!hasBrowserIndicator) {
+    return { isBot: true, reason: 'Non-browser user agent' };
   }
 
   return { isBot: false };
