@@ -12,20 +12,8 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Check if accessing premium features that require subscription
-  if (request.nextUrl.pathname.startsWith("/api/meetingbrief")) {
-    const sessionCookie = getSessionCookie(request);
-    
-    if (!sessionCookie) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
-    }
-    
-    // Note: Full subscription checking would require a database call
-    // For now, we'll let the API route handle subscription validation
-  }
+  // Note: Removed authentication requirement for /api/meetingbrief
+  // The API route itself now handles anonymous users with limits
   
   // Allow all other requests to proceed
   return NextResponse.next();
@@ -35,7 +23,6 @@ export const config = {
   matcher: [
     // Protect dashboard routes
     "/dashboard/:path*",
-    // Protect API routes (optional - for future subscription gating)
-    "/api/meetingbrief/:path*",
+    // Removed API protection - let API routes handle their own auth/limits
   ],
 }; 
