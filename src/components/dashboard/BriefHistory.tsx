@@ -165,13 +165,14 @@ export function BriefHistory() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex gap-2 mb-3">
+                <div className="flex flex-wrap gap-2 mb-3">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => setExpandedBrief(
                       expandedBrief === brief.id ? null : brief.id
                     )}
+                    className="flex-shrink-0"
                   >
                     {expandedBrief === brief.id ? 'Collapse' : 'View Full Brief'}
                   </Button>
@@ -179,6 +180,7 @@ export function BriefHistory() {
                     size="sm"
                     variant="outline"
                     onClick={() => copyBrief(brief.brief_content)}
+                    className="flex-shrink-0"
                   >
                     Copy Brief
                   </Button>
@@ -187,6 +189,7 @@ export function BriefHistory() {
                     variant="outline"
                     onClick={() => downloadPdf(brief.id, brief.brief_content, brief.name, brief.organization)}
                     disabled={pdfBusy[brief.id]}
+                    className="flex-shrink-0"
                   >
                     {pdfBusy[brief.id] ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
                   </Button>
