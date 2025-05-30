@@ -31,7 +31,7 @@ class SecureAPIClient {
     });
   }
 
-  async post(endpoint: string, data?: any): Promise<Response> {
+  async post(endpoint: string, data?: Record<string, unknown>): Promise<Response> {
     const headers = await this.getAuthHeaders();
     return fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
@@ -40,7 +40,7 @@ class SecureAPIClient {
     });
   }
 
-  async put(endpoint: string, data?: any): Promise<Response> {
+  async put(endpoint: string, data?: Record<string, unknown>): Promise<Response> {
     const headers = await this.getAuthHeaders();
     return fetch(`${this.baseURL}${endpoint}`, {
       method: 'PUT',
