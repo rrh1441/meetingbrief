@@ -72,17 +72,8 @@ export function SubscriptionManager() {
     try {
       // Handle free plan selection differently
       if (planName === "free") {
-        const result = await authClient.subscription.create({
-          plan: planName,
-        });
-
-        if (result.error) {
-          console.error("Free plan setup failed:", result.error);
-          alert(`Free plan setup failed: ${result.error.message}`);
-        } else {
-          alert("Free plan activated successfully!");
-          await loadSubscriptions();
-        }
+        // Free plan is the default state - no subscription needed
+        alert("You're already on the free plan! You get 5 briefs per month.");
         return;
       }
 
@@ -246,17 +237,20 @@ export function SubscriptionManager() {
               onClick={() => handleUpgrade(plan.name)}
               disabled={
                 actionLoading === plan.name ||
-                (activeSubscription && activeSubscription.plan === plan.name)
+                (activeSubscription && activeSubscription.plan === plan.name) ||
+                (plan.name === "free" && !activeSubscription)
               }
               className={`w-full py-2 px-4 rounded font-medium ${
-                activeSubscription && activeSubscription.plan === plan.name
+                (activeSubscription && activeSubscription.plan === plan.name) ||
+                (plan.name === "free" && !activeSubscription)
                   ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
               }`}
             >
               {actionLoading === plan.name 
                 ? "Processing..." 
-                : activeSubscription && activeSubscription.plan === plan.name
+                : (activeSubscription && activeSubscription.plan === plan.name) ||
+                  (plan.name === "free" && !activeSubscription)
                 ? "Current Plan"
                 : "Choose Plan"
               }
