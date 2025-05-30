@@ -4,11 +4,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SubscriptionManager } from "@/components/billing/SubscriptionManager";
+import { BriefGenerator } from "@/components/dashboard/BriefGenerator";
+import { BriefHistory } from "@/components/dashboard/BriefHistory";
 
 export default function DashboardPage() {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("generate");
 
   useEffect(() => {
     if (!loading && !user) {
@@ -42,7 +44,8 @@ export default function DashboardPage() {
   }
 
   const tabs = [
-    { id: "overview", name: "Overview" },
+    { id: "generate", name: "Generate Brief" },
+    { id: "history", name: "Brief History" },
     { id: "billing", name: "Billing & Subscriptions" },
   ];
 
@@ -89,29 +92,15 @@ export default function DashboardPage() {
 
         {/* Tab Content */}
         <div className="mt-6">
-          {activeTab === "overview" && (
+          {activeTab === "generate" && (
             <div className="px-4 py-6 sm:px-0">
-              <div className="border-4 border-dashed border-gray-200 rounded-lg h-96">
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                      Welcome to your Dashboard!
-                    </h2>
-                    <p className="text-gray-600 mb-4">
-                      User: {user.email}
-                    </p>
-                    <p className="text-gray-600 mb-4">
-                      This is where your meeting brief history and analytics will go.
-                    </p>
-                    <button
-                      onClick={() => setActiveTab("billing")}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-                    >
-                      Manage Subscription
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <BriefGenerator />
+            </div>
+          )}
+
+          {activeTab === "history" && (
+            <div className="px-4 py-6 sm:px-0">
+              <BriefHistory />
             </div>
           )}
 

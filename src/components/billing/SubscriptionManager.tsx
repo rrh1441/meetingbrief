@@ -19,27 +19,21 @@ interface Subscription {
 
 const PLANS = [
   {
-    name: "free",
-    displayName: "Free",
-    price: "$0/month",
-    features: ["5 meeting briefs per month", "1GB storage", "Community support"],
-  },
-  {
     name: "starter",
     displayName: "Starter",
-    price: "$9/month",
+    price: "$29/month",
     features: ["50 meeting briefs per month", "5GB storage", "Email support"],
   },
   {
     name: "growth",
     displayName: "Growth",
-    price: "$29/month",
+    price: "$59/month",
     features: ["150 meeting briefs per month", "50GB storage", "Priority support"],
   },
   {
     name: "scale",
     displayName: "Scale",
-    price: "$99/month",
+    price: "$149/month",
     features: ["500 meeting briefs per month", "500GB storage", "24/7 phone support", "Custom integrations"],
   },
 ];
@@ -70,14 +64,7 @@ export function SubscriptionManager() {
   const handleUpgrade = async (planName: string) => {
     setActionLoading(planName);
     try {
-      // Handle free plan selection differently
-      if (planName === "free") {
-        // Free plan is the default state - no subscription needed
-        alert("You're already on the free plan! You get 5 briefs per month.");
-        return;
-      }
-
-      // Handle paid plans through Stripe
+      // Handle paid plans through Stripe with promo codes
       const baseUrl = process.env.NODE_ENV === "production" 
         ? "https://meetingbrief.com" 
         : window.location.origin;
@@ -86,6 +73,7 @@ export function SubscriptionManager() {
         plan: planName,
         successUrl: `${baseUrl}/dashboard?success=true`,
         cancelUrl: `${baseUrl}/dashboard?canceled=true`,
+        allowPromotionCodes: true, // Enable promo codes for paid plans
       });
 
       if (result.error) {
@@ -213,8 +201,8 @@ export function SubscriptionManager() {
           </div>
         </div>
       ) : (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-          <p className="text-yellow-800">You don&apos;t have an active subscription. Choose a plan below to get started!</p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8">
+          <p className="text-blue-800">Currently on the Free Plan. Upgrade below for more briefs!</p>
         </div>
       )}
 
@@ -237,20 +225,17 @@ export function SubscriptionManager() {
               onClick={() => handleUpgrade(plan.name)}
               disabled={
                 actionLoading === plan.name ||
-                (activeSubscription && activeSubscription.plan === plan.name) ||
-                (plan.name === "free" && !activeSubscription)
+                (activeSubscription && activeSubscription.plan === plan.name)
               }
               className={`w-full py-2 px-4 rounded font-medium ${
-                (activeSubscription && activeSubscription.plan === plan.name) ||
-                (plan.name === "free" && !activeSubscription)
+                activeSubscription && activeSubscription.plan === plan.name
                   ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
               }`}
             >
               {actionLoading === plan.name 
                 ? "Processing..." 
-                : (activeSubscription && activeSubscription.plan === plan.name) ||
-                  (plan.name === "free" && !activeSubscription)
+                : activeSubscription && activeSubscription.plan === plan.name
                 ? "Current Plan"
                 : "Choose Plan"
               }
