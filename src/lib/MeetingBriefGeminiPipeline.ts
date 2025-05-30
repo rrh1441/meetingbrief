@@ -79,7 +79,12 @@ export interface MeetingBriefPayload {
 }
 
 /* ── HELPERS ────────────────────────────────────────────────────────────── */
-const ai = new OpenAI({ apiKey: OPENAI_API_KEY! });
+const getOpenAIClient = () => {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY environment variable is required but not set");
+  }
+  return new OpenAI({ apiKey: OPENAI_API_KEY });
+};
 
 const postJSON = async <T>( // The flagged line was here (106 in your build)
   url: string,
@@ -422,6 +427,7 @@ ${llmSourceBlock}
 
   if (OPENAI_API_KEY) {
     try {
+      const ai = getOpenAIClient();
       const llmResponse = await ai.chat.completions.create({
         model: MODEL_ID, temperature: 0.0, response_format: { type: "json_object" },
         messages: [{ role: "system", content: systemPromptForLLM }, { role: "user", content: userPromptForLLM }],
