@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
         const fingerprint = requestValidation.fingerprint || generateFingerprint(request);
         userId = fingerprint;
         planName = "free";
-        monthlyLimit = 2; // Only 2 briefs for anonymous users
+        monthlyLimit = 2; // Only 2 briefs per month for anonymous users
         
         // Enhanced rate limiting for anonymous users
         const rateLimitCheck = checkRateLimit(userId, 2);
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
       if (currentMonthCount >= monthlyLimit) {
         const errorMessage = session?.user?.id 
           ? "Monthly brief limit exceeded. Please upgrade your plan."
-          : "You've used your 2 free anonymous briefs. Please sign in for more.";
+          : "You've used your 2 free briefs this month. Please sign in for more or wait until next month.";
         return NextResponse.json(
           { error: errorMessage },
           { status: 429 }

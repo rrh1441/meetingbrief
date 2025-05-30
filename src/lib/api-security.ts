@@ -9,10 +9,11 @@ export const SECURITY_LIMITS = {
   MAX_QUERY_RESULTS: 100, // Maximum database query results
   
   // Anti-abuse limits
-  ANONYMOUS_DAILY_LIMIT: 5, // Max briefs per IP per day
+  ANONYMOUS_DAILY_LIMIT: 2, // Max briefs per IP per day
   ANONYMOUS_HOURLY_LIMIT: 2, // Max briefs per IP per hour
+  ANONYMOUS_MONTHLY_LIMIT: 2, // Max briefs per IP per month
   SUSPICIOUS_REQUEST_THRESHOLD: 10, // Requests that trigger enhanced checks
-  MIN_REQUEST_INTERVAL: 5000, // 5 seconds between requests
+  MIN_REQUEST_INTERVAL: 60000, // 1 minute between requests
   BLOCKED_USER_AGENTS: [
     'bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python-requests',
     'postman', 'insomnia', 'httpie', 'automated', 'headless'
@@ -166,19 +167,22 @@ export function checkRateLimit(userId: string, maxRequests: number = SECURITY_LI
 
   // Enhanced checks for anonymous users
   if (userId.startsWith('anon_') || userId.startsWith('fp_')) {
-    if (userLimit.hourlyCount >= SECURITY_LIMITS.ANONYMOUS_HOURLY_LIMIT) {
-      return { 
-        allowed: false, 
-        resetTime: userLimit.hourlyResetTime,
-        reason: 'Hourly limit exceeded'
-      };
+    // Check monthly limit for anonymous users
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const userMonthStart = new Date(userLimit.dailyResetTime - (24 * 60 * 60 * 1000));
+    
+    // If we're in a new month, reset the counter
+    if (userMonthStart.getTime() !== thisMonthStart.getTime()) {
+      userLimit.dailyCount = 0;
+      userLimit.dailyResetTime = thisMonthStart.getTime() + (30 * 24 * 60 * 60 * 1000); // ~30 days
     }
     
-    if (userLimit.dailyCount >= SECURITY_LIMITS.ANONYMOUS_DAILY_LIMIT) {
+    if (userLimit.dailyCount >= SECURITY_LIMITS.ANONYMOUS_MONTHLY_LIMIT) {
       return { 
         allowed: false, 
         resetTime: userLimit.dailyResetTime,
-        reason: 'Daily limit exceeded'
+        reason: 'Monthly limit exceeded for anonymous users'
       };
     }
   }
