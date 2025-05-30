@@ -39,11 +39,7 @@ export async function GET() {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
-    // Rate limiting
-    const rateLimitCheck = checkRateLimit(session.user.id);
-    if (!rateLimitCheck.allowed) {
-      return createRateLimitResponse(rateLimitCheck.resetTime!, rateLimitCheck.remaining);
-    }
+    // Note: Removed rate limiting for usage endpoint since it's just reading user's own data
 
     const client = await pool.connect();
     
@@ -56,7 +52,7 @@ export async function GET() {
         const subscriptionResult = await client.query(
           `SELECT plan, status, "periodStart", "periodEnd" 
            FROM subscription 
-           WHERE "userId" = $1 
+           WHERE "user_id" = $1 
            AND status IN ('active', 'trialing')
            ORDER BY "createdAt" DESC
            LIMIT 1`,
