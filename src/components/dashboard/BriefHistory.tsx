@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ export function BriefHistory() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedBrief, setExpandedBrief] = useState<number | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<Record<number, boolean>>({});
+  const pdfCooldownUntil = useRef<Record<number, number>>({});
 
   useEffect(() => {
     if (user) {
@@ -70,6 +72,39 @@ export function BriefHistory() {
     } catch (error) {
       console.error('Copy failed:', error);
       toast('Copy failed');
+    }
+  };
+
+  const normaliseHtml = (html: string) => html.replace(/<p>&nbsp;<\/p>/g, '');
+
+  const downloadPdf = async (briefId: number, content: string, personName: string, organization: string) => {
+    if (pdfBusy[briefId] || Date.now() < (pdfCooldownUntil.current[briefId] || 0)) return;
+    
+    setPdfBusy(prev => ({ ...prev, [briefId]: true }));
+    pdfCooldownUntil.current[briefId] = Date.now() + 10_000;
+
+    try {
+      const res = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ htmlContent: normaliseHtml(content) }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meeting-brief-${personName.replace(/\s+/g, '-')}-${organization.replace(/\s+/g, '-')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast('PDF downloaded');
+    } catch (err) {
+      console.error('downloadPdf() error:', err);
+      toast('PDF export failed');
+    } finally {
+      setPdfBusy(prev => ({ ...prev, [briefId]: false }));
     }
   };
 
@@ -146,6 +181,14 @@ export function BriefHistory() {
                     onClick={() => copyBrief(brief.brief_content)}
                   >
                     Copy Brief
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => downloadPdf(brief.id, brief.brief_content, brief.name, brief.organization)}
+                    disabled={pdfBusy[brief.id]}
+                  >
+                    {pdfBusy[brief.id] ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
                   </Button>
                 </div>
                 
