@@ -3,8 +3,6 @@ import { auth } from "@/lib/auth-server";
 import { headers } from "next/headers";
 import { Pool } from "pg";
 import { 
-  checkRateLimit, 
-  createRateLimitResponse,
   createSecureErrorResponse,
   validateUserId,
   SECURITY_LIMITS
