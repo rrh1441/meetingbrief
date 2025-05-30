@@ -16,7 +16,7 @@ if (!process.env.BETTER_AUTH_SECRET && !process.env.AUTH_SECRET) {
 // Initialize Stripe client (only if Stripe keys are provided)
 const stripeClient = process.env.STRIPE_SECRET_KEY 
   ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: "2025-02-24.acacia",
+      apiVersion: "2025-05-28.basil",
     })
   : undefined;
 
