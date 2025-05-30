@@ -144,7 +144,7 @@ const prepareHtmlForClipboard = (raw: string) => {
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 export default function Page() {
-  const { user, loading: authLoading } = useAuth()
+  const { user } = useAuth()
 
   /* state ------------------------------------------------------------------ */
   const [form, setForm]           = useState({ name: '', organization: '' })
