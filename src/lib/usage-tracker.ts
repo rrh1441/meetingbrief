@@ -27,7 +27,6 @@ export class UsageTracker {
       }
 
       const data = JSON.parse(stored);
-      const today = new Date().toDateString();
       
       // Reset count if it's a new month
       if (data.lastReset !== this.getCurrentMonth()) {
