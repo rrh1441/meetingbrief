@@ -403,29 +403,50 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       proxyCurlData = profile;
       linkedInUrl = lookupUrl;
       
-      if ((profile.experiences ?? []).length) {
-        jobHistoryTimeline = profile.experiences!.map(exp =>
-          `${exp.title ?? "Role"} — ${exp.company ?? "Company"} ` +
-          `(${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`);
-      } else {
-        jobHistoryTimeline = ["Experience section is private."];
-        ((profile as unknown as { education?: { school?: string; degree?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).education ?? []).forEach(ed => {
-          jobHistoryTimeline.push(
-            `Education — ${ed.school ?? "School"}${ed.degree ? `, ${ed.degree}` : ""}` +
-            (ed.starts_at?.year || ed.ends_at?.year
-               ? ` (${ed.starts_at?.year ?? "?"}–${ed.ends_at?.year ?? "?"})`
-               : "")
-          );
-        });
-        ((profile as unknown as { volunteer_work?: { role?: string; company?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).volunteer_work ?? []).forEach(v => {
-          jobHistoryTimeline.push(
-            `Volunteer — ${v.role ?? "Role"} at ${v.company ?? "Org"}` +
-            (v.starts_at?.year || v.ends_at?.year
-               ? ` (${v.starts_at?.year ?? "?"}–${v.ends_at?.year ?? "?"})`
-               : "")
-          );
-        });
+      // Build comprehensive resume data with proper ordering
+      const lines: string[] = [];
+      
+      // Experience section
+      const experiences = profile.experiences ?? [];
+      for (const exp of experiences) {
+        lines.push(`${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`);
       }
+      
+      // Education section
+      const education = ((profile as unknown as { education?: { school?: string; degree?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).education ?? []);
+      for (const ed of education) {
+        lines.push(
+          `Education — ${ed.school ?? "School"}${ed.degree ? `, ${ed.degree}` : ""}` +
+          (ed.starts_at?.year || ed.ends_at?.year
+             ? ` (${ed.starts_at?.year ?? "?"}–${ed.ends_at?.year ?? "?"})`
+             : "")
+        );
+      }
+      
+      // Volunteer section
+      const volunteerWork = ((profile as unknown as { volunteer_work?: { role?: string; company?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).volunteer_work ?? []);
+      for (const v of volunteerWork) {
+        lines.push(
+          `Volunteer — ${v.role ?? "Role"} at ${v.company ?? "Org"}` +
+          (v.starts_at?.year || v.ends_at?.year
+             ? ` (${v.starts_at?.year ?? "?"}–${v.ends_at?.year ?? "?"})`
+             : "")
+        );
+      }
+      
+      // Set timeline and hasResumeData flag
+      if (lines.length === 0) {
+        jobHistoryTimeline = ["No public work, education, or volunteer history found. LinkedIn sections are private."];
+      } else {
+        jobHistoryTimeline = lines;
+      }
+      
+      // Global flag for resume data availability
+      (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData = !!(
+        experiences.length ||
+        education.length ||
+        volunteerWork.length
+      );
       
       linkedInProfileResult = {
         title: `${name} | LinkedIn`,
@@ -661,7 +682,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     
     collectedSerpResults = collectedSerpResults.filter(r => {
       const titleSnippet = (r.title + " " + (r.snippet ?? "")).toLowerCase();
-      const nameInContent = titleSnippet.includes(name.toLowerCase());
+      const nameToken = name.toLowerCase();
+      const nameInContent = titleSnippet.includes(nameToken);
       const orgInContent = titleSnippet.includes(orgToken);
       const urlContainsOrg = r.link.includes(heuristicDomain);
       
@@ -689,6 +711,34 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.warn(`[MB Step 4] Serper query failed for "${query.q}". Error: ${err.message}`);
+    }
+  }
+
+  // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
+  const hasResumeData = (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData ?? false;
+  if (hasResumeData && (proxyCurlData as ProxyCurlResult | null)?.experiences) {
+    console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
+    const priorCompanies = ((proxyCurlData as unknown as ProxyCurlResult).experiences ?? [])
+      .map((exp: LinkedInExperience) => exp.company)
+      .filter((c: string | undefined): c is string => !!c);
+    const uniquePriorCompanies = priorCompanies
+      .filter((c: string, i: number, arr: string[]) => 
+        i === arr.findIndex((x: string) => normalizeCompanyName(x) === normalizeCompanyName(c)) && 
+        normalizeCompanyName(c) !== normalizeCompanyName(org)
+      )
+      .slice(0, 3);
+    
+    for (const company of uniquePriorCompanies) {
+      try {
+        const response = await postJSON<{ organic?: SerpResult[] }>(
+          SERPER_API_URL, { q: `"${name}" "${company}"`, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! },
+        );
+        serperCallsMade++;
+        if (response.organic) collectedSerpResults.push(...response.organic);
+      } catch (e: unknown) {
+        const err = e instanceof Error ? e : new Error(String(e));
+        console.warn(`[MB Step 5] Serper query failed for prior company "${company}". Error: ${err.message}`);
+      }
     }
   }
 
