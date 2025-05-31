@@ -646,9 +646,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     }
   }
 
-  if (proxyCurlData?.experiences) {
+  if ((proxyCurlData as ProxyCurlResult | null)?.experiences) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
-    const priorCompanies = (proxyCurlData.experiences ?? []).map((exp: LinkedInExperience) => exp.company).filter((c): c is string => !!c);
+    const priorCompanies = ((proxyCurlData as unknown as ProxyCurlResult).experiences ?? []).map((exp: LinkedInExperience) => exp.company).filter((c: string | undefined): c is string => !!c);
     const uniquePriorCompanies = priorCompanies
       .filter((c: string, i: number, arr: string[]) => i === arr.findIndex((x: string) => normalizeCompanyName(x) === normalizeCompanyName(c)) && normalizeCompanyName(c) !== normalizeCompanyName(org))
       .slice(0, 3);
@@ -689,9 +689,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       console.warn(`[MB Step 7] Firecrawl global time budget exhausted. Remaining sources use snippets.`);
       for (let j = i; j < sourcesToProcessForLLM.length; j++) {
         const source = sourcesToProcessForLLM[j];
-        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link && proxyCurlData?.headline
-          ? `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`
-          : `${source.title}. ${source.snippet ?? ""}`;
+        extractedTextsForLLM[j] = (source as SerpResult).link === (linkedInProfileResult as SerpResult | null)?.link && (proxyCurlData as ProxyCurlResult | null)?.headline
+          ? `LinkedIn profile for ${name}. Headline: ${(proxyCurlData as unknown as ProxyCurlResult).headline}. URL: ${(source as SerpResult).link}`
+          : `${(source as SerpResult).title}. ${(source as SerpResult).snippet ?? ""}`;
       }
       break;
     }
