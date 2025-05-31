@@ -177,33 +177,12 @@ const splitFullName = (fullName: string): { first: string; last: string } => {
   return { first, last };
 };
 
-const companyMatchesProfile = (profile: ProxyCurlResult, org: string): boolean => {
-  const normalizedOrg = normalizeCompanyName(org);
-  
-  // Check headline
-  if (profile.headline?.toLowerCase().includes(normalizedOrg)) {
-    return true;
-  }
-  
-  // Check experiences - look for current company match
-  if (profile.experiences && Array.isArray(profile.experiences)) {
-    return profile.experiences.some(exp => {
-      if (!exp.company) return false;
-      
-      // Check if this is a current role (no end date)
-      const isCurrent = !exp.ends_at || 
-        (!exp.ends_at.year && !exp.ends_at.month && !exp.ends_at.day);
-      
-      if (isCurrent) {
-        return normalizeCompanyName(exp.company) === normalizedOrg;
-      }
-      
-      return false;
-    });
-  }
-  
-  return false;
-};
+const companyMatchesProfile = (p: ProxyCurlResult, org: string): boolean =>
+  (p.experiences ?? []).some(exp =>
+    !exp.ends_at &&                                   // current role
+    normalizeCompanyName(exp.company ?? "") ===
+    normalizeCompanyName(org)
+  );
 
 /* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
 let firecrawlGlobalAttempts = 0;
@@ -346,7 +325,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let proxycurlFreshProfileCallsMade = 0;
 
   const startTime = Date.now();
-  const collectedSerpResults: SerpResult[] = [];
+  let collectedSerpResults: SerpResult[] = [];
   let linkedInProfileResult: SerpResult | null = null;
   let linkedInUrl: string | null = null;
   let proxyCurlData: ProxyCurlResult | null = null;
@@ -499,7 +478,12 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
               console.warn(`[MB Step B] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
             }
             
-            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
+            // Reject profiles with empty experience lists
+            if (!finalProfile?.experiences?.length) {
+              console.log(`[MB Step B] Empty experience list – discard profile`);
+              console.log("[MB Guard] Profile failed experience check – url=", lookupResult.linkedin_url);
+              // Profile rejected, do not process further
+            } else if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
               // Success - profile attached, exit early
             }
           } else {
@@ -576,7 +560,12 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
               console.warn(`[MB Step C] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
             }
             
-            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
+            // Reject profiles with empty experience lists
+            if (!finalProfile?.experiences?.length) {
+              console.log(`[MB Step C] Empty experience list – discard profile`);
+              console.log("[MB Guard] Profile failed experience check – url=", lookupResult.linkedin_url);
+              // Profile rejected, do not process further
+            } else if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
               // Success - profile attached, exit early
             }
           } else {
@@ -652,6 +641,20 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     }
   }
 
+  // Apply SERP post-filter when no LinkedIn profile matched
+  if (!linkedInUrl) {
+    const orgToken = normalizeCompanyName(org);
+    const heuristicDomain = `${slugifyCompanyName(org)}.com`;
+    const initialSerpCount = collectedSerpResults.length;
+    
+    collectedSerpResults = collectedSerpResults.filter(r =>
+      r.link.includes(heuristicDomain) ||
+      (r.title + " " + (r.snippet ?? "")).toLowerCase().includes(orgToken)
+    );
+    
+    console.log(`[MB] SERP post-filter applied – kept ${collectedSerpResults.length}/${initialSerpCount} results`);
+  }
+
   // ── Continue with existing pipeline for general research ─────────────────
   console.log(`[MB Step 4] Running initial Serper queries for "${name}" and "${org}"`);
   const initialQueries = [
@@ -670,26 +673,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.warn(`[MB Step 4] Serper query failed for "${query.q}". Error: ${err.message}`);
-    }
-  }
-
-  if ((proxyCurlData as ProxyCurlResult | null)?.experiences) {
-    console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
-    const priorCompanies = ((proxyCurlData as unknown as ProxyCurlResult).experiences ?? []).map((exp: LinkedInExperience) => exp.company).filter((c: string | undefined): c is string => !!c);
-    const uniquePriorCompanies = priorCompanies
-      .filter((c: string, i: number, arr: string[]) => i === arr.findIndex((x: string) => normalizeCompanyName(x) === normalizeCompanyName(c)) && normalizeCompanyName(c) !== normalizeCompanyName(org))
-      .slice(0, 3);
-    for (const company of uniquePriorCompanies) {
-      try {
-        const response = await postJSON<{ organic?: SerpResult[] }>(
-          SERPER_API_URL, { q: `"${name}" "${company}"`, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! },
-        );
-        serperCallsMade++;
-        if (response.organic) collectedSerpResults.push(...response.organic);
-      } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e));
-        console.warn(`[MB Step 5] Serper query failed for prior company "${company}". Error: ${err.message}`);
-      }
     }
   }
 
