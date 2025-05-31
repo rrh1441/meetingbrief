@@ -50,8 +50,7 @@ export async function GET() {
         const subscriptionResult = await client.query(
           `SELECT plan, status, "periodStart", "periodEnd" 
            FROM subscription 
-           WHERE user_id = $1 
-           AND status IN ('active', 'trialing')
+           WHERE referenceId = $1 
            ORDER BY "createdAt" DESC
            LIMIT 1`,
           [session.user.id]
