@@ -674,8 +674,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     }
   }
 
-  // Apply SERP post-filter when no LinkedIn profile matched
-  if (!linkedInUrl) {
+  // Apply SERP post-filter whenever we still lack resume data
+  const hasResumeData = (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData ?? false;
+  if (!hasResumeData) {
     const orgToken = normalizeCompanyName(org);
     const heuristicDomain = `${slugifyCompanyName(org)}.com`;
     const initialSerpCount = collectedSerpResults.length;
@@ -691,6 +692,12 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     });
     
     console.log(`[MB] SERP post-filter applied – kept ${collectedSerpResults.length}/${initialSerpCount} results`);
+    
+    // Safety net: abort if nothing survives
+    if (collectedSerpResults.length === 0) {
+      jobHistoryTimeline = ["No public work, education, volunteer, or web mentions found."];
+      console.log("[MB] No results survived filtering, returning minimal brief");
+    }
   }
 
   // ── Continue with existing pipeline for general research ─────────────────
@@ -715,7 +722,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
-  const hasResumeData = (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData ?? false;
   if (hasResumeData && (proxyCurlData as ProxyCurlResult | null)?.experiences) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
     const priorCompanies = ((proxyCurlData as unknown as ProxyCurlResult).experiences ?? [])
