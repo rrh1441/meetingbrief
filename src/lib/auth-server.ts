@@ -98,7 +98,7 @@ export const auth = betterAuth({
               },
             },
           ],
-          getCheckoutSessionParams: async ({ user, session, plan }, request) => {
+          getCheckoutSessionParams: async () => {
             return {
               params: {
                 allow_promotion_codes: true,
