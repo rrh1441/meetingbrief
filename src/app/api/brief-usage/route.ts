@@ -66,7 +66,7 @@ export async function GET() {
           if (plan in PLAN_LIMITS) {
             planName = plan as keyof typeof PLAN_LIMITS;
             monthlyLimit = PLAN_LIMITS[planName];
-            console.log(`[DEBUG] Set monthly limit to: ${monthlyLimit}`);
+            console.log(`[DEBUG] Set monthly limit to: ${monthlyLimit} for plan: ${planName}`);
           }
         } else {
           console.log(`[DEBUG] No subscription found for user ${session.user.id}`);
