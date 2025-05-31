@@ -363,11 +363,8 @@ export default function Page() {
               Stop digging for info – gain back valuable hours and arrive prepared for every conversation
             </p>
             <div className="mt-8">
-              <Button size="lg" className="bg-indigo-600 hover:bg-indigo-700">
+              <p className="text-xl font-bold text-black">
                 Try it Now
-              </Button>
-              <p className="mt-3 text-sm text-slate-500">
-                No signup required • 2 free briefs
               </p>
             </div>
           </div>
@@ -406,7 +403,7 @@ export default function Page() {
             </div>
 
             <Button type="submit" disabled={loading}>
-              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Generate Brief'}
+              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Get Your Brief'}
             </Button>
 
             {/* Usage Display */}
