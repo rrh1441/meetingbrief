@@ -56,7 +56,6 @@ export function SubscriptionManager() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState<string>("");
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -83,7 +82,12 @@ export function SubscriptionManager() {
         ? "https://meetingbrief.com" 
         : window.location.origin;
         
-      const upgradeParams: any = {
+      const upgradeParams: {
+        plan: string;
+        successUrl: string;
+        cancelUrl: string;
+        promoCode?: string;
+      } = {
         plan: planName,
         successUrl: `${baseUrl}/dashboard?success=true`,
         cancelUrl: `${baseUrl}/dashboard?canceled=true`,
@@ -106,7 +110,6 @@ export function SubscriptionManager() {
       alert("An error occurred during upgrade");
     } finally {
       setActionLoading(null);
-      setSelectedPlan(null);
       setPromoCode("");
     }
   };
