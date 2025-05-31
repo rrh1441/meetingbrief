@@ -34,6 +34,7 @@ const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 const PERSON_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/profile/resolve";
 const COMPANY_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/company/resolve";
 const PROFILE_URL = "https://nubela.co/proxycurl/api/v2/linkedin";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const PROFILE_FRESH_DAYS = 30;
 const CAP_CREDITS = 8;
 
@@ -296,7 +297,7 @@ const renderUnorderedListWithCitations = (rows: BriefRow[], citations: Citation[
 const renderJobHistoryList = (jobTimeline: string[]): string =>
   jobTimeline.length
     ? `<ul class="list-disc pl-5">\n${jobTimeline.map(job => `  <li>${job}</li>`).join("\n")}\n</ul>`
-    : "<p>No job history available from LinkedIn profile.</p>";
+    : "<p>Timeline unavailable (private profile or no work history).</p>";
 
 const renderFullHtmlBrief = (
   targetName: string, targetOrg: string, llmJsonBrief: JsonBriefFromLLM,
@@ -336,13 +337,13 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let serperCallsMade = 0;
   let proxycurlCompanyLookupCalls = 0;
   let proxycurlPersonLookupCalls = 0;
-  const proxycurlProfileFreshCalls = 0;
+  let proxycurlProfileFreshCalls = 0;
   let proxycurlProfileDirectCalls = 0;
   
   // Legacy counters for compatibility
   let proxycurlCallsMade = 0;
   let proxycurlLookupCallsMade = 0;
-  const proxycurlFreshProfileCallsMade = 0;
+  let proxycurlFreshProfileCallsMade = 0;
 
   const startTime = Date.now();
   const collectedSerpResults: SerpResult[] = [];
@@ -411,62 +412,28 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const processProfile = async (lookupUrl: string, profile: ProxyCurlResult | null, source: string) => {
       if (!profile) return false;
       
-      // Fresh scrape if experiences empty or profile stale
-      let finalProfile = profile;
-      const needsFreshScrape = profile.experiences?.length === 0;
-      const isStale = profile.last_updated && (Date.now() / 1000 - profile.last_updated) / 86400 >= PROFILE_FRESH_DAYS;
-      
-      if ((needsFreshScrape || isStale) && creditsSpent + 1 <= CAP_CREDITS) {
-        console.log(`[MB ${source}] Profile needs fresh scrape (experiences: ${profile.experiences?.length || 0}, age: ${isStale ? 'stale' : 'fresh'})`);
-        
-        try {
-          const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupUrl)}&use_cache=never`;
-          const freshResponse = await fetch(freshUrl, {
-            method: "GET",
-            headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-          });
-
-          if (freshResponse.ok) {
-            const freshData: unknown = await freshResponse.json();
-            const freshProfile = freshData as ProxyCurlResult;
-            
-            charge(1, "profile-fresh-scrape", lookupUrl, freshProfile.experiences?.length);
-            
-            if (freshProfile.experiences?.length) {
-              finalProfile = freshProfile;
-              console.log(`[MB ${source}] Fresh scrape successful, found ${freshProfile.experiences.length} experiences`);
-            } else {
-              console.log(`[MB ${source}] Fresh scrape returned empty experiences - profile may be private`);
-            }
-          }
-        } catch (error: unknown) {
-          const err = error instanceof Error ? error : new Error(String(error));
-          console.warn(`[MB ${source}] Fresh scrape failed: ${err.message}`);
-        }
-      }
-      
       // Company match guard
-      if (!companyMatchesProfile(finalProfile, org)) {
+      if (!companyMatchesProfile(profile, org)) {
         console.log(`[MB ${source}] Company mismatch detected, discarding profile`);
         return false;
       }
       
       // Success - attach profile
-      proxyCurlData = finalProfile;
+      proxyCurlData = profile;
       linkedInUrl = lookupUrl;
       
-      jobHistoryTimeline = (finalProfile.experiences ?? []).map(exp =>
+      jobHistoryTimeline = (profile.experiences ?? []).map(exp =>
         `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
       );
       
       linkedInProfileResult = {
         title: `${name} | LinkedIn`,
         link: lookupUrl,
-        snippet: finalProfile.headline ?? `LinkedIn profile for ${name}`
+        snippet: profile.headline ?? `LinkedIn profile for ${name}`
       };
       
       collectedSerpResults.push(linkedInProfileResult);
-      console.log(`[MB ${source}] Successfully resolved LinkedIn profile`);
+      console.log(`[MB ${source}] Successfully resolved LinkedIn profile with ${profile.experiences?.length || 0} experiences`);
       return true;
     };
 
@@ -502,7 +469,37 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
             
             console.log(`[MB Step B] Found LinkedIn URL: ${lookupResult.linkedin_url}`);
             
-            if (await processProfile(lookupResult.linkedin_url, lookupResult.profile || null, "Step B")) {
+            // Always perform immediate fresh scrape after successful Person-Lookup
+            if (creditsSpent + 1 > CAP_CREDITS) {
+              throw new Error("Would exceed credit cap before fresh scrape");
+            }
+
+            const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupResult.linkedin_url)}&use_cache=never&fallback_to_cache=on-error`;
+            
+            console.log(`[MB Step B] Performing immediate fresh scrape`);
+            const freshResp = await fetch(freshUrl, {
+              method: "GET",
+              headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
+            });
+
+            charge(1, "profile-fresh-scrape", lookupResult.linkedin_url);
+            proxycurlProfileFreshCalls++;
+            proxycurlFreshProfileCallsMade++; // Legacy counter
+
+            let finalProfile = lookupResult.profile ?? null;
+            if (freshResp.ok) {
+              const freshData: unknown = await freshResp.json();
+              const freshProfile = freshData as ProxyCurlResult;
+              console.log(`[MB Step B] Fresh scrape successful (status: ${freshResp.status}), experiences: ${freshProfile.experiences?.length || 0}`);
+              
+              if (freshProfile.experiences?.length) {
+                finalProfile = freshProfile;
+              }
+            } else {
+              console.warn(`[MB Step B] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
+            }
+            
+            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
               // Success - profile attached, exit early
             }
           } else {
@@ -549,7 +546,37 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
             
             console.log(`[MB Step C] Found LinkedIn URL via heuristic: ${lookupResult.linkedin_url}`);
             
-            if (await processProfile(lookupResult.linkedin_url, lookupResult.profile || null, "Step C")) {
+            // Always perform immediate fresh scrape after successful Person-Lookup
+            if (creditsSpent + 1 > CAP_CREDITS) {
+              throw new Error("Would exceed credit cap before fresh scrape");
+            }
+
+            const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupResult.linkedin_url)}&use_cache=never&fallback_to_cache=on-error`;
+            
+            console.log(`[MB Step C] Performing immediate fresh scrape`);
+            const freshResp = await fetch(freshUrl, {
+              method: "GET",
+              headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
+            });
+
+            charge(1, "profile-fresh-scrape", lookupResult.linkedin_url);
+            proxycurlProfileFreshCalls++;
+            proxycurlFreshProfileCallsMade++; // Legacy counter
+
+            let finalProfile = lookupResult.profile ?? null;
+            if (freshResp.ok) {
+              const freshData: unknown = await freshResp.json();
+              const freshProfile = freshData as ProxyCurlResult;
+              console.log(`[MB Step C] Fresh scrape successful (status: ${freshResp.status}), experiences: ${freshProfile.experiences?.length || 0}`);
+              
+              if (freshProfile.experiences?.length) {
+                finalProfile = freshProfile;
+              }
+            } else {
+              console.warn(`[MB Step C] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
+            }
+            
+            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
               // Success - profile attached, exit early
             }
           } else {
