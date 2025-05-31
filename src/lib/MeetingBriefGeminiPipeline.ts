@@ -177,12 +177,14 @@ const splitFullName = (fullName: string): { first: string; last: string } => {
   return { first, last };
 };
 
-const companyMatchesProfile = (p: ProxyCurlResult, org: string): boolean =>
-  (p.experiences ?? []).some(exp =>
-    !exp.ends_at &&                                   // current role
-    normalizeCompanyName(exp.company ?? "") ===
-    normalizeCompanyName(org)
+const acceptsProfile = (p: ProxyCurlResult, org: string): boolean => {
+  const orgNorm = normalizeCompanyName(org);
+  const currentRole = (p.experiences ?? []).some(
+    e => !e.ends_at && normalizeCompanyName(e.company ?? "") === orgNorm
   );
+  const headlineMatch = (p.headline ?? "").toLowerCase().includes(orgNorm);
+  return currentRole || (headlineMatch && !(p.experiences ?? []).length);
+};
 
 /* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
 let firecrawlGlobalAttempts = 0;
@@ -392,7 +394,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       if (!profile) return false;
       
       // Company match guard
-      if (!companyMatchesProfile(profile, org)) {
+      if (!acceptsProfile(profile, org)) {
         console.log(`[MB ${source}] Company mismatch detected, discarding profile`);
         return false;
       }
@@ -401,9 +403,29 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       proxyCurlData = profile;
       linkedInUrl = lookupUrl;
       
-      jobHistoryTimeline = (profile.experiences ?? []).map(exp =>
-        `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
-      );
+      if ((profile.experiences ?? []).length) {
+        jobHistoryTimeline = profile.experiences!.map(exp =>
+          `${exp.title ?? "Role"} — ${exp.company ?? "Company"} ` +
+          `(${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`);
+      } else {
+        jobHistoryTimeline = ["Experience section is private."];
+        ((profile as unknown as { education?: { school?: string; degree?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).education ?? []).forEach(ed => {
+          jobHistoryTimeline.push(
+            `Education — ${ed.school ?? "School"}${ed.degree ? `, ${ed.degree}` : ""}` +
+            (ed.starts_at?.year || ed.ends_at?.year
+               ? ` (${ed.starts_at?.year ?? "?"}–${ed.ends_at?.year ?? "?"})`
+               : "")
+          );
+        });
+        ((profile as unknown as { volunteer_work?: { role?: string; company?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).volunteer_work ?? []).forEach(v => {
+          jobHistoryTimeline.push(
+            `Volunteer — ${v.role ?? "Role"} at ${v.company ?? "Org"}` +
+            (v.starts_at?.year || v.ends_at?.year
+               ? ` (${v.starts_at?.year ?? "?"}–${v.ends_at?.year ?? "?"})`
+               : "")
+          );
+        });
+      }
       
       linkedInProfileResult = {
         title: `${name} | LinkedIn`,
@@ -478,12 +500,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
               console.warn(`[MB Step B] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
             }
             
-            // Reject profiles with empty experience lists
-            if (!finalProfile?.experiences?.length) {
-              console.log(`[MB Step B] Empty experience list – discard profile`);
-              console.log("[MB Guard] Profile failed experience check – url=", lookupResult.linkedin_url);
-              // Profile rejected, do not process further
-            } else if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
+            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
               // Success - profile attached, exit early
             }
           } else {
@@ -560,12 +577,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
               console.warn(`[MB Step C] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
             }
             
-            // Reject profiles with empty experience lists
-            if (!finalProfile?.experiences?.length) {
-              console.log(`[MB Step C] Empty experience list – discard profile`);
-              console.log("[MB Guard] Profile failed experience check – url=", lookupResult.linkedin_url);
-              // Profile rejected, do not process further
-            } else if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
+            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
               // Success - profile attached, exit early
             }
           } else {
@@ -647,10 +659,14 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const heuristicDomain = `${slugifyCompanyName(org)}.com`;
     const initialSerpCount = collectedSerpResults.length;
     
-    collectedSerpResults = collectedSerpResults.filter(r =>
-      r.link.includes(heuristicDomain) ||
-      (r.title + " " + (r.snippet ?? "")).toLowerCase().includes(orgToken)
-    );
+    collectedSerpResults = collectedSerpResults.filter(r => {
+      const titleSnippet = (r.title + " " + (r.snippet ?? "")).toLowerCase();
+      const nameInContent = titleSnippet.includes(name.toLowerCase());
+      const orgInContent = titleSnippet.includes(orgToken);
+      const urlContainsOrg = r.link.includes(heuristicDomain);
+      
+      return urlContainsOrg || (nameInContent && orgInContent);
+    });
     
     console.log(`[MB] SERP post-filter applied – kept ${collectedSerpResults.length}/${initialSerpCount} results`);
   }
