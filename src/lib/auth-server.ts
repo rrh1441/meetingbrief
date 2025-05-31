@@ -64,9 +64,6 @@ export const auth = betterAuth({
         subscription: {
           enabled: true,
           requireEmailVerification: false,
-          checkoutOptions: {
-            allow_promotion_codes: true,
-          },
           plans: [
             {
               name: "free",
@@ -101,6 +98,22 @@ export const auth = betterAuth({
               },
             },
           ],
+          getCheckoutSessionParams: async ({ user, session, plan }, request) => {
+            return {
+              params: {
+                allow_promotion_codes: true,
+                billing_address_collection: 'auto',
+                tax_id_collection: {
+                  enabled: true
+                },
+                custom_text: {
+                  submit: {
+                    message: "We'll start your subscription right away"
+                  }
+                }
+              }
+            };
+          },
           onSubscriptionComplete: async ({ subscription, plan }) => {
             console.log(`Subscription created: ${subscription.id} for plan: ${plan.name}`);
           },

@@ -353,7 +353,7 @@ export default function Page() {
 
       {/* HERO + FORM + DEMO ------------------------------------------------- */}
       <header className="bg-gradient-to-b from-white to-slate-50">
-        <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-10 text-center">
+        <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-4 text-center">
           {/* Hero */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
@@ -362,11 +362,13 @@ export default function Page() {
             <p className="mt-4 text-lg text-slate-600">
               Stop digging for info – gain back valuable hours and arrive prepared for every conversation
             </p>
-            <div className="mt-8">
-              <p className="text-xl font-bold text-black">
-                Try it Now
-              </p>
-            </div>
+          </div>
+
+          {/* Try it Now */}
+          <div className="mb-2">
+            <p className="text-xl font-bold text-black">
+              Try it Now
+            </p>
           </div>
 
           {/* FORM */}
