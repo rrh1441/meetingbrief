@@ -362,16 +362,14 @@ export default function Page() {
             <p className="mt-4 text-lg text-slate-600">
               Stop digging for info – gain back valuable hours and arrive prepared for every conversation
             </p>
-            {!user && (
-              <div className="mt-8 flex gap-4 justify-center">
-                <Button size="lg" asChild>
-                  <Link href="/auth/signup">Get Started Free</Link>
-                </Button>
-                <Button variant="outline" size="lg" asChild>
-                  <Link href="/auth/signin">Sign In</Link>
-                </Button>
-              </div>
-            )}
+            <div className="mt-8">
+              <Button size="lg" className="bg-indigo-600 hover:bg-indigo-700">
+                Try it Now
+              </Button>
+              <p className="mt-3 text-sm text-slate-500">
+                No signup required • 2 free briefs
+              </p>
+            </div>
           </div>
 
           {/* FORM */}
