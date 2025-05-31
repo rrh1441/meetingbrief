@@ -55,7 +55,6 @@ export function SubscriptionManager() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [promoCode, setPromoCode] = useState<string>("");
 
   useEffect(() => {
     if (user) {
@@ -77,7 +76,7 @@ export function SubscriptionManager() {
   const handleUpgrade = async (planName: string) => {
     setActionLoading(planName);
     try {
-      // Handle paid plans through Stripe with promo codes
+      // Handle paid plans through Stripe
       const baseUrl = process.env.NODE_ENV === "production" 
         ? "https://meetingbrief.com" 
         : window.location.origin;
@@ -86,17 +85,11 @@ export function SubscriptionManager() {
         plan: string;
         successUrl: string;
         cancelUrl: string;
-        promoCode?: string;
       } = {
         plan: planName,
         successUrl: `${baseUrl}/dashboard?success=true`,
         cancelUrl: `${baseUrl}/dashboard?canceled=true`,
       };
-
-      // Add promo code if provided
-      if (promoCode.trim()) {
-        upgradeParams.promoCode = promoCode.trim();
-      }
         
       const result = await authClient.subscription.upgrade(upgradeParams);
 
@@ -110,7 +103,6 @@ export function SubscriptionManager() {
       alert("An error occurred during upgrade");
     } finally {
       setActionLoading(null);
-      setPromoCode("");
     }
   };
 
@@ -175,7 +167,7 @@ export function SubscriptionManager() {
           <h3 className="text-lg font-semibold mb-4">Current Subscription</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p><strong>Plan:</strong> {activeSubscription.plan}</p>
+              <p><strong>Plan:</strong> {activeSubscription.plan.charAt(0).toUpperCase() + activeSubscription.plan.slice(1)}</p>
               <p><strong>Status:</strong> 
                 <span className={`ml-2 px-2 py-1 rounded text-sm ${
                   activeSubscription.status === "active" 
@@ -193,14 +185,11 @@ export function SubscriptionManager() {
             </div>
             <div>
               {activeSubscription.limits && (
-                <>
-                  <p><strong>Monthly Briefs:</strong> {
-                    activeSubscription.limits.briefsPerMonth === -1 
-                      ? "Unlimited" 
-                      : activeSubscription.limits.briefsPerMonth || 'N/A'
-                  }</p>
-                  <p><strong>Storage:</strong> {activeSubscription.limits.storage || 'N/A'}GB</p>
-                </>
+                <p><strong>Monthly Briefs:</strong> {
+                  activeSubscription.limits.briefsPerMonth === -1 
+                    ? "Unlimited" 
+                    : activeSubscription.limits.briefsPerMonth || 'N/A'
+                }</p>
               )}
             </div>
           </div>
@@ -218,7 +207,7 @@ export function SubscriptionManager() {
               <button
                 onClick={handleCancel}
                 disabled={actionLoading === "cancel"}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded disabled:opacity-50"
+                className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded disabled:opacity-50"
               >
                 {actionLoading === "cancel" ? "Processing..." : "Manage Billing"}
               </button>
@@ -230,33 +219,6 @@ export function SubscriptionManager() {
           <p className="text-blue-800">Currently on the Free Plan. Upgrade below for more briefs!</p>
         </div>
       )}
-
-      {/* Promo Code Section */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-6 mb-8">
-        <h3 className="text-lg font-semibold mb-4 text-blue-800">Have a Promo Code?</h3>
-        <div className="flex gap-4 items-end">
-          <div className="flex-1">
-            <label htmlFor="promoCode" className="block text-sm font-medium text-gray-700 mb-2">
-              Enter promo code
-            </label>
-            <input
-              id="promoCode"
-              type="text"
-              value={promoCode}
-              onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-              placeholder="LAUNCH25"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="text-sm text-gray-600">
-            {promoCode && (
-              <div className="bg-green-100 text-green-800 px-3 py-2 rounded-md">
-                ✓ Promo code will be applied at checkout
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {PLANS.map((plan) => (

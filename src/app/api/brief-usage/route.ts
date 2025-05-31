@@ -50,20 +50,27 @@ export async function GET() {
         const subscriptionResult = await client.query(
           `SELECT plan, status, "periodStart", "periodEnd" 
            FROM subscription 
-           WHERE "user_id" = $1 
+           WHERE "userId" = $1 
            AND status IN ('active', 'trialing')
            ORDER BY "createdAt" DESC
            LIMIT 1`,
           [session.user.id]
         );
 
+        console.log(`[DEBUG] User ID: ${session.user.id}`);
+        console.log(`[DEBUG] Subscription query result:`, subscriptionResult.rows);
+
         if (subscriptionResult.rows.length > 0) {
           const subscription = subscriptionResult.rows[0];
           const plan = subscription.plan || "free";
+          console.log(`[DEBUG] Found subscription plan: ${plan}`);
           if (plan in PLAN_LIMITS) {
             planName = plan as keyof typeof PLAN_LIMITS;
             monthlyLimit = PLAN_LIMITS[planName];
+            console.log(`[DEBUG] Set monthly limit to: ${monthlyLimit}`);
           }
+        } else {
+          console.log(`[DEBUG] No subscription found for user ${session.user.id}`);
         }
       } catch (error) {
         console.error("Subscription query error:", error);
