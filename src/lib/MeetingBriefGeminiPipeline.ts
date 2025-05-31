@@ -29,10 +29,12 @@ if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY || !PROXYCURL_KEY) {
 const MODEL_ID = "gpt-4.1-mini-2025-04-14";
 const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
-const PROXYCURL_API_PROFILE_URL = "https://nubela.co/proxycurl/api/v2/linkedin";
-const PERSON_LOOKUP_API_URL = "https://nubela.co/proxycurl/api/linkedin/profile/resolve";
-const PROFILE_API_URL = "https://nubela.co/proxycurl/api/v2/linkedin";
-const PROFILE_FRESHNESS_DAYS = 30;
+
+// Credit-aware LinkedIn resolution URLs
+const PERSON_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/profile/resolve";
+const COMPANY_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/company/resolve";
+const PROFILE_URL = "https://nubela.co/proxycurl/api/v2/linkedin";
+const PROFILE_FRESH_DAYS = 30;
 
 const MAX_SOURCES_TO_LLM = 25;
 const FIRECRAWL_BATCH_SIZE = 10;
@@ -77,8 +79,16 @@ interface JsonBriefFromLLM {
 export interface Citation { marker: string; url: string; title: string; snippet: string; }
 export interface MeetingBriefPayload {
   brief: string; citations: Citation[]; tokensUsed: number;
-  serperSearchesMade: number; proxycurlCallsMade: number;
-  proxycurlLookupCallsMade: number; proxycurlFreshProfileCallsMade: number;
+  serperSearchesMade: number; 
+  // Credit-aware LinkedIn resolution counters
+  proxycurlCompanyLookupCalls: number;
+  proxycurlPersonLookupCalls: number;
+  proxycurlProfileFreshCalls: number;
+  proxycurlProfileDirectCalls: number;
+  // Legacy counters (keeping for compatibility)
+  proxycurlCallsMade: number;
+  proxycurlLookupCallsMade: number; 
+  proxycurlFreshProfileCallsMade: number;
   firecrawlAttempts: number; firecrawlSuccesses: number;
   finalSourcesConsidered: { url: string; title: string; processed_snippet: string }[];
   possibleSocialLinks: string[];
@@ -133,6 +143,110 @@ const normalizeCompanyName = (companyName: string): string =>
     .replace(/[.,']/g, "")
     .trim();
 
+/* ── Credit-Aware LinkedIn Resolution Helpers ──────────────────────────── */
+const slugifyCompanyName = (org: string): string => {
+  return org.toLowerCase().replace(/[^a-z0-9]/g, "");
+};
+
+const isOlderThan = (lastUpdatedEpoch: number, days: number): boolean => {
+  const now = Date.now() / 1000; // Current time in Unix seconds
+  const ageDays = (now - lastUpdatedEpoch) / 86400; // Convert to days
+  return ageDays >= days;
+};
+
+interface LinkedInResolutionResult {
+  url: string;
+  profile: ProxyCurlResult | null;
+  creditsUsed: number;
+}
+
+const resolveViaPersonLookup = async (
+  first: string, 
+  last: string, 
+  domain: string
+): Promise<LinkedInResolutionResult | null> => {
+  if (!PROXYCURL_KEY) {
+    console.warn("[resolveViaPersonLookup] PROXYCURL_KEY not available");
+    return null;
+  }
+
+  try {
+    console.log(`[resolveViaPersonLookup] Querying for: ${first} ${last} at domain ${domain}`);
+    
+    const params = new URLSearchParams({
+      first_name: first,
+      last_name: last,
+      company_domain: domain,
+      similarity_checks: "skip",
+      enrich_profile: "enrich"
+    });
+
+    const response = await fetch(`${PERSON_LOOKUP_URL}?${params}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[resolveViaPersonLookup] HTTP ${response.status}: ${errorText.slice(0, 500)}`);
+      return null;
+    }
+
+    const jsonData: unknown = await response.json();
+    const lookupResult = jsonData as { 
+      linkedin_url?: string; 
+      profile?: ProxyCurlResult; 
+      [key: string]: unknown 
+    };
+
+    if (!lookupResult.linkedin_url) {
+      console.log(`[resolveViaPersonLookup] No LinkedIn URL found for ${first} ${last} at ${domain}`);
+      return null;
+    }
+
+    console.log(`[resolveViaPersonLookup] Found LinkedIn URL: ${lookupResult.linkedin_url}`);
+    
+    let creditsUsed = 3; // Base cost for Person Lookup with enrich_profile
+    let finalProfile = lookupResult.profile || null;
+
+    // Check if profile needs freshness upgrade
+    if (finalProfile?.last_updated && isOlderThan(finalProfile.last_updated, PROFILE_FRESH_DAYS)) {
+      console.log(`[resolveViaPersonLookup] Profile is stale, fetching fresh data`);
+      
+      try {
+        const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupResult.linkedin_url)}&use_cache=if-recent&fallback_to_cache=on-error`;
+        const freshResponse = await fetch(freshUrl, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
+        });
+
+        if (freshResponse.ok) {
+          const freshData: unknown = await freshResponse.json();
+          finalProfile = freshData as ProxyCurlResult;
+          creditsUsed += 2; // Additional cost for fresh profile fetch
+          console.log(`[resolveViaPersonLookup] Successfully fetched fresh profile data`);
+        } else {
+          console.warn(`[resolveViaPersonLookup] Fresh profile fetch failed, using cached data`);
+        }
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(`[resolveViaPersonLookup] Fresh profile fetch error: ${err.message}`);
+      }
+    }
+    
+    return {
+      url: lookupResult.linkedin_url,
+      profile: finalProfile,
+      creditsUsed
+    };
+
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`[resolveViaPersonLookup] Exception: ${err.message}`);
+    return null;
+  }
+};
+
 /* ── LinkedIn Person Lookup Helpers ─────────────────────────────────────── */
 const splitFullName = (fullName: string): { first: string; last: string } => {
   const nameParts = fullName.trim().split(/\s+/);
@@ -171,123 +285,6 @@ const companyMatchesProfile = (profile: ProxyCurlResult, org: string): boolean =
   }
   
   return false;
-};
-
-interface PersonLookupResult {
-  url: string;
-  profile: ProxyCurlResult | null;
-}
-
-const resolveLinkedInViaLookup = async (
-  fullName: string, 
-  company: string
-): Promise<PersonLookupResult | null> => {
-  if (!PROXYCURL_KEY) {
-    console.warn("[resolveLinkedInViaLookup] PROXYCURL_KEY not available");
-    return null;
-  }
-
-  const { first, last } = splitFullName(fullName);
-  
-  if (!first) {
-    console.warn(`[resolveLinkedInViaLookup] Invalid name format: "${fullName}"`);
-    return null;
-  }
-
-  try {
-    console.log(`[resolveLinkedInViaLookup] Querying Person Lookup API for: ${first} ${last} at ${company}`);
-    
-    const params = new URLSearchParams({
-      first_name: first,
-      last_name: last || "",
-      company_name: company,
-      similarity_checks: "skip",
-      enrich_profile: "enrich"
-    });
-
-    const response = await fetch(`${PERSON_LOOKUP_API_URL}?${params}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[resolveLinkedInViaLookup] HTTP ${response.status}: ${errorText.slice(0, 500)}`);
-      return null;
-    }
-
-    const jsonData: unknown = await response.json();
-    const lookupResult = jsonData as { 
-      url?: string; 
-      profile?: ProxyCurlResult; 
-      [key: string]: unknown 
-    };
-
-    if (!lookupResult.url) {
-      console.log(`[resolveLinkedInViaLookup] No LinkedIn URL found for ${fullName} at ${company}`);
-      return null;
-    }
-
-    console.log(`[resolveLinkedInViaLookup] Found LinkedIn URL: ${lookupResult.url}`);
-    
-    return {
-      url: lookupResult.url,
-      profile: lookupResult.profile || null
-    };
-
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[resolveLinkedInViaLookup] Exception: ${err.message}`);
-    return null;
-  }
-};
-
-const ensureFreshProfile = async (
-  url: string, 
-  profile: ProxyCurlResult | null
-): Promise<ProxyCurlResult | null> => {
-  if (!profile || !PROXYCURL_KEY) {
-    return profile;
-  }
-
-  // Check profile freshness
-  const now = Date.now() / 1000; // Current time in Unix seconds
-  const lastUpdated = profile.last_updated || 0;
-  const ageDays = (now - lastUpdated) / 86400; // Convert to days
-
-  if (ageDays < PROFILE_FRESHNESS_DAYS) {
-    console.log(`[ensureFreshProfile] Profile is fresh (${ageDays.toFixed(1)} days old), using cached data`);
-    return profile;
-  }
-
-  console.log(`[ensureFreshProfile] Profile is stale (${ageDays.toFixed(1)} days old), fetching fresh data`);
-
-  try {
-    const freshUrl = `${PROFILE_API_URL}?url=${encodeURIComponent(url)}&use_cache=if-recent&fallback_to_cache=on-error`;
-    const response = await fetch(freshUrl, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[ensureFreshProfile] Failed to fetch fresh profile: HTTP ${response.status}: ${errorText.slice(0, 500)}`);
-      // Return original profile on error
-      return profile;
-    }
-
-    const jsonData: unknown = await response.json();
-    const freshProfile = jsonData as ProxyCurlResult;
-    
-    console.log(`[ensureFreshProfile] Successfully fetched fresh profile data`);
-    return freshProfile;
-
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[ensureFreshProfile] Exception while fetching fresh profile: ${err.message}`);
-    // Return original profile on error
-    return profile;
-  }
 };
 
 /* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
@@ -388,7 +385,7 @@ const renderFullHtmlBrief = (
   targetName: string, targetOrg: string, llmJsonBrief: JsonBriefFromLLM,
   citationsList: Citation[], jobHistory: string[],
 ): string => {
-  const sectionSpacer = "<p> </p>";
+  const sectionSpacer = "<p> </p>";
   return `
 <div>
   <h2><strong>Meeting Brief: ${targetName} – ${targetOrg}</strong></h2>
@@ -405,133 +402,267 @@ ${renderUnorderedListWithCitations(llmJsonBrief.researchNotes || [], citationsLi
 
 /* ── MAIN FUNCTION ──────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(name: string, org: string): Promise<MeetingBriefPayload> {
-  firecrawlGlobalAttempts = 0; firecrawlGlobalSuccesses = 0;
-  let serperCallsMade = 0; let proxycurlCallsMade = 0;
-  let proxycurlLookupCallsMade = 0; let proxycurlFreshProfileCallsMade = 0;
+  firecrawlGlobalAttempts = 0; 
+  firecrawlGlobalSuccesses = 0;
+  
+  // Initialize all credit counters
+  let serperCallsMade = 0;
+  let proxycurlCompanyLookupCalls = 0;
+  let proxycurlPersonLookupCalls = 0;
+  let proxycurlProfileFreshCalls = 0;
+  let proxycurlProfileDirectCalls = 0;
+  
+  // Legacy counters for compatibility
+  let proxycurlCallsMade = 0;
+  let proxycurlLookupCallsMade = 0;
+  let proxycurlFreshProfileCallsMade = 0;
 
   const startTime = Date.now();
   const collectedSerpResults: SerpResult[] = [];
-
-  // ── STEP 0: LinkedIn Person Lookup (NEW) ──────────────────────────────────
-  console.log(`[MB Step 0] Attempting LinkedIn Person Lookup for "${name}" at "${org}"`);
   let linkedInProfileResult: SerpResult | null = null;
   let proxyCurlData: ProxyCurlResult | null = null;
   let jobHistoryTimeline: string[] = [];
 
+  const { first, last } = splitFullName(name);
+  console.log(`[MB Pipeline] Starting credit-aware LinkedIn resolution for "${first} ${last}" at "${org}"`);
+
+  // ── STEP A: Strict Google/Serper LinkedIn Search ────────────────────────
+  console.log(`[MB Step A] Strict LinkedIn search for "${name}" at "${org}"`);
   try {
-    const lookupResult = await resolveLinkedInViaLookup(name, org);
-    proxycurlLookupCallsMade++;
-    
-    if (lookupResult) {
-      console.log(`[MB Step 0] Person Lookup returned URL: ${lookupResult.url}`);
+    const strictQuery = `"${name}" "${org}" site:linkedin.com/in`;
+    const response = await postJSON<{ organic?: SerpResult[] }>(
+      SERPER_API_URL, 
+      { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
+      { "X-API-KEY": SERPER_KEY! }
+    );
+    serperCallsMade++;
+
+    if (response.organic && response.organic.length === 1) {
+      // Exactly one result - accept it
+      const linkedInUrl = response.organic[0].link;
+      console.log(`[MB Step A] Found exactly one LinkedIn result: ${linkedInUrl}`);
       
-      // Check if we have a profile and if it matches the company
-      if (lookupResult.profile) {
-        console.log(`[MB Step 0] Checking company match for cached profile`);
+      try {
+        const profileUrl = `${PROFILE_URL}?url=${encodeURIComponent(linkedInUrl)}&use_cache=if-present`;
+        const profileResponse = await fetch(profileUrl, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` }
+        });
         
-        if (companyMatchesProfile(lookupResult.profile, org)) {
-          console.log(`[MB Step 0] Company match verified, checking profile freshness`);
+        proxycurlProfileDirectCalls++;
+        proxycurlCallsMade++; // Legacy counter
+
+        if (profileResponse.ok) {
+          const profileData: unknown = await profileResponse.json();
+          const profile = profileData as ProxyCurlResult;
           
-          // Ensure profile is fresh
-          const finalProfile = await ensureFreshProfile(lookupResult.url, lookupResult.profile);
-          if (finalProfile !== lookupResult.profile) {
-            proxycurlFreshProfileCallsMade++;
+          // Company match guard
+          if (companyMatchesProfile(profile, org)) {
+            console.log(`[MB Step A] Company match verified for LinkedIn profile`);
+            
+            // Check if profile needs freshness upgrade
+            if (profile.last_updated && isOlderThan(profile.last_updated, PROFILE_FRESH_DAYS)) {
+              console.log(`[MB Step A] Profile is stale, fetching fresh data`);
+              
+              try {
+                const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(linkedInUrl)}&use_cache=if-recent&fallback_to_cache=on-error`;
+                const freshResponse = await fetch(freshUrl, {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` }
+                });
+
+                if (freshResponse.ok) {
+                  const freshData: unknown = await freshResponse.json();
+                  proxyCurlData = freshData as ProxyCurlResult;
+                  proxycurlProfileFreshCalls++;
+                  proxycurlFreshProfileCallsMade++; // Legacy counter
+                  console.log(`[MB Step A] Successfully fetched fresh profile data`);
+                } else {
+                  console.warn(`[MB Step A] Fresh profile fetch failed, using cached data`);
+                  proxyCurlData = profile;
+                }
+              } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                console.error(`[MB Step A] Fresh profile fetch error: ${err.message}`);
+                proxyCurlData = profile;
+              }
+            } else {
+              proxyCurlData = profile;
+              console.log(`[MB Step A] Profile is fresh, using cached data`);
+            }
+
+            // Create job history and LinkedIn result
+            if (proxyCurlData) {
+              jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
+                `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
+              );
+              
+              linkedInProfileResult = {
+                title: `${name} | LinkedIn`,
+                link: linkedInUrl,
+                snippet: proxyCurlData.headline ?? `LinkedIn profile for ${name}`
+              };
+              
+              collectedSerpResults.push(linkedInProfileResult);
+              console.log(`[MB Step A] Successfully resolved LinkedIn profile via strict search`);
+            }
+          } else {
+            console.log(`[MB Step A] Company mismatch detected, discarding profile`);
           }
-          
-          // Successfully resolved - populate data and create mock SERP result
-          proxyCurlData = finalProfile;
-          if (proxyCurlData) {
-            jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
-              `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
-            );
-          }
-          
-          linkedInProfileResult = {
-            title: `${name} | LinkedIn`,
-            link: lookupResult.url,
-            snippet: proxyCurlData?.headline ?? `LinkedIn profile for ${name}`
-          };
-          
-          collectedSerpResults.push(linkedInProfileResult);
-          console.log(`[MB Step 0] Successfully resolved LinkedIn profile via Person Lookup`);
         } else {
-          console.log(`[MB Step 0] Company mismatch detected, treating as null`);
-          linkedInProfileResult = null;
+          console.warn(`[MB Step A] Profile fetch failed: ${profileResponse.status}`);
         }
-      } else {
-        console.log(`[MB Step 0] Person Lookup returned URL but no cached profile, will use existing flow`);
-        linkedInProfileResult = {
-          title: `${name} | LinkedIn`,
-          link: lookupResult.url,
-          snippet: `LinkedIn profile for ${name}`
-        };
-        collectedSerpResults.push(linkedInProfileResult);
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(`[MB Step A] Profile fetch error: ${err.message}`);
       }
+    } else if (response.organic && response.organic.length > 1) {
+      console.log(`[MB Step A] Multiple LinkedIn results found (${response.organic.length}), proceeding to Step B`);
     } else {
-      console.log(`[MB Step 0] Person Lookup returned null, falling back to Serper search`);
+      console.log(`[MB Step A] No LinkedIn results found, proceeding to Step B`);
     }
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[MB Step 0] Person Lookup failed: ${err.message}`);
+    console.error(`[MB Step A] Strict LinkedIn search failed: ${err.message}`);
   }
 
-  // ── STEP 2: Fallback LinkedIn Discovery (if Step 0 didn't find a suitable profile) ──
-  if (!linkedInProfileResult) {
-    // Check if we found a LinkedIn profile in the initial Serper results
-    const serpLinkedInResult = collectedSerpResults.find(r => r.link.includes("linkedin.com/in/"));
-    if (serpLinkedInResult) {
-      linkedInProfileResult = serpLinkedInResult;
-      console.log(`[MB Step 2] Using LinkedIn profile from initial Serper results: ${linkedInProfileResult.link}`);
-    } else {
-      console.log(`[MB Step 2] LinkedIn profile not in initial results. Dedicated search for "${name}".`);
+  // ── STEP B: Heuristic Domain Guess (only if Step A failed) ──────────────
+  if (!linkedInProfileResult && first) {
+    console.log(`[MB Step B] Attempting heuristic domain guessing for "${first} ${last}"`);
+    
+    const slug = slugifyCompanyName(org);
+    const candidateDomains = [`${slug}.com`, `${slug}.io`, `${slug}.ai`];
+    
+    for (const domain of candidateDomains) {
+      console.log(`[MB Step B] Trying domain: ${domain}`);
+      
       try {
-        const response = await postJSON<{ organic?: SerpResult[] }>(
-          SERPER_API_URL, { q: `"${name}" "linkedin.com/in/" site:linkedin.com`, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! },
-        );
-        serperCallsMade++;
-        if (response.organic?.length) {
-          linkedInProfileResult = response.organic[0];
-          collectedSerpResults.push(linkedInProfileResult);
-          console.log(`[MB Step 2] Found LinkedIn profile via dedicated search: ${linkedInProfileResult.link}`);
+        const lookupResult = await resolveViaPersonLookup(first, last, domain);
+        proxycurlPersonLookupCalls++;
+        proxycurlLookupCallsMade++; // Legacy counter
+        
+        if (lookupResult) {
+          console.log(`[MB Step B] Found LinkedIn profile via domain ${domain}: ${lookupResult.url}`);
+          
+          // Company match guard
+          if (lookupResult.profile && companyMatchesProfile(lookupResult.profile, org)) {
+            console.log(`[MB Step B] Company match verified for domain ${domain}`);
+            
+            // Track additional credits from freshness check
+            if (lookupResult.creditsUsed > 3) {
+              proxycurlProfileFreshCalls++;
+              proxycurlFreshProfileCallsMade++; // Legacy counter
+            }
+            
+            proxyCurlData = lookupResult.profile;
+            
+            // Create job history and LinkedIn result
+            if (proxyCurlData) {
+              jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
+                `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
+              );
+              
+              linkedInProfileResult = {
+                title: `${name} | LinkedIn`,
+                link: lookupResult.url,
+                snippet: proxyCurlData.headline ?? `LinkedIn profile for ${name}`
+              };
+              
+              collectedSerpResults.push(linkedInProfileResult);
+              console.log(`[MB Step B] Successfully resolved LinkedIn profile via domain ${domain}`);
+              break; // Exit loop on first success
+            }
+          } else {
+            console.log(`[MB Step B] Company mismatch for domain ${domain}, continuing search`);
+          }
+        } else {
+          console.log(`[MB Step B] No result for domain ${domain}`);
         }
-      } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e));
-        console.warn(`[MB Step 2] LinkedIn dedicated Serper search failed. Error: ${err.message}`);
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(`[MB Step B] Person lookup failed for domain ${domain}: ${err.message}`);
       }
     }
   }
 
-  // ── STEP 3: ProxyCurl Fallback (if we have LinkedIn URL but no profile data yet) ──
-  if (linkedInProfileResult?.link && !proxyCurlData && PROXYCURL_KEY) {
-    console.log(`[MB Step 3] Fetching ProxyCurl data for LinkedIn URL: ${linkedInProfileResult.link}`);
+  // ── STEP C: Company Lookup → Person Lookup (only if Step B failed) ──────
+  if (!linkedInProfileResult && first) {
+    console.log(`[MB Step C] Attempting company lookup for "${org}"`);
+    
     try {
-      const proxyCurlUrl = `${PROXYCURL_API_PROFILE_URL}?url=${encodeURIComponent(linkedInProfileResult.link)}&fallback_to_cache=on-error&use_cache=if-present`;
-      const response = await fetch(proxyCurlUrl, { method: "GET", headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` } });
-      proxycurlCallsMade++;
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[MB Step 3] ProxyCurl API Error ${response.status} for ${linkedInProfileResult?.link}: ${errorText.slice(0,500)}`);
-      } else {
-        const jsonData: unknown = await response.json(); // Get as unknown first
-        proxyCurlData = jsonData as ProxyCurlResult;     // Then cast to ProxyCurlResult
-        if (proxyCurlData) {
-          jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
-            `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`,
-          );
+      const companyDomain = await resolveViaCompanyLookup(org);
+      proxycurlCompanyLookupCalls++;
+      
+      if (companyDomain) {
+        console.log(`[MB Step C] Found company domain: ${companyDomain}`);
+        
+        try {
+          const lookupResult = await resolveViaPersonLookup(first, last, companyDomain);
+          proxycurlPersonLookupCalls++;
+          proxycurlLookupCallsMade++; // Legacy counter
+          
+          if (lookupResult) {
+            console.log(`[MB Step C] Found LinkedIn profile via company domain: ${lookupResult.url}`);
+            
+            // Company match guard
+            if (lookupResult.profile && companyMatchesProfile(lookupResult.profile, org)) {
+              console.log(`[MB Step C] Company match verified for company domain`);
+              
+              // Track additional credits from freshness check
+              if (lookupResult.creditsUsed > 3) {
+                proxycurlProfileFreshCalls++;
+                proxycurlFreshProfileCallsMade++; // Legacy counter
+              }
+              
+              proxyCurlData = lookupResult.profile;
+              
+              // Create job history and LinkedIn result
+              if (proxyCurlData) {
+                jobHistoryTimeline = (proxyCurlData.experiences ?? []).map(exp =>
+                  `${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`
+                );
+                
+                linkedInProfileResult = {
+                  title: `${name} | LinkedIn`,
+                  link: lookupResult.url,
+                  snippet: proxyCurlData.headline ?? `LinkedIn profile for ${name}`
+                };
+                
+                collectedSerpResults.push(linkedInProfileResult);
+                console.log(`[MB Step C] Successfully resolved LinkedIn profile via company lookup`);
+              }
+            } else {
+              console.log(`[MB Step C] Company mismatch for company domain, proceeding without LinkedIn data`);
+            }
+          } else {
+            console.log(`[MB Step C] No LinkedIn result for company domain`);
+          }
+        } catch (error: unknown) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          console.error(`[MB Step C] Person lookup via company domain failed: ${err.message}`);
         }
+      } else {
+        console.log(`[MB Step C] No domain found for company, proceeding without LinkedIn data`);
       }
-    } catch (e: unknown) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      console.error(`[MB Step 3] ProxyCurl call failed. Error: ${err.message}`);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[MB Step C] Company lookup failed: ${err.message}`);
     }
-  } else if (!linkedInProfileResult?.link) {
-    console.warn(`[MB Critical] LinkedIn profile NOT FOUND for ${name}. Proceeding without ProxyCurl.`);
-  } else if (proxyCurlData) {
-    console.log(`[MB Step 3] Skipping ProxyCurl: Profile data already obtained from Person Lookup.`);
-  } else {
-    console.warn("[MB Step 3] Skipped ProxyCurl: PROXYCURL_KEY missing.");
   }
 
+  // Calculate total Proxycurl credits used
+  const totalCreditsUsed = proxycurlCompanyLookupCalls * 2 + 
+                          proxycurlPersonLookupCalls * 3 + 
+                          proxycurlProfileFreshCalls * 2 + 
+                          proxycurlProfileDirectCalls * 1;
+  
+  console.log(`[MB Credit Summary] Total Proxycurl credits used: ${totalCreditsUsed} (Company: ${proxycurlCompanyLookupCalls}×2, Person: ${proxycurlPersonLookupCalls}×3, Fresh: ${proxycurlProfileFreshCalls}×2, Direct: ${proxycurlProfileDirectCalls}×1)`);
+
+  if (!linkedInProfileResult) {
+    console.log(`[MB Result] No LinkedIn profile found after all resolution steps, proceeding without LinkedIn data`);
+  }
+
+  // ── Continue with existing pipeline for general research ─────────────────
   console.log(`[MB Step 1] Running initial Serper queries for "${name}" and "${org}"`);
   const initialQueries = [
     { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
@@ -724,14 +855,24 @@ ${llmSourceBlock}
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
 
-  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. Proxycurl: ${proxycurlCallsMade}. Proxycurl Lookup: ${proxycurlLookupCallsMade}. Fresh Profile: ${proxycurlFreshProfileCallsMade}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
+  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. Total Proxycurl credits: ${totalCreditsUsed}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
 
   return {
-    brief: htmlBriefOutput, citations: finalCitations, tokensUsed: totalTokensUsed,
-    serperSearchesMade: serperCallsMade, proxycurlCallsMade,
+    brief: htmlBriefOutput, 
+    citations: finalCitations, 
+    tokensUsed: totalTokensUsed,
+    serperSearchesMade: serperCallsMade, 
+    // New credit-aware counters
+    proxycurlCompanyLookupCalls,
+    proxycurlPersonLookupCalls,
+    proxycurlProfileFreshCalls,
+    proxycurlProfileDirectCalls,
+    // Legacy counters for compatibility
+    proxycurlCallsMade,
     proxycurlLookupCallsMade,
     proxycurlFreshProfileCallsMade,
-    firecrawlAttempts: firecrawlGlobalAttempts, firecrawlSuccesses: firecrawlGlobalSuccesses,
+    firecrawlAttempts: firecrawlGlobalAttempts, 
+    firecrawlSuccesses: firecrawlGlobalSuccesses,
     finalSourcesConsidered: sourcesToProcessForLLM.map((s, idx) => ({
       url: s.link, title: s.title,
       processed_snippet: (extractedTextsForLLM[idx] || "Snippet/Error").slice(0, 300) + ((extractedTextsForLLM[idx]?.length || 0) > 300 ? "..." : ""),
@@ -739,3 +880,63 @@ ${llmSourceBlock}
     possibleSocialLinks,
   };
 }
+
+const resolveViaCompanyLookup = async (companyName: string): Promise<string | null> => {
+  if (!PROXYCURL_KEY) {
+    console.warn("[resolveViaCompanyLookup] PROXYCURL_KEY not available");
+    return null;
+  }
+
+  try {
+    console.log(`[resolveViaCompanyLookup] Looking up domain for company: ${companyName}`);
+    
+    const params = new URLSearchParams({
+      company_name: companyName,
+      enrich_profile: "skip" // We only need the domain, not the full profile
+    });
+
+    const response = await fetch(`${COMPANY_LOOKUP_URL}?${params}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[resolveViaCompanyLookup] HTTP ${response.status}: ${errorText.slice(0, 500)}`);
+      return null;
+    }
+
+    const jsonData: unknown = await response.json();
+    const companyResult = jsonData as { 
+      website?: string; 
+      domain?: string;
+      [key: string]: unknown 
+    };
+
+    // Extract domain from website or use domain field directly
+    let domain = companyResult.domain;
+    if (!domain && companyResult.website) {
+      try {
+        const url = new URL(companyResult.website.startsWith('http') 
+          ? companyResult.website 
+          : `https://${companyResult.website}`);
+        domain = url.hostname.replace(/^www\./, '');
+      } catch {
+        console.warn(`[resolveViaCompanyLookup] Could not parse website URL: ${companyResult.website}`);
+      }
+    }
+
+    if (domain) {
+      console.log(`[resolveViaCompanyLookup] Found domain: ${domain}`);
+      return domain;
+    } else {
+      console.log(`[resolveViaCompanyLookup] No domain found for company: ${companyName}`);
+      return null;
+    }
+
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`[resolveViaCompanyLookup] Exception: ${err.message}`);
+    return null;
+  }
+};
