@@ -748,6 +748,62 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     }
   }
 
+  // ------------------------------------------------------------------------
+  // SECOND-PASS SERP FILTER
+  // If we still have **no resume data**, eliminate any results that
+  // do NOT mention both the NAME **and** ORG token (or the org domain).
+  // This closes the loophole where later Serper queries re-introduce
+  // irrelevant matches (e.g., the college-football Thomas Nance).
+  // ------------------------------------------------------------------------
+  if (!(globalThis as unknown as { hasResumeData?: boolean }).hasResumeData) {
+    const orgTok   = normalizeCompanyName(org);
+    const domHint  = `${slugifyCompanyName(org)}.com`;
+    const nameTok  = name.toLowerCase();
+
+    const pre = collectedSerpResults.length;
+    collectedSerpResults = collectedSerpResults.filter(r => {
+      const txt = (r.title + ' ' + (r.snippet ?? '')).toLowerCase();
+      const urlHasOrg   = r.link.includes(domHint);
+      const nameAndOrg  = txt.includes(nameTok) && txt.includes(orgTok);
+      return urlHasOrg || nameAndOrg;
+    });
+    console.log(`[MB] 2nd-pass SERP filter (no-resume path) – kept ${collectedSerpResults.length}/${pre}`);
+
+    // Optional short-circuit: return a stub brief if truly nothing useful
+    if (collectedSerpResults.length === 0) {
+      jobHistoryTimeline = [
+        "No public work, education, volunteer, or web mentions found."
+      ];
+      console.log("[MB] No results after 2nd-pass filter – returning minimal brief.");
+
+      return {
+        brief: renderFullHtmlBrief(
+          name,
+          org,
+          { executive: [], highlights: [], funFacts: [], researchNotes: [] },
+          [],
+          jobHistoryTimeline
+        ),
+        citations: [],
+        tokensUsed: 0,
+        serperSearchesMade: serperCallsMade,
+        proxycurlCompanyLookupCalls,
+        proxycurlPersonLookupCalls,
+        proxycurlProfileFreshCalls,
+        proxycurlProfileDirectCalls,
+        proxycurlCreditsUsed: creditsSpent,
+        proxycurlCallsMade,
+        proxycurlLookupCallsMade,
+        proxycurlFreshProfileCallsMade,
+        firecrawlAttempts: firecrawlGlobalAttempts,
+        firecrawlSuccesses: firecrawlGlobalSuccesses,
+        finalSourcesConsidered: [],
+        possibleSocialLinks: [],
+      };
+    }
+  }
+  // ------------------------------------------------------------------------
+
   console.log(`[MB Step 6] Deduplicating and filtering SERP results. Initial count: ${collectedSerpResults.length}`);
   const uniqueSerpResults = Array.from(new Map(collectedSerpResults.map(r => [r.link, r])).values());
   console.log(`[MB Step 6] Unique SERP results: ${uniqueSerpResults.length}`);
