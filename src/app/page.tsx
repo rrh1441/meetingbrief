@@ -397,7 +397,7 @@ export default function Page() {
               />
             </div>
 
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} className="text-lg font-bold py-3">
               {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Try it Now'}
             </Button>
 
