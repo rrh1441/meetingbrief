@@ -436,7 +436,10 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       
       // Set timeline and hasResumeData flag
       if (lines.length === 0) {
-        jobHistoryTimeline = ["No public work, education, or volunteer history found. LinkedIn sections are private."];
+        jobHistoryTimeline = [
+          // LinkedIn gave us nothing, but we may still have rich data from Firecrawl.
+          "LinkedIn sections are private — résumé details pulled instead from public web sources (see Highlights & Notes below)."
+        ];
       } else {
         jobHistoryTimeline = lines;
       }
