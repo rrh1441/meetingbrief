@@ -25,7 +25,7 @@ export async function GET() {
     try {
       // Check all subscription records for this user
       const subscriptionResult = await client.query(
-        `SELECT * FROM subscription WHERE "userId" = $1 ORDER BY "createdAt" DESC`,
+        `SELECT * FROM subscription WHERE user_id = $1 ORDER BY "createdAt" DESC`,
         [session.user.id]
       );
 
@@ -43,7 +43,7 @@ export async function GET() {
 
       // Check all subscriptions in the table (to see the schema)
       const allSubscriptionsResult = await client.query(
-        `SELECT "userId", "user_id", plan, status, "stripeSubscriptionId" FROM subscription LIMIT 10`
+        `SELECT user_id, plan, status, "stripeSubscriptionId" FROM subscription LIMIT 10`
       );
 
       return NextResponse.json({
