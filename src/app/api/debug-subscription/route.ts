@@ -23,16 +23,16 @@ export async function GET() {
     const client = await pool.connect();
     
     try {
-      // Check all subscription records for this user
-      const subscriptionResult = await client.query(
-        `SELECT * FROM subscription WHERE user_id = $1 ORDER BY "createdAt" DESC`,
-        [session.user.id]
+      // First, let's see what columns actually exist in the subscription table
+      const schemaResult = await client.query(
+        `SELECT column_name FROM information_schema.columns 
+         WHERE table_name = 'subscription' 
+         ORDER BY ordinal_position`
       );
 
-      // Also check if there are any subscriptions with different user ID format
-      const subscriptionResult2 = await client.query(
-        `SELECT * FROM subscription WHERE "user_id" = $1 ORDER BY "createdAt" DESC`,
-        [session.user.id]
+      // Get all subscriptions to see the actual data structure
+      const allSubscriptionsResult = await client.query(
+        `SELECT * FROM subscription LIMIT 5`
       );
 
       // Check user table to see user details
@@ -41,18 +41,12 @@ export async function GET() {
         [session.user.id]
       );
 
-      // Check all subscriptions in the table (to see the schema)
-      const allSubscriptionsResult = await client.query(
-        `SELECT user_id, plan, status, "stripeSubscriptionId" FROM subscription LIMIT 10`
-      );
-
       return NextResponse.json({
         userId: session.user.id,
         userRecord: userResult.rows[0],
-        subscriptionsWithUserId: subscriptionResult.rows,
-        subscriptionsWithUserIdSnake: subscriptionResult2.rows,
+        subscriptionTableColumns: schemaResult.rows.map(r => r.column_name),
         allSubscriptionsSample: allSubscriptionsResult.rows,
-        columnNames: subscriptionResult.fields?.map(f => f.name) || []
+        message: "Check the subscriptionTableColumns to see what column to use for user ID"
       });
 
     } finally {
