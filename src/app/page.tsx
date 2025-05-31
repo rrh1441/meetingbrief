@@ -353,7 +353,7 @@ export default function Page() {
 
       {/* HERO + FORM + DEMO ------------------------------------------------- */}
       <header className="bg-gradient-to-b from-white to-slate-50">
-        <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-4 text-center">
+        <div className="max-w-5xl mx-auto px-4 py-24 flex flex-col gap-6 text-center">
           {/* Hero */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
@@ -361,13 +361,6 @@ export default function Page() {
             </h1>
             <p className="mt-4 text-lg text-slate-600">
               Stop digging for info – gain back valuable hours and arrive prepared for every conversation
-            </p>
-          </div>
-
-          {/* Try it Now */}
-          <div className="mb-2">
-            <p className="text-xl font-bold text-black">
-              Try it Now
             </p>
           </div>
 
@@ -405,7 +398,7 @@ export default function Page() {
             </div>
 
             <Button type="submit" disabled={loading}>
-              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Get Your Brief'}
+              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Try it Now'}
             </Button>
 
             {/* Usage Display */}
