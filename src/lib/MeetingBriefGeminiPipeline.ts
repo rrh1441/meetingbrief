@@ -19,7 +19,6 @@ const {
   SERPER_KEY,
   FIRECRAWL_KEY,
   HARVEST_API_KEY,
-  HARVEST_CREDITS_LEFT,     // optional - see note at bottom
 } = process.env;
 
 const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com";
@@ -27,8 +26,8 @@ const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com";
 // Harvest cost model (from pricing sheet)
 const H_SEARCH_CRED   = 20;     // profile-search upper-bound
 const H_SCRAPE_CRED   = 1;      // single full-profile scrape
-const hCreditsAvail   = parseInt(HARVEST_CREDITS_LEFT ?? "0", 10);
-const canUseHarvest   = HARVEST_API_KEY && hCreditsAvail >= (H_SEARCH_CRED + H_SCRAPE_CRED);
+// run Harvest whenever we have an API key – let the API itself reject if the quota is exhausted
+const canUseHarvest = Boolean(HARVEST_API_KEY);
 
 if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY) {
   console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL). Application will not function correctly.");
