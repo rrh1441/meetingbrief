@@ -51,6 +51,13 @@ const GENERIC_NO_SCRAPE_DOMAINS = [
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
+// ------------------------------------------------------------------------
+// Low-trust domains: keep them *only* when we'd otherwise feed the LLM
+// fewer than MIN_RELIABLE_SOURCES sources (after Firecrawl skip logic).
+// ------------------------------------------------------------------------
+const LOW_TRUST_DOMAINS = ["rocketreach.co", "rocketreach.com"];
+const MIN_RELIABLE_SOURCES = 5;
+
 /* ── TYPES ──────────────────────────────────────────────────────────────── */
 interface SerpResult { title: string; link: string; snippet?: string }
 interface FirecrawlScrapeV1Result {
@@ -326,29 +333,39 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let harvestCreditsUsed = 0;
 
   // ------------------------------------------------------------------
-  // Helper to record Harvest usage (16 credits = 1 API call on the
-  // "50 000 credits / mo" plan).  Keeps the pattern consistent with
-  // the existing Proxycurl charger.
+  // Helper to record Harvest usage from response headers.
+  // REST API returns actual credits used in x-harvest-credits header.
   // ------------------------------------------------------------------
-  const HARVEST_CREDITS_PER_CALL = 16;
-  const harvestCharge = (calls = 1, endpoint = "") => {
-    harvestCreditsUsed += calls * HARVEST_CREDITS_PER_CALL;
-    console.log(`[Harvest] endpoint=${endpoint} calls=${calls} creditsTotal=${harvestCreditsUsed}`);
+  const harvestCharge = (creditsUsed: number, endpoint = "") => {
+    harvestCreditsUsed += creditsUsed;
+    console.log(`[Harvest] endpoint=${endpoint} credits=${creditsUsed} total=${harvestCreditsUsed}`);
   };
 
-  // Helper function with local harvestCharge
-  const harvestGet = async <T>(path: string, qs: Record<string, unknown>): Promise<T> => {
-    // stringify every defined value to keep URLSearchParams happy
-    const clean: Record<string,string> = {};
-    Object.entries(qs).forEach(([k,v]) => { if (v !== undefined) clean[k] = String(v); });
-    const url = `${HARVEST_BASE}${path}?${new URLSearchParams(clean)}`;
-    const resp = await fetch(url, {
+  // Helper function with proper credit tracking from headers
+  const harvestGet = async <T>(path: string, qs: Record<string, string|number|string[]>): Promise<T> => {
+    const url = new URL(HARVEST_BASE + path);
+    Object.entries(qs).forEach(([k,v]) => {
+      if (v !== undefined) {
+        if (Array.isArray(v)) {
+          // Handle arrays like companyId=[123] → companyId[]=123
+          v.forEach(item => url.searchParams.append(k + '[]', String(item)));
+        } else {
+          url.searchParams.append(k, String(v));
+        }
+      }
+    });
+    
+    const resp = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${HARVEST_API_KEY!}` }
     });
     if (!resp.ok) {
       throw new Error(`[Harvest] ${path} → ${resp.status}`);
     }
-    harvestCharge(1, path);
+    
+    // Track actual credits from response header (fallback to 1 if not provided)
+    const creditsUsed = parseInt(resp.headers.get("x-harvest-credits") || "1", 10);
+    harvestCharge(creditsUsed, path);
+    
     return resp.json() as Promise<T>;
   };
   
@@ -359,17 +376,17 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     try {
       // Step 1: Company search
       console.log(`[Harvest] Company search for "${org}"`);
-      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { search: org, page: 1 });
+      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { search: org, limit: 3 });
       const companyId = companyHits.elements?.[0]?.id ?? null;
       
       // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
       console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
-      const searchParams: Record<string, unknown> = {
+      const searchParams: Record<string, string|number|string[]> = {
         search: name,
-        maxItems: 10
+        limit: 10
       };
       if (companyId) {
-        searchParams.companyId = [companyId];
+        searchParams.companyId = companyId;
       }
       
       const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
@@ -688,9 +705,21 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const uniqueSerpResults = Array.from(new Map(collectedSerpResults.map(r => [r.link, r])).values());
   console.log(`[MB Step 6] Unique SERP results: ${uniqueSerpResults.length}`);
 
-  const sourcesToProcessForLLM = uniqueSerpResults
-    .filter(r => r.link === linkedInProfileResult?.link || !NO_SCRAPE_URL_SUBSTRINGS.some(skip => r.link.includes(skip)))
-    .slice(0, MAX_SOURCES_TO_LLM);
+  // ── De-prioritise RocketReach etc. ─────────────────────────
+  let filtered = uniqueSerpResults.filter(
+    r => r.link === linkedInProfileResult?.link ||
+         !NO_SCRAPE_URL_SUBSTRINGS.some(skip => r.link.includes(skip))
+  );
+  const reliable = filtered.filter(
+    r => !LOW_TRUST_DOMAINS.some(d => r.link.includes(d))
+  );
+  if (reliable.length >= MIN_RELIABLE_SOURCES) {
+    filtered = reliable.concat(              // keep good ones first
+      filtered.filter(r => !reliable.includes(r))   // low-trust at the end
+    );
+  }
+  const sourcesToProcessForLLM = filtered.slice(0, MAX_SOURCES_TO_LLM);
+
   console.log(`[MB Step 6] Sources to process for LLM: ${sourcesToProcessForLLM.length}`);
 
   const possibleSocialLinks = SOCIAL_DOMAINS
