@@ -73,12 +73,45 @@ interface FirecrawlScrapeV1Result {
     error?: string; status?: number;
 }
 interface YearMonthDay { year?: number; month?: number; day?: number }
+
+// NEW/REFINED INTERFACES for Harvest API Profile data
+interface HarvestLinkedInProfileElement {
+  id?: string;
+  publicIdentifier?: string;
+  firstName?: string;
+  lastName?: string;
+  headline?: string;
+  about?: string; // Explicitly defined for company matching
+  currentPosition?: { companyName?: string; title?: string; }[];
+  experience?: {
+    companyName?: string;
+    position?: string;
+    endDate?: unknown;
+    startDate?: YearMonthDay;
+  }[];
+  [key: string]: unknown;
+}
+
+interface HarvestLinkedInProfileApiResponse {
+  element?: HarvestLinkedInProfileElement;
+  status?: string;
+  error?: string;
+  query?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+interface ScrapeResult {
+  url: string;
+  fullProfile: HarvestLinkedInProfileApiResponse;
+  success: boolean;
+}
+
 interface LinkedInExperience { company?: string; title?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }
 interface ProxyCurlResult {
     headline?: string;
     experiences?: LinkedInExperience[];
-    last_updated?: number; // Unix timestamp for freshness checking
-    [key: string]: unknown; // Changed from any to unknown
+    last_updated?: number;
+    [key: string]: unknown;
 }
 
 interface BriefRow { text: string; source: number }
@@ -101,26 +134,6 @@ interface ProfSearch {
     publicIdentifier?: string;
     hidden?: boolean;
   }[] 
-}
-
-interface HarvestLinkedInProfile {
-  firstName?: string;
-  lastName?: string;
-  headline?: string;
-  currentPosition?: { companyName?: string }[];
-  experience?: { 
-    companyName?: string; 
-    position?: string; 
-    endDate?: unknown;
-    startDate?: YearMonthDay;
-  }[];
-  [key: string]: unknown;
-}
-
-interface ScrapeResult {
-  url: string;
-  fullProfile: HarvestLinkedInProfile;
-  success: boolean;
 }
 
 export interface Citation { marker: string; url: string; title: string; snippet: string; }
@@ -374,14 +387,15 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       const harvestResult = await llmEnhancedHarvestPipeline(name, org);
       
       if (harvestResult.success) {
-        proxyCurlData = harvestResult.profile as ProxyCurlResult | null;
+        // Use the profile element for ProxyCurlResult compatibility
+        proxyCurlData = harvestResult.profile.element as unknown as ProxyCurlResult || null;
         jobHistoryTimeline = harvestResult.jobTimeline || [];
         (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
 
         linkedInProfileResult = {
-          title: `${name} | LinkedIn`,
-          link: harvestResult.linkedinUrl || '',
-          snippet: (harvestResult.profile as { headline?: string }).headline ?? `LinkedIn profile for ${name}`
+          title: `${name} | LinkedIn Profile`,
+          link: harvestResult.linkedinUrl,
+          snippet: harvestResult.profile.element?.headline ?? `LinkedIn profile for ${name} at ${org}`
         };
         
         if (linkedInProfileResult.link) {
@@ -389,16 +403,35 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         }
         
         console.log(`[MB] Successfully resolved LinkedIn profile via Harvest + LLM (${harvestResult.searchMethod} search)`);
-        console.log(`[MB] LLM reasoning: ${harvestResult.llmReasoning}`);
+        console.log(`[MB] LLM reasoning for selection: ${harvestResult.llmReasoning}`);
         console.log(`[MB] Company evidence: ${harvestResult.companyEvidence?.join('; ') || 'None provided'}`);
+
       } else {
-        console.log(`[Harvest] Failed: ${harvestResult.reason}`);
+        console.log(`[Harvest] Pipeline Failed: ${harvestResult.reason}`);
         harvestErrored = true;
+        
+        // Handle specific failure for "LinkedIn found but no company match"
+        if (harvestResult.reason === 'No selected profiles actually work at target company') {
+          jobHistoryTimeline = [`A LinkedIn profile possibly matching "${name}" was found, but employment at "${org}" could not be verified from it.`];
+          if (harvestResult.linkedinUrlAttempted) {
+            // Populate linkedInProfileResult for URL display, even on this failure
+            linkedInProfileResult = {
+              title: `${name} | LinkedIn (Company Mismatch)`,
+              link: harvestResult.linkedinUrlAttempted,
+              snippet: `A LinkedIn profile was found for ${name}, but company verification with "${org}" failed. ${harvestResult.llmReasoning || ''}`.trim()
+            };
+            console.log(`[MB] Harvest found a LinkedIn profile (${harvestResult.linkedinUrlAttempted}) but company match with "${org}" failed.`);
+          }
+        }
+        // Log LLM reasoning if available even on failure
+        if (harvestResult.llmReasoning) {
+          console.log(`[MB] LLM reasoning for (failed) selection: ${harvestResult.llmReasoning}`);
+        }
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       harvestErrored = true;
-      console.warn(`[Harvest] Pipeline failed: ${error.message}`);
+      console.warn(`[Harvest] Main Pipeline catcher failed: ${error.message}`);
     }
   } else {
     console.log("[Harvest] Skipped – no API key.");
@@ -704,6 +737,25 @@ ${llmSourceBlock}
 
   console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. HarvestErrored=${harvestErrored}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
 
+  // Refined jobHistoryTimeline default fallback
+  if (jobHistoryTimeline.length === 0) {
+    if (linkedInProfileResult && linkedInProfileResult.link) {
+        // A LinkedIn profile URL is known (either success or specific failure like company mismatch),
+        // but we don't have a detailed timeline from Harvest.
+        jobHistoryTimeline = [`Key employment details for "${name}" at "${org}" could not be fully confirmed from the identified LinkedIn profile.`];
+    } else if (canUseHarvest && !harvestErrored) {
+        // Harvest ran, didn't error, but didn't yield resume data or a specific "company mismatch" URL.
+        // This could mean no profiles found by Harvest at all.
+        jobHistoryTimeline = [`LinkedIn profile search for "${name}" at "${org}" by Harvest did not yield a verifiable employment record.`];
+    } else if (harvestErrored && !linkedInProfileResult?.link) {
+        // Harvest errored out before identifying a specific profile, or no API key
+        jobHistoryTimeline = [`LinkedIn profile search for "${name}" at "${org}" encountered issues or was skipped; employment details not available from this source.`];
+    } else {
+        // General fallback if no LinkedIn info at all
+        jobHistoryTimeline = [`A detailed employment history for "${name}" at "${org}" could not be constructed from available sources.`];
+    }
+  }
+
   return {
     brief: htmlBriefOutput, 
     citations: finalCitations, 
@@ -804,66 +856,82 @@ Does this profile indicate the person works or worked at "${targetCompany}" or a
   }
 };
 
-const findCompanyMatches = async (fullProfile: unknown, targetOrg: string, openAiClient: OpenAI) => {
+const findCompanyMatches = async (
+  fullProfileResponse: HarvestLinkedInProfileApiResponse,
+  targetOrg: string,
+  openAiClient: OpenAI
+): Promise<{ score: number; evidence: string[] }> => {
   let score = 0;
   const evidence: string[] = [];
-  
-  // Extract data from nested Harvest structure
-  const profile = (fullProfile as Record<string, unknown>)?.element || fullProfile;
-  
-  console.log(`[DEBUG] Checking profile for "${targetOrg}"`);
-  
-  // Collect all text content from the profile
-  const profileTexts = [];
-  
-  if ((profile as Record<string, unknown>)?.about) {
-    profileTexts.push(`Bio: ${(profile as Record<string, unknown>).about}`);
-    console.log(`[DEBUG] Found about section: ${((profile as Record<string, unknown>).about as string).slice(0, 200)}...`);
+
+  const profileElement = fullProfileResponse?.element;
+
+  if (!profileElement) {
+    console.warn("[findCompanyMatches] Profile 'element' is missing in the API response. Cannot perform company match.");
+    return { score: 0, evidence: ["Profile data incomplete or missing 'element' structure."] };
   }
-  
-  if ((profile as Record<string, unknown>)?.headline) {
-    profileTexts.push(`Headline: ${(profile as Record<string, unknown>).headline}`);
-    console.log(`[DEBUG] Found headline: ${(profile as Record<string, unknown>).headline}`);
-  }
-  
-  if ((profile as Record<string, unknown>)?.currentPosition && Array.isArray((profile as Record<string, unknown>).currentPosition)) {
-    for (const pos of (profile as Record<string, unknown>).currentPosition as Record<string, unknown>[]) {
-      if (pos.companyName || pos.title) {
-        profileTexts.push(`Current: ${pos.title || ''} at ${pos.companyName || ''}`);
-      }
-    }
-    console.log(`[DEBUG] Found ${((profile as Record<string, unknown>).currentPosition as unknown[]).length} current positions`);
-  }
-  
-  if ((profile as Record<string, unknown>)?.experience && Array.isArray((profile as Record<string, unknown>).experience)) {
-    for (const exp of ((profile as Record<string, unknown>).experience as Record<string, unknown>[]).slice(0, 5)) { // Check top 5 experiences
-      if (exp.companyName || exp.position) {
-        profileTexts.push(`Experience: ${exp.position || ''} at ${exp.companyName || ''}`);
-      }
-    }
-    console.log(`[DEBUG] Found ${((profile as Record<string, unknown>).experience as unknown[]).length} experience entries`);
-  }
-  
-  if (profileTexts.length === 0) {
-    console.log(`[DEBUG] No profile text found to analyze`);
-    return { score: 0, evidence: [] };
-  }
-  
-  const fullProfileText = profileTexts.join('\n');
-  console.log(`[DEBUG] Analyzing profile text (${fullProfileText.length} chars):`, fullProfileText.slice(0, 300) + '...');
-  
-  // Use LLM to check for company matches
-  const matchResult = await llmCompanyMatch(fullProfileText, targetOrg, openAiClient);
-  
-  if (matchResult.isMatch) {
-    // Score based on confidence level
-    score = Math.max(3, matchResult.confidence); // Minimum score of 3, max of 10
-    evidence.push(matchResult.evidence);
-    console.log(`[DEBUG] LLM found company match: ${matchResult.evidence} (confidence: ${matchResult.confidence}, score: ${score})`);
+
+  console.log(`[findCompanyMatches] Checking profile (ID: ${profileElement.publicIdentifier || 'N/A'}) for company "${targetOrg}"`);
+
+  const profileTexts: string[] = [];
+
+  if (profileElement.about) {
+    profileTexts.push(`Bio: ${profileElement.about}`);
+    console.log(`[findCompanyMatches] Extracted 'about' section (first 200 chars): ${profileElement.about.slice(0, 200)}...`);
   } else {
-    console.log(`[DEBUG] LLM found no company match: ${matchResult.evidence}`);
+    console.log("[findCompanyMatches] 'about' section is missing or empty in profile element.");
   }
-  
+
+  if (profileElement.headline) {
+    profileTexts.push(`Headline: ${profileElement.headline}`);
+    console.log(`[findCompanyMatches] Extracted 'headline': ${profileElement.headline}`);
+  }
+
+  if (profileElement.currentPosition && Array.isArray(profileElement.currentPosition)) {
+    profileElement.currentPosition.forEach((pos, idx) => {
+      if (pos.companyName || pos.title) {
+        const text = `Current Position ${idx + 1}: ${pos.title || 'N/A'} at ${pos.companyName || 'N/A'}`;
+        profileTexts.push(text);
+        console.log(`[findCompanyMatches] Extracted current position text: ${text}`);
+      }
+    });
+  } else {
+     console.log("[findCompanyMatches] 'currentPosition' data missing or not an array.");
+  }
+
+  if (profileElement.experience && Array.isArray(profileElement.experience)) {
+    profileElement.experience.slice(0, 5).forEach((exp, idx) => { // Check top 5 experiences
+      if (exp.companyName || exp.position) {
+        const text = `Experience ${idx + 1}: ${exp.position || 'N/A'} at ${exp.companyName || 'N/A'}`;
+        profileTexts.push(text);
+        console.log(`[findCompanyMatches] Extracted experience text: ${text}`);
+      }
+    });
+  } else {
+    console.log("[findCompanyMatches] 'experience' data missing or not an array.");
+  }
+
+  if (profileTexts.length === 0) {
+    console.warn(`[findCompanyMatches] No textual data (about, headline, positions, experience) extracted from the profile element to analyze for company match with "${targetOrg}".`);
+    return { score: 0, evidence: ["No relevant text fields found in profile for company matching."] };
+  }
+
+  const fullProfileText = profileTexts.join("\n\n---\n\n");
+  console.log(`[findCompanyMatches] Analyzing combined profile text (${fullProfileText.length} chars) for company: "${targetOrg}"`);
+
+  // Call the existing llmCompanyMatch
+  const matchResult = await llmCompanyMatch(fullProfileText, targetOrg, openAiClient);
+
+  if (matchResult.isMatch && matchResult.confidence > 0) {
+    score = Math.max(3, matchResult.confidence); // Original scoring: min score 3, max 10
+    evidence.push(matchResult.evidence || "LLM indicated a match without specific evidence text.");
+    console.log(`[findCompanyMatches] LLM reported company match for "${targetOrg}". Evidence: "${matchResult.evidence}", Confidence: ${matchResult.confidence}, Assigned Score: ${score}`);
+  } else {
+    score = 0;
+    evidence.push(matchResult.evidence || `LLM indicated no match for "${targetOrg}" based on the provided text.`);
+    console.log(`[findCompanyMatches] LLM reported no company match for "${targetOrg}". Reason/Evidence from LLM: "${matchResult.evidence}", Confidence: ${matchResult.confidence}`);
+  }
+
   return { score, evidence };
 };
 
@@ -951,8 +1019,27 @@ Which profile(s) most likely belong to "${targetName}"${wasCompanyFiltered ? '' 
   }
 };
 
+// Type definition for Harvest pipeline results
+type HarvestPipelineResult = {
+  success: true;
+  profile: HarvestLinkedInProfileApiResponse;
+  linkedinUrl: string;
+  jobTimeline: string[];
+  llmReasoning: string;
+  companyEvidence: string[];
+  searchMethod: string;
+} | {
+  success: false;
+  reason: string;
+  linkedinUrlAttempted?: string; // URL of profile that was tried but failed verification
+  jobTimeline?: never;
+  companyEvidence?: never;
+  llmReasoning?: string; // Can still have reasoning for selection failure
+  searchMethod?: string; // Can still indicate search method
+};
+
 // Updated Harvest pipeline using LLM selection
-const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
+const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<HarvestPipelineResult> => {
   try {
     // 1. Company search  
     console.log(`[Harvest] Company search for "${org}"`);
@@ -1025,7 +1112,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     const scrapeResults = await Promise.allSettled(
       selection.selectedUrls.map(async url => {
         console.log(`[Harvest] Scraping selected profile: ${url}`);
-        const fullProfile = await harvestGet<HarvestLinkedInProfile>("/linkedin/profile", { url });
+        const fullProfile = await harvestGet<HarvestLinkedInProfileApiResponse>("/linkedin/profile", { url });
         return { url, fullProfile, success: true };
       })
     );
@@ -1064,39 +1151,39 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     const profilesWithCompanyMatch = verifiedProfiles.filter(p => p.hasCompanyMatch);
 
     if (profilesWithCompanyMatch.length === 0) {
-      console.log(`[Harvest] None of the selected profiles actually work at "${org}". Falling back to web search.`);
+      console.log(`[Harvest] None of the selected profiles appear to currently work at "${org}" based on LLM verification. Falling back to web search.`);
       
-      // Log what companies the scraped profiles actually work for
-      const actualCompanies = verifiedProfiles.map(p => {
-        const profileData = (p.fullProfile as Record<string, unknown>)?.element || p.fullProfile;
-        const companies = [];
-        
-        // Extract companies mentioned in about section
-        if ((profileData as Record<string, unknown>)?.about) {
-          const about = (profileData as Record<string, unknown>).about as string;
-          // Look for company mentions in bio
-          const companyMentions = about.match(/(?:at|joining|worked for|employed by)\s+([A-Z][A-Za-z\s&]+?)(?:\s|,|\.|$)/g);
-          if (companyMentions) {
-            companies.push(...companyMentions.map(mention => mention.replace(/^(?:at|joining|worked for|employed by)\s+/, '') + ' (from bio)'));
-          }
+      const actualCompaniesLog = verifiedProfiles.map(p => {
+        const profileData = p.fullProfile?.element;
+        const companies: string[] = [];
+        if (profileData?.about) {
+            // Basic extraction for logging, not robust parsing
+            const companyMentions = profileData.about.match(/(?:at|joining|worked for|employed by)\s+([A-Z][A-Za-z\s&.,'-]+?)(?:\s|,|\.|$|;)/g);
+            if (companyMentions) {
+                companies.push(...companyMentions.map(mention => mention.replace(/^(?:at|joining|worked for|employed by)\s+/, '').trim()));
+            }
         }
-        
-        // Extract from structured data if available
-        if ((profileData as Record<string, unknown>)?.currentPosition && Array.isArray((profileData as Record<string, unknown>).currentPosition)) {
-          companies.push(...((profileData as Record<string, unknown>).currentPosition as Record<string, unknown>[]).map((pos: Record<string, unknown>) => pos.companyName || pos.company).filter(Boolean));
+        if (profileData?.currentPosition) {
+            companies.push(...profileData.currentPosition.map(cp => cp.companyName).filter(Boolean) as string[]);
         }
-        if ((profileData as Record<string, unknown>)?.experience && Array.isArray((profileData as Record<string, unknown>).experience)) {
-          companies.push(...((profileData as Record<string, unknown>).experience as Record<string, unknown>[]).slice(0, 3).map((exp: Record<string, unknown>) => exp.companyName || exp.company).filter(Boolean));
+        if (profileData?.experience) {
+            companies.push(...profileData.experience.slice(0,3).map(ex => ex.companyName).filter(Boolean) as string[]);
         }
-        
-        const profileName = `${(profileData as Record<string, unknown>)?.firstName || 'Unknown'} ${(profileData as Record<string, unknown>)?.lastName || 'Name'}`;
-        return { profileName, companies: [...new Set(companies)] }; // Remove duplicates
+        const profileName = `${profileData?.firstName || 'Unknown'} ${profileData?.lastName || 'Name'}`;
+        return { profileName, url: p.url.split('/').pop(), companies: [...new Set(companies)].join(', ') || 'Unknown' };
       });
       
-      console.log(`[Harvest] Scraped profiles work at:`, actualCompanies);
-      console.log(`[Harvest] This suggests either: (1) wrong person selected, (2) person no longer works at ${org}, or (3) profile data incomplete`);
-      
-      return { success: false, reason: 'No selected profiles actually work at target company' };
+      console.log(`[Harvest] Scraped profiles' likely companies:`, actualCompaniesLog);
+      console.log(`[Harvest] This suggests either: (1) wrong person selected by LLM, (2) person no longer works at ${org}, (3) profile data incomplete/ambiguous, or (4) company name variations not caught by LLM.`);
+
+      const bestAttemptedUrl = successfulScrapes.length > 0 ? successfulScrapes[0].url : undefined;
+      return {
+        success: false,
+        reason: 'No selected profiles actually work at target company',
+        linkedinUrlAttempted: bestAttemptedUrl,
+        llmReasoning: selection.reasoning,
+        searchMethod: wasCompanyFiltered ? 'company-filtered' : 'broader'
+      };
     }
 
     // 8. Take the best company-verified profile (prefer higher company match scores)
@@ -1107,19 +1194,19 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     console.log(`[Harvest] Selected verified profile with company evidence:`, bestResult.companyMatches.evidence);
 
     // 9. Build job timeline
-    const profileData = (bestResult.fullProfile as Record<string, unknown>)?.element || bestResult.fullProfile;
+    const profileData = bestResult.fullProfile?.element;
     let jobHistoryTimeline: string[] = [];
 
     // Try to get structured experience data first
-    if ((profileData as Record<string, unknown>)?.experience && Array.isArray((profileData as Record<string, unknown>).experience)) {
-      jobHistoryTimeline = ((profileData as Record<string, unknown>).experience as Record<string, unknown>[]).map((exp: Record<string, unknown>) =>
-        `${exp.position || exp.title || "Role"} — ${exp.companyName || exp.company || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate as YearMonthDay | undefined, exp.endDate as YearMonthDay | undefined)})`
+    if (profileData?.experience && Array.isArray(profileData.experience)) {
+      jobHistoryTimeline = profileData.experience.map((exp) =>
+        `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
       );
     }
 
     // If no structured experience, try to extract from about section
-    if (jobHistoryTimeline.length === 0 && (profileData as Record<string, unknown>)?.about) {
-      const about = (profileData as Record<string, unknown>).about as string;
+    if (jobHistoryTimeline.length === 0 && profileData?.about) {
+      const about = profileData.about;
       const timeline: string[] = [];
       
       // Look for current role indicators
