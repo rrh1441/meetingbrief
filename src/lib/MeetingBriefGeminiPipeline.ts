@@ -18,11 +18,13 @@ const {
   OPENAI_API_KEY,
   SERPER_KEY,
   FIRECRAWL_KEY,
-  PROXYCURL_KEY,
+  HARVEST_API_KEY,
 } = process.env;
 
-if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY || !PROXYCURL_KEY) {
-  console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL, PROXYCURL). Application will not function correctly.");
+const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com/v1";
+
+if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY || !HARVEST_API_KEY) {
+  console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL, HARVEST). Application will not function correctly.");
 }
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
@@ -30,17 +32,13 @@ const MODEL_ID = "gpt-4.1-mini-2025-04-14";
 const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
-// Credit-aware LinkedIn resolution URLs
-const PERSON_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/profile/resolve";
-const COMPANY_LOOKUP_URL = "https://nubela.co/proxycurl/api/linkedin/company/resolve";
-const PROFILE_URL = "https://nubela.co/proxycurl/api/v2/linkedin";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const PROFILE_FRESH_DAYS = 30;
-const CAP_CREDITS = 8;
-
 const MAX_SOURCES_TO_LLM = 25;
 const FIRECRAWL_BATCH_SIZE = 10;
 const FIRECRAWL_GLOBAL_BUDGET_MS = 35_000;
+
+// Credit-aware LinkedIn resolution URLs
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const PROFILE_FRESH_DAYS = 30;
 
 /* ── DOMAIN RULES ───────────────────────────────────────────────────────── */
 const SOCIAL_DOMAINS = [
@@ -82,13 +80,14 @@ export interface Citation { marker: string; url: string; title: string; snippet:
 export interface MeetingBriefPayload {
   brief: string; citations: Citation[]; tokensUsed: number;
   serperSearchesMade: number; 
-  // Credit-aware LinkedIn resolution counters
+  // Harvest credits
+  harvestCreditsUsed: number;
+  // Legacy Proxycurl counters (deprecated but kept for compatibility)
   proxycurlCompanyLookupCalls: number;
   proxycurlPersonLookupCalls: number;
   proxycurlProfileFreshCalls: number;
   proxycurlProfileDirectCalls: number;
   proxycurlCreditsUsed: number;
-  // Legacy counters (keeping for compatibility)
   proxycurlCallsMade: number;
   proxycurlLookupCallsMade: number; 
   proxycurlFreshProfileCallsMade: number;
@@ -133,9 +132,6 @@ const postJSON = async <T>( // The flagged line was here (106 in your build)
   return unknownResult as T;                          // Cast from 'unknown' to the specific generic type 'T'
 };
 
-const formatYearFromProxyCurl = (date?: YearMonthDay): string => date?.year?.toString() ?? "?";
-const formatJobSpanFromProxyCurl = (startDate?: YearMonthDay, endDate?: YearMonthDay): string =>
-  `${formatYearFromProxyCurl(startDate)} – ${endDate ? formatYearFromProxyCurl(endDate) : "Present"}`;
 
 const estimateTokens = (text: string): number => Math.ceil((text || "").length / 3.5);
 const cleanLLMOutputText = (text: string): string => (text || "").replace(/\s*\(?\s*source\s*\d+\s*\)?/gi, "").trim();
@@ -166,6 +162,7 @@ interface LinkedInResolutionResult {
 }
 
 /* ── LinkedIn Person Lookup Helpers ─────────────────────────────────────── */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const splitFullName = (fullName: string): { first: string; last: string } => {
   const nameParts = fullName.trim().split(/\s+/);
   if (nameParts.length === 1) {
@@ -177,14 +174,6 @@ const splitFullName = (fullName: string): { first: string; last: string } => {
   return { first, last };
 };
 
-const acceptsProfile = (p: ProxyCurlResult, org: string): boolean => {
-  const orgNorm = normalizeCompanyName(org);
-  const currentRole = (p.experiences ?? []).some(
-    e => !e.ends_at && normalizeCompanyName(e.company ?? "") === orgNorm
-  );
-  const headlineMatch = (p.headline ?? "").toLowerCase().includes(orgNorm);
-  return currentRole || (headlineMatch && !(p.experiences ?? []).length);
-};
 
 /* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
 let firecrawlGlobalAttempts = 0;
@@ -299,145 +288,127 @@ ${renderUnorderedListWithCitations(llmJsonBrief.researchNotes || [], citationsLi
 </div>`.trim().replace(/^\s*\n/gm, "");
 };
 
+interface HarvestCompanySearchResult {
+  elements: { id: string; name?: string }[];
+}
+
+interface HarvestProfileSearchResult {
+  elements: { 
+    publicIdentifier?: string;
+    firstName?: string; 
+    lastName?: string;
+    headline?: string;
+    summary?: string;
+    currentPositions?: { companyName?: string; title?: string }[];
+    experience?: { companyName?: string; title?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
+  }[];
+}
+
+interface HarvestProfileDetail {
+  publicIdentifier?: string;
+  firstName?: string;
+  lastName?: string;
+  headline?: string;
+  summary?: string;
+  currentPositions?: { companyName?: string; title?: string }[];
+  experience?: { companyName?: string; title?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
+  education?: { schoolName?: string; degreeName?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
+  volunteerExperience?: { role?: string; companyName?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
+}
+
 /* ── MAIN FUNCTION ──────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(name: string, org: string): Promise<MeetingBriefPayload> {
   firecrawlGlobalAttempts = 0; 
   firecrawlGlobalSuccesses = 0;
   
-  // Credit tracking with hard cap
-  let creditsSpent = 0;
-  const charge = (n: number, endpoint: string, url?: string, expCount?: number, ageDays?: number) => {
-    creditsSpent += n;
-    console.log(`[PC] endpoint=${endpoint} creditsDelta=${n} creditsTotal=${creditsSpent} url=${url || 'N/A'} exp=${expCount ?? 'N/A'} ageDays=${ageDays?.toFixed(1) ?? 'N/A'}`);
-    if (creditsSpent > CAP_CREDITS) {
-      throw new Error(`Proxycurl credit cap exceeded: ${creditsSpent}/${CAP_CREDITS}`);
+  // ──────────────────────────────────────────────────────────────────
+  // NEW Harvest credit counter (reset each invocation)
+  // ──────────────────────────────────────────────────────────────────
+  let harvestCreditsUsed = 0;
+
+  // ------------------------------------------------------------------
+  // Helper to record Harvest usage (16 credits = 1 API call on the
+  // "50 000 credits / mo" plan).  Keeps the pattern consistent with
+  // the existing Proxycurl charger.
+  // ------------------------------------------------------------------
+  const HARVEST_CREDITS_PER_CALL = 16;
+  const harvestCharge = (calls = 1, endpoint = "") => {
+    harvestCreditsUsed += calls * HARVEST_CREDITS_PER_CALL;
+    console.log(`[Harvest] endpoint=${endpoint} calls=${calls} creditsTotal=${harvestCreditsUsed}`);
+  };
+
+  // Helper function with local harvestCharge
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const harvestGet = async <T>(path: string, qs: Record<string, unknown>): Promise<T> => {
+    // stringify every defined value to keep URLSearchParams happy
+    const clean: Record<string,string> = {};
+    Object.entries(qs).forEach(([k,v]) => { if (v !== undefined) clean[k] = String(v); });
+    const url = `${HARVEST_BASE}${path}?${new URLSearchParams(clean)}`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${HARVEST_API_KEY!}` }
+    });
+    if (!resp.ok) {
+      throw new Error(`[Harvest] ${path} → ${resp.status}`);
     }
+    harvestCharge(1, path);
+    return resp.json() as Promise<T>;
   };
   
-  // Initialize all counters
+  // Initialize counters
   let serperCallsMade = 0;
-  let proxycurlCompanyLookupCalls = 0;
-  let proxycurlPersonLookupCalls = 0;
-  let proxycurlProfileFreshCalls = 0;
-  let proxycurlProfileDirectCalls = 0;
-  
-  // Legacy counters for compatibility
-  let proxycurlCallsMade = 0;
-  let proxycurlLookupCallsMade = 0;
-  let proxycurlFreshProfileCallsMade = 0;
 
   const startTime = Date.now();
   let collectedSerpResults: SerpResult[] = [];
   let linkedInProfileResult: SerpResult | null = null;
   let linkedInUrl: string | null = null;
-  let proxyCurlData: ProxyCurlResult | null = null;
+  let harvestProfile: HarvestProfileDetail | null = null;
   let jobHistoryTimeline: string[] = [];
 
-  const { first, last } = splitFullName(name);
-  console.log(`[MB Pipeline] Starting deterministic LinkedIn resolution for "${first} ${last}" at "${org}" (credit cap: ${CAP_CREDITS})`);
+  console.log(`[MB Pipeline] Starting Harvest LinkedIn resolution for "${name}" at "${org}"`);
 
   try {
-    // ── STEP A: Company-Lookup First (Canonical Domain) ─────────────────
-    console.log(`[MB Step A] Company lookup for "${org}"`);
-    let companyDomain: string | null = null;
-    
-    if (creditsSpent + 2 <= CAP_CREDITS) {
-      try {
-        const params = new URLSearchParams({
-          company_name: org,
-          enrich_profile: "skip"
-        });
+    // Use the new Harvest progressive pipeline
+    const result = await resolveLinkedInViaHarvest(name, org);
+    harvestProfile = result.profile;
+    linkedInUrl = result.url;
 
-        const response = await fetch(`${COMPANY_LOOKUP_URL}?${params}`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-        });
-
-        if (response.ok) {
-          const jsonData: unknown = await response.json();
-          const companyResult = jsonData as { 
-            website?: string; 
-            domain?: string;
-            [key: string]: unknown 
-          };
-
-          companyDomain = companyResult.domain || null;
-          if (!companyDomain && companyResult.website) {
-            try {
-              const url = new URL(companyResult.website.startsWith('http') 
-                ? companyResult.website 
-                : `https://${companyResult.website}`);
-              companyDomain = url.hostname.replace(/^www\./, '');
-            } catch {
-              console.warn(`[MB Step A] Could not parse website URL: ${companyResult.website}`);
-            }
-          }
-
-          if (companyDomain) {
-            charge(2, "company-lookup", undefined, undefined, undefined);
-            proxycurlCompanyLookupCalls++;
-            console.log(`[MB Step A] Found company domain: ${companyDomain}`);
-          } else {
-            console.log(`[MB Step A] No domain found for company (no charge)`);
-          }
-        }
-      } catch (error: unknown) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[MB Step A] Company lookup failed: ${err.message}`);
-      }
-    } else {
-      console.warn(`[MB Step A] Skipping company lookup - would exceed credit cap`);
-    }
-
-    // ── STEP B: Person-Lookup with Company Domain ───────────────────────
-    const processProfile = async (lookupUrl: string, profile: ProxyCurlResult | null, source: string) => {
-      if (!profile) return false;
-      
-      // Company match guard
-      if (!acceptsProfile(profile, org)) {
-        console.log(`[MB ${source}] Company mismatch detected, discarding profile`);
-        return false;
-      }
-      
-      // Success - attach profile
-      proxyCurlData = profile;
-      linkedInUrl = lookupUrl;
-      
+    if (harvestProfile && linkedInUrl) {
       // Build comprehensive resume data with proper ordering
       const lines: string[] = [];
       
       // Experience section
-      const experiences = profile.experiences ?? [];
+      const experiences = harvestProfile.experience ?? [];
       for (const exp of experiences) {
-        lines.push(`${exp.title ?? "Role"} — ${exp.company ?? "Company"} (${formatJobSpanFromProxyCurl(exp.starts_at, exp.ends_at)})`);
+        const startYear = exp.startDate?.year ? exp.startDate.year.toString() : "?";
+        const endYear = exp.endDate?.year ? exp.endDate.year.toString() : "Present";
+        lines.push(`${exp.title ?? "Role"} — ${exp.companyName ?? "Company"} (${startYear} – ${endYear})`);
       }
       
       // Education section
-      const education = ((profile as unknown as { education?: { school?: string; degree?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).education ?? []);
+      const education = harvestProfile.education ?? [];
       for (const ed of education) {
+        const startYear = ed.startDate?.year ? ed.startDate.year.toString() : "?";
+        const endYear = ed.endDate?.year ? ed.endDate.year.toString() : "?";
         lines.push(
-          `Education — ${ed.school ?? "School"}${ed.degree ? `, ${ed.degree}` : ""}` +
-          (ed.starts_at?.year || ed.ends_at?.year
-             ? ` (${ed.starts_at?.year ?? "?"}–${ed.ends_at?.year ?? "?"})`
-             : "")
+          `Education — ${ed.schoolName ?? "School"}${ed.degreeName ? `, ${ed.degreeName}` : ""}` +
+          (ed.startDate?.year || ed.endDate?.year ? ` (${startYear}–${endYear})` : "")
         );
       }
       
       // Volunteer section
-      const volunteerWork = ((profile as unknown as { volunteer_work?: { role?: string; company?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }[] }).volunteer_work ?? []);
+      const volunteerWork = harvestProfile.volunteerExperience ?? [];
       for (const v of volunteerWork) {
+        const startYear = v.startDate?.year ? v.startDate.year.toString() : "?";
+        const endYear = v.endDate?.year ? v.endDate.year.toString() : "?";
         lines.push(
-          `Volunteer — ${v.role ?? "Role"} at ${v.company ?? "Org"}` +
-          (v.starts_at?.year || v.ends_at?.year
-             ? ` (${v.starts_at?.year ?? "?"}–${v.ends_at?.year ?? "?"})`
-             : "")
+          `Volunteer — ${v.role ?? "Role"} at ${v.companyName ?? "Org"}` +
+          (v.startDate?.year || v.endDate?.year ? ` (${startYear}–${endYear})` : "")
         );
       }
       
       // Set timeline and hasResumeData flag
       if (lines.length === 0) {
         jobHistoryTimeline = [
-          // LinkedIn gave us nothing, but we may still have rich data from Firecrawl.
           "LinkedIn sections are private — résumé details pulled instead from public web sources (see Highlights & Notes below)."
         ];
       } else {
@@ -453,228 +424,19 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       
       linkedInProfileResult = {
         title: `${name} | LinkedIn`,
-        link: lookupUrl,
-        snippet: profile.headline ?? `LinkedIn profile for ${name}`
+        link: linkedInUrl,
+        snippet: harvestProfile.headline ?? `LinkedIn profile for ${name}`
       };
       
       collectedSerpResults.push(linkedInProfileResult);
-      console.log(`[MB ${source}] Successfully resolved LinkedIn profile with ${profile.experiences?.length || 0} experiences`);
-      return true;
-    };
-
-    if (companyDomain && first && creditsSpent + 3 <= CAP_CREDITS) {
-      console.log(`[MB Step B] Person lookup for "${first} ${last}" at ${companyDomain}`);
-      
-      try {
-        const params = new URLSearchParams({
-          first_name: first,
-          last_name: last,
-          company_domain: companyDomain,
-          similarity_checks: "skip",
-          enrich_profile: "enrich"
-        });
-
-        const response = await fetch(`${PERSON_LOOKUP_URL}?${params}`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-        });
-
-        if (response.ok) {
-          const jsonData: unknown = await response.json();
-          const lookupResult = jsonData as { 
-            linkedin_url?: string; 
-            profile?: ProxyCurlResult; 
-            [key: string]: unknown 
-          };
-
-          if (lookupResult.linkedin_url) {
-            charge(3, "person-lookup", lookupResult.linkedin_url, lookupResult.profile?.experiences?.length);
-            proxycurlPersonLookupCalls++;
-            proxycurlLookupCallsMade++; // Legacy counter
-            
-            console.log(`[MB Step B] Found LinkedIn URL: ${lookupResult.linkedin_url}`);
-            
-            // Always perform immediate fresh scrape after successful Person-Lookup
-            if (creditsSpent + 1 > CAP_CREDITS) {
-              throw new Error("Would exceed credit cap before fresh scrape");
-            }
-
-            const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupResult.linkedin_url)}&use_cache=never&fallback_to_cache=on-error`;
-            
-            console.log(`[MB Step B] Performing immediate fresh scrape`);
-            const freshResp = await fetch(freshUrl, {
-              method: "GET",
-              headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-            });
-
-            charge(1, "profile-fresh-scrape", lookupResult.linkedin_url);
-            proxycurlProfileFreshCalls++;
-            proxycurlFreshProfileCallsMade++; // Legacy counter
-
-            let finalProfile = lookupResult.profile ?? null;
-            if (freshResp.ok) {
-              const freshData: unknown = await freshResp.json();
-              const freshProfile = freshData as ProxyCurlResult;
-              console.log(`[MB Step B] Fresh scrape successful (status: ${freshResp.status}), experiences: ${freshProfile.experiences?.length || 0}`);
-              
-              if (freshProfile.experiences?.length) {
-                finalProfile = freshProfile;
-              }
-            } else {
-              console.warn(`[MB Step B] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
-            }
-            
-            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step B")) {
-              // Success - profile attached, exit early
-            }
-          } else {
-            console.log(`[MB Step B] No LinkedIn URL found for company domain (no charge)`);
-          }
-        }
-      } catch (error: unknown) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[MB Step B] Person lookup failed: ${err.message}`);
-      }
-    }
-
-    // ── STEP C: Fallback to Single Heuristic Domain ─────────────────────
-    if (!linkedInUrl && first && creditsSpent + 3 <= CAP_CREDITS) {
-      const heuristicDomain = `${slugifyCompanyName(org)}.com`;
-      console.log(`[MB Step C] Trying heuristic domain: ${heuristicDomain}`);
-      
-      try {
-        const params = new URLSearchParams({
-          first_name: first,
-          last_name: last,
-          company_domain: heuristicDomain,
-          similarity_checks: "skip",
-          enrich_profile: "enrich"
-        });
-
-        const response = await fetch(`${PERSON_LOOKUP_URL}?${params}`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-        });
-
-        if (response.ok) {
-          const jsonData: unknown = await response.json();
-          const lookupResult = jsonData as { 
-            linkedin_url?: string; 
-            profile?: ProxyCurlResult; 
-            [key: string]: unknown 
-          };
-
-          if (lookupResult.linkedin_url) {
-            charge(3, "person-lookup", lookupResult.linkedin_url, lookupResult.profile?.experiences?.length);
-            proxycurlPersonLookupCalls++;
-            proxycurlLookupCallsMade++; // Legacy counter
-            
-            console.log(`[MB Step C] Found LinkedIn URL via heuristic: ${lookupResult.linkedin_url}`);
-            
-            // Always perform immediate fresh scrape after successful Person-Lookup
-            if (creditsSpent + 1 > CAP_CREDITS) {
-              throw new Error("Would exceed credit cap before fresh scrape");
-            }
-
-            const freshUrl = `${PROFILE_URL}?url=${encodeURIComponent(lookupResult.linkedin_url)}&use_cache=never&fallback_to_cache=on-error`;
-            
-            console.log(`[MB Step C] Performing immediate fresh scrape`);
-            const freshResp = await fetch(freshUrl, {
-              method: "GET",
-              headers: { Authorization: `Bearer ${PROXYCURL_KEY}` }
-            });
-
-            charge(1, "profile-fresh-scrape", lookupResult.linkedin_url);
-            proxycurlProfileFreshCalls++;
-            proxycurlFreshProfileCallsMade++; // Legacy counter
-
-            let finalProfile = lookupResult.profile ?? null;
-            if (freshResp.ok) {
-              const freshData: unknown = await freshResp.json();
-              const freshProfile = freshData as ProxyCurlResult;
-              console.log(`[MB Step C] Fresh scrape successful (status: ${freshResp.status}), experiences: ${freshProfile.experiences?.length || 0}`);
-              
-              if (freshProfile.experiences?.length) {
-                finalProfile = freshProfile;
-              }
-            } else {
-              console.warn(`[MB Step C] Fresh scrape failed (status: ${freshResp.status}), using cached profile`);
-            }
-            
-            if (await processProfile(lookupResult.linkedin_url, finalProfile, "Step C")) {
-              // Success - profile attached, exit early
-            }
-          } else {
-            console.log(`[MB Step C] No LinkedIn URL found for heuristic domain (no charge)`);
-          }
-        }
-      } catch (error: unknown) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[MB Step C] Heuristic domain lookup failed: ${err.message}`);
-      }
-    }
-
-    // ── STEP D: Fallback to Strict Google Search ────────────────────────
-    if (!linkedInUrl && creditsSpent + 1 <= CAP_CREDITS) {
-      console.log(`[MB Step D] Strict LinkedIn search for "${name}" at "${org}"`);
-      
-      try {
-        const strictQuery = `"${name}" "${org}" site:linkedin.com/in`;
-        const response = await postJSON<{ organic?: SerpResult[] }>(
-          SERPER_API_URL, 
-          { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
-          { "X-API-KEY": SERPER_KEY! }
-        );
-        serperCallsMade++;
-
-        if (response.organic && response.organic.length === 1) {
-          const googleUrl = response.organic[0].link;
-          console.log(`[MB Step D] Found exactly one Google result: ${googleUrl}`);
-          
-          try {
-            const profileUrl = `${PROFILE_URL}?url=${encodeURIComponent(googleUrl)}&use_cache=if-present`;
-            const profileResponse = await fetch(profileUrl, {
-              method: "GET",
-              headers: { Authorization: `Bearer ${PROXYCURL_KEY!}` }
-            });
-            
-            if (profileResponse.ok) {
-              const profileData: unknown = await profileResponse.json();
-              const profile = profileData as ProxyCurlResult;
-              
-              charge(1, "profile-direct", googleUrl, profile.experiences?.length);
-              proxycurlProfileDirectCalls++;
-              proxycurlCallsMade++; // Legacy counter
-
-              if (await processProfile(googleUrl, profile, "Step D")) {
-                // Success - profile attached
-              }
-            }
-          } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            console.error(`[MB Step D] Profile fetch error: ${err.message}`);
-          }
-        } else {
-          console.log(`[MB Step D] Google search returned ${response.organic?.length || 0} results, not exactly 1`);
-        }
-      } catch (error: unknown) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[MB Step D] Google search failed: ${err.message}`);
-      }
-    }
-
-    console.log(`[MB Result] Final credits spent: ${creditsSpent}/${CAP_CREDITS}`);
-    
-    if (!linkedInUrl) {
-      console.log(`[MB Result] No deterministic LinkedIn match found, proceeding without LinkedIn data`);
+      console.log(`[MB] Successfully resolved LinkedIn profile with ${harvestProfile.experience?.length || 0} experiences`);
+    } else {
+      console.log(`[MB] No deterministic LinkedIn match found, proceeding without LinkedIn data`);
     }
 
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[MB Error] LinkedIn resolution failed: ${err.message}`);
-    if (err.message.includes("credit cap exceeded")) {
-      console.warn(`[MB Error] Credit cap exceeded at ${creditsSpent} credits`);
-    }
+    console.error(`[MB Error] Harvest LinkedIn resolution failed: ${err.message}`);
   }
 
   // Apply SERP post-filter whenever we still lack resume data
@@ -725,14 +487,14 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
-  if (hasResumeData && (proxyCurlData as ProxyCurlResult | null)?.experiences) {
+  if (hasResumeData && harvestProfile?.experience) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
-    const priorCompanies = ((proxyCurlData as unknown as ProxyCurlResult).experiences ?? [])
-      .map((exp: LinkedInExperience) => exp.company)
-      .filter((c: string | undefined): c is string => !!c);
+    const priorCompanies = harvestProfile.experience
+      .map(exp => exp.companyName)
+      .filter((c): c is string => !!c);
     const uniquePriorCompanies = priorCompanies
-      .filter((c: string, i: number, arr: string[]) => 
-        i === arr.findIndex((x: string) => normalizeCompanyName(x) === normalizeCompanyName(c)) && 
+      .filter((c, i, arr) => 
+        i === arr.findIndex(x => normalizeCompanyName(x) === normalizeCompanyName(c)) && 
         normalizeCompanyName(c) !== normalizeCompanyName(org)
       )
       .slice(0, 3);
@@ -790,14 +552,17 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         citations: [],
         tokensUsed: 0,
         serperSearchesMade: serperCallsMade,
-        proxycurlCompanyLookupCalls,
-        proxycurlPersonLookupCalls,
-        proxycurlProfileFreshCalls,
-        proxycurlProfileDirectCalls,
-        proxycurlCreditsUsed: creditsSpent,
-        proxycurlCallsMade,
-        proxycurlLookupCallsMade,
-        proxycurlFreshProfileCallsMade,
+        // Harvest credits
+        harvestCreditsUsed: harvestCreditsUsed,
+        // Legacy counters (deprecated but kept for compatibility)
+        proxycurlCompanyLookupCalls: 0,
+        proxycurlPersonLookupCalls: 0,
+        proxycurlProfileFreshCalls: 0,
+        proxycurlProfileDirectCalls: 0,
+        proxycurlCreditsUsed: 0,
+        proxycurlCallsMade: 0,
+        proxycurlLookupCallsMade: 0,
+        proxycurlFreshProfileCallsMade: 0,
         firecrawlAttempts: firecrawlGlobalAttempts,
         firecrawlSuccesses: firecrawlGlobalSuccesses,
         finalSourcesConsidered: [],
@@ -830,9 +595,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       console.warn(`[MB Step 7] Firecrawl global time budget exhausted. Remaining sources use snippets.`);
       for (let j = i; j < sourcesToProcessForLLM.length; j++) {
         const source = sourcesToProcessForLLM[j];
-        extractedTextsForLLM[j] = (source as SerpResult).link === (linkedInProfileResult as SerpResult | null)?.link && (proxyCurlData as ProxyCurlResult | null)?.headline
-          ? `LinkedIn profile for ${name}. Headline: ${(proxyCurlData as unknown as ProxyCurlResult).headline}. URL: ${(source as SerpResult).link}`
-          : `${(source as SerpResult).title}. ${(source as SerpResult).snippet ?? ""}`;
+        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link && harvestProfile?.headline
+          ? `LinkedIn profile for ${name}. Headline: ${harvestProfile.headline}. URL: ${source.link}`
+          : `${source.title}. ${source.snippet ?? ""}`;
       }
       break;
     }
@@ -843,8 +608,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       currentBatch.map(async (batchItem) => {
         const { sourceItem: source, globalIndex, indexInBatch: itemIdxInBatch } = batchItem;
         const attemptInfoForLogs = `Batch ${Math.floor(i / FIRECRAWL_BATCH_SIZE) + 1}, ItemInBatch ${itemIdxInBatch + 1}/${currentBatch.length}, GlobalIdx ${globalIndex + 1}`;
-        if (source.link === linkedInProfileResult?.link && proxyCurlData?.headline) {
-          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`; return;
+        if (source.link === linkedInProfileResult?.link && harvestProfile?.headline) {
+          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. Headline: ${harvestProfile.headline}. URL: ${source.link}`; return;
         }
         if (NO_SCRAPE_URL_SUBSTRINGS.some(skip => source.link.includes(skip))) {
           extractedTextsForLLM[globalIndex] = `${source.title}. ${source.snippet ?? ""}`; return;
@@ -959,23 +724,24 @@ ${llmSourceBlock}
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
 
-  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. Proxycurl credits: ${creditsSpent}/${CAP_CREDITS}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
+  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. Harvest credits: ${harvestCreditsUsed}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
 
   return {
     brief: htmlBriefOutput, 
     citations: finalCitations, 
     tokensUsed: totalTokensUsed,
     serperSearchesMade: serperCallsMade, 
-    // New credit-aware counters
-    proxycurlCompanyLookupCalls,
-    proxycurlPersonLookupCalls,
-    proxycurlProfileFreshCalls,
-    proxycurlProfileDirectCalls,
-    proxycurlCreditsUsed: creditsSpent,
-    // Legacy counters for compatibility
-    proxycurlCallsMade,
-    proxycurlLookupCallsMade,
-    proxycurlFreshProfileCallsMade,
+    // Harvest credits
+    harvestCreditsUsed: harvestCreditsUsed,
+    // Legacy counters (deprecated but kept for compatibility)
+    proxycurlCompanyLookupCalls: 0,
+    proxycurlPersonLookupCalls: 0,
+    proxycurlProfileFreshCalls: 0,
+    proxycurlProfileDirectCalls: 0,
+    proxycurlCreditsUsed: 0,
+    proxycurlCallsMade: 0,
+    proxycurlLookupCallsMade: 0,
+    proxycurlFreshProfileCallsMade: 0,
     firecrawlAttempts: firecrawlGlobalAttempts, 
     firecrawlSuccesses: firecrawlGlobalSuccesses,
     finalSourcesConsidered: sourcesToProcessForLLM.map((s, idx) => ({
@@ -985,3 +751,117 @@ ${llmSourceBlock}
     possibleSocialLinks,
   };
 }
+
+// ── HARVEST PROGRESSIVE PIPELINE (local function) ────
+const resolveLinkedInViaHarvest = async (name: string, org: string): Promise<{profile: HarvestProfileDetail | null; url: string | null}> => {
+  const { first, last } = splitFullName(name);
+  
+  try {
+    // Step 1: Company search
+    console.log(`[Harvest] Company search for "${org}"`);
+    const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { query: org, page: 1 });
+    const companyId = companyHits.elements?.[0]?.id ?? null;
+    
+    // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
+    console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
+    const searchParams: Record<string, unknown> = {
+      query: name,
+      maxItems: 10
+    };
+    if (companyId) {
+      searchParams.companyId = JSON.stringify([companyId]);
+    }
+    
+    const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
+    
+    // Step 3: Scoring & disambiguation
+    const candidates = profHits.elements || [];
+    const scoredCandidates = candidates.map((candidate: HarvestProfileSearchResult['elements'][0]) => {
+      const orgNorm = normalizeCompanyName(org);
+      let score = 0;
+      
+      // Check headline match
+      const headline = (candidate.headline || "").toLowerCase();
+      if (headline.includes(orgNorm)) score++;
+      
+      // Check current position match
+      const currentCompany = normalizeCompanyName(candidate.currentPositions?.[0]?.companyName || "");
+      if (currentCompany === orgNorm) score++;
+      
+      // Check first experience match
+      const exp0Company = normalizeCompanyName(candidate.experience?.[0]?.companyName || "");
+      if (exp0Company === orgNorm) score++;
+      
+      return { candidate, score };
+    });
+    
+    // Find candidates scoring >= 2
+    const highScoreCandidates = scoredCandidates.filter((c: { candidate: HarvestProfileSearchResult['elements'][0]; score: number }) => c.score >= 2);
+    
+    if (highScoreCandidates.length === 1) {
+      // Exactly one confident match - proceed with full scrape
+      const chosen = highScoreCandidates[0].candidate;
+      const linkedinUrl = `https://linkedin.com/in/${chosen.publicIdentifier}`;
+      
+      console.log(`[Harvest] Found confident match (score: ${highScoreCandidates[0].score}): ${linkedinUrl}`);
+      
+      // Step 4: Full profile scrape
+      const fullProfile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: linkedinUrl });
+      
+      return { profile: fullProfile, url: linkedinUrl };
+    }
+    
+    if (highScoreCandidates.length > 1) {
+      console.log(`[Harvest] Multiple candidates scored >= 2 (${highScoreCandidates.length}), falling back to Serper`);
+    } else {
+      console.log(`[Harvest] No candidates scored >= 2, falling back to Serper`);
+    }
+    
+    // Fallback to Serper
+    console.log(`[Harvest] Serper fallback for "${first} ${last}" at "${org}"`);
+    const strictQuery = `site:linkedin.com/in "${first} ${last}" "${org}"`;
+    const response = await postJSON<{ organic?: SerpResult[] }>(
+      SERPER_API_URL, 
+      { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
+      { "X-API-KEY": SERPER_KEY! }
+    );
+
+    if (response.organic) {
+      const scrapedUrls = new Set<string>();
+      
+      for (const result of response.organic.slice(0, 3)) {
+        if (!scrapedUrls.has(result.link)) {
+          scrapedUrls.add(result.link);
+          
+          try {
+            const profile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: result.link });
+            
+            // Apply same scoring logic
+            const orgNorm = normalizeCompanyName(org);
+            let score = 0;
+            
+            if ((profile.headline || "").toLowerCase().includes(orgNorm)) score++;
+            if (normalizeCompanyName(profile.currentPositions?.[0]?.companyName || "") === orgNorm) score++;
+            if (normalizeCompanyName(profile.experience?.[0]?.companyName || "") === orgNorm) score++;
+            
+            if (score >= 2) {
+              console.log(`[Harvest] Serper fallback found match (score: ${score}): ${result.link}`);
+              return { profile, url: result.link };
+            }
+          } catch (error: unknown) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            console.warn(`[Harvest] Serper fallback scrape failed for ${result.link}: ${err.message}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`[Harvest] No confident profile match found`);
+    return { profile: null, url: null };
+    
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`[Harvest] Pipeline failed: ${err.message}`);
+    return { profile: null, url: null };
+  }
+};
