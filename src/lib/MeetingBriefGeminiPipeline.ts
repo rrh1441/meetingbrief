@@ -19,12 +19,19 @@ const {
   SERPER_KEY,
   FIRECRAWL_KEY,
   HARVEST_API_KEY,
+  HARVEST_CREDITS_LEFT,     // optional - see note at bottom
 } = process.env;
 
-const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com/v1";
+const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com";
 
-if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY || !HARVEST_API_KEY) {
-  console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL, HARVEST). Application will not function correctly.");
+// Harvest cost model (from pricing sheet)
+const H_SEARCH_CRED   = 20;     // profile-search upper-bound
+const H_SCRAPE_CRED   = 1;      // single full-profile scrape
+const hCreditsAvail   = parseInt(HARVEST_CREDITS_LEFT ?? "0", 10);
+const canUseHarvest   = HARVEST_API_KEY && hCreditsAvail >= (H_SEARCH_CRED + H_SCRAPE_CRED);
+
+if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY) {
+  console.error("CRITICAL ERROR: Missing one or more API keys (OPENAI, SERPER, FIRECRAWL). Application will not function correctly.");
 }
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
@@ -294,194 +301,13 @@ ${renderUnorderedListWithCitations(llmJsonBrief.researchNotes || [], citationsLi
 </div>`.trim().replace(/^\s*\n/gm, "");
 };
 
-interface HarvestCompanySearchResult {
-  elements: { id: string; name?: string }[];
-}
-
-interface HarvestProfileSearchResult {
-  elements: { 
-    publicIdentifier?: string;
-    firstName?: string; 
-    lastName?: string;
-    headline?: string;
-    summary?: string;
-    currentPositions?: { companyName?: string; title?: string }[];
-    experience?: { companyName?: string; title?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
-  }[];
-}
-
-interface HarvestProfileDetail {
-  publicIdentifier?: string;
-  firstName?: string;
-  lastName?: string;
-  headline?: string;
-  summary?: string;
-  currentPositions?: { companyName?: string; title?: string }[];
-  experience?: { companyName?: string; title?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
-  education?: { schoolName?: string; degreeName?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
-  volunteerExperience?: { role?: string; companyName?: string; startDate?: { year?: number; month?: number }; endDate?: { year?: number; month?: number } | null }[];
-}
-
 /* ── MAIN FUNCTION ──────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(name: string, org: string): Promise<MeetingBriefPayload> {
-  firecrawlGlobalAttempts = 0; 
-  firecrawlGlobalSuccesses = 0;
-  
-  // ──────────────────────────────────────────────────────────────────
-  // NEW Harvest credit counter (reset each invocation)
-  // ──────────────────────────────────────────────────────────────────
+  firecrawlGlobalAttempts = 0;
+
+  /* Harvest/Proxycurl credit bookkeeping */
   let harvestCreditsUsed = 0;
-
-  // ------------------------------------------------------------------
-  // Helper to record Harvest usage from response headers.
-  // REST API returns actual credits used in x-harvest-credits header.
-  // ------------------------------------------------------------------
-  const harvestCharge = (creditsUsed: number, endpoint = "") => {
-    harvestCreditsUsed += creditsUsed;
-    console.log(`[Harvest] endpoint=${endpoint} credits=${creditsUsed} total=${harvestCreditsUsed}`);
-  };
-
-  // Helper function with proper credit tracking from headers
-  const harvestGet = async <T>(path: string, qs: Record<string, string|number|string[]>): Promise<T> => {
-    const url = new URL(HARVEST_BASE + path);
-    Object.entries(qs).forEach(([k,v]) => {
-      if (v !== undefined) {
-        if (Array.isArray(v)) {
-          // Handle arrays like companyId=[123] → companyId[]=123
-          v.forEach(item => url.searchParams.append(k + '[]', String(item)));
-        } else {
-          url.searchParams.append(k, String(v));
-        }
-      }
-    });
-    
-    const resp = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${HARVEST_API_KEY!}` }
-    });
-    if (!resp.ok) {
-      throw new Error(`[Harvest] ${path} → ${resp.status}`);
-    }
-    
-    // Track actual credits from response header (fallback to 1 if not provided)
-    const creditsUsed = parseInt(resp.headers.get("x-harvest-credits") || "1", 10);
-    harvestCharge(creditsUsed, path);
-    
-    return resp.json() as Promise<T>;
-  };
-  
-  // ── HARVEST PROGRESSIVE PIPELINE (local function) ────
-  const resolveLinkedInViaHarvest = async (name: string, org: string): Promise<{profile: HarvestProfileDetail | null; url: string | null}> => {
-    const { first, last } = splitFullName(name);
-    
-    try {
-      // Step 1: Company search
-      console.log(`[Harvest] Company search for "${org}"`);
-      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { search: org, limit: 3 });
-      const companyId = companyHits.elements?.[0]?.id ?? null;
-      
-      // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
-      console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
-      const searchParams: Record<string, string|number|string[]> = {
-        search: name,
-        limit: 10
-      };
-      if (companyId) {
-        searchParams.companyId = companyId;
-      }
-      
-      const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
-      
-      // Step 3: Scoring & disambiguation
-      const candidates = profHits.elements || [];
-      const scoredCandidates = candidates.map((candidate: HarvestProfileSearchResult['elements'][0]) => {
-        const orgNorm = normalizeCompanyName(org);
-        let score = 0;
-        
-        // Check headline match
-        const headline = (candidate.headline || "").toLowerCase();
-        if (headline.includes(orgNorm)) score++;
-        
-        // Check current position match
-        const currentCompany = normalizeCompanyName(candidate.currentPositions?.[0]?.companyName || "");
-        if (currentCompany === orgNorm) score++;
-        
-        // Check first experience match
-        const exp0Company = normalizeCompanyName(candidate.experience?.[0]?.companyName || "");
-        if (exp0Company === orgNorm) score++;
-        
-        return { candidate, score };
-      });
-      
-      // Find candidates scoring >= 2
-      const highScoreCandidates = scoredCandidates.filter((c: { candidate: HarvestProfileSearchResult['elements'][0]; score: number }) => c.score >= 2);
-      
-      if (highScoreCandidates.length === 1) {
-        // Exactly one confident match - proceed with full scrape
-        const chosen = highScoreCandidates[0].candidate;
-        const linkedinUrl = `https://linkedin.com/in/${chosen.publicIdentifier}`;
-        
-        console.log(`[Harvest] Found confident match (score: ${highScoreCandidates[0].score}): ${linkedinUrl}`);
-        
-        // Step 4: Full profile scrape
-        const fullProfile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: linkedinUrl });
-        
-        return { profile: fullProfile, url: linkedinUrl };
-      }
-      
-      if (highScoreCandidates.length > 1) {
-        console.log(`[Harvest] Multiple candidates scored >= 2 (${highScoreCandidates.length}), falling back to Serper`);
-      } else {
-        console.log(`[Harvest] No candidates scored >= 2, falling back to Serper`);
-      }
-      
-      // Fallback to Serper
-      console.log(`[Harvest] Serper fallback for "${first} ${last}" at "${org}"`);
-      const strictQuery = `site:linkedin.com/in "${first} ${last}" "${org}"`;
-      const response = await postJSON<{ organic?: SerpResult[] }>(
-        SERPER_API_URL, 
-        { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
-        { "X-API-KEY": SERPER_KEY! }
-      );
-
-      if (response.organic) {
-        const scrapedUrls = new Set<string>();
-        
-        for (const result of response.organic.slice(0, 3)) {
-          if (!scrapedUrls.has(result.link)) {
-            scrapedUrls.add(result.link);
-            
-            try {
-              const profile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: result.link });
-              
-              // Apply same scoring logic
-              const orgNorm = normalizeCompanyName(org);
-              let score = 0;
-              
-              if ((profile.headline || "").toLowerCase().includes(orgNorm)) score++;
-              if (normalizeCompanyName(profile.currentPositions?.[0]?.companyName || "") === orgNorm) score++;
-              if (normalizeCompanyName(profile.experience?.[0]?.companyName || "") === orgNorm) score++;
-              
-              if (score >= 2) {
-                console.log(`[Harvest] Serper fallback found match (score: ${score}): ${result.link}`);
-                return { profile, url: result.link };
-              }
-            } catch (error: unknown) {
-              const err = error instanceof Error ? error : new Error(String(error));
-              console.warn(`[Harvest] Serper fallback scrape failed for ${result.link}: ${err.message}`);
-            }
-          }
-        }
-      }
-      
-      console.log(`[Harvest] No confident profile match found`);
-      return { profile: null, url: null };
-      
-    } catch (error: unknown) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      console.error(`[Harvest] Pipeline failed: ${err.message}`);
-      return { profile: null, url: null };
-    }
-  };
+  firecrawlGlobalSuccesses = 0;
   
   // Initialize counters
   let serperCallsMade = 0;
@@ -489,83 +315,74 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const startTime = Date.now();
   let collectedSerpResults: SerpResult[] = [];
   let linkedInProfileResult: SerpResult | null = null;
-  let linkedInUrl: string | null = null;
-  let harvestProfile: HarvestProfileDetail | null = null;
+  let proxyCurlData: ProxyCurlResult | null = null;
   let jobHistoryTimeline: string[] = [];
 
-  console.log(`[MB Pipeline] Starting Harvest LinkedIn resolution for "${name}" at "${org}"`);
+  const { first, last } = splitFullName(name);
+  console.log(`[MB Pipeline] Starting LinkedIn resolution for "${first} ${last}" at "${org}"`);
 
-  try {
-    // Use the new Harvest progressive pipeline
-    const result = await resolveLinkedInViaHarvest(name, org);
-    harvestProfile = result.profile;
-    linkedInUrl = result.url;
+  /* ─────────────  H A R V E S T   P I P E L I N E  ───────────── */
+  if (canUseHarvest) {
+    try {
+      console.log(`[Harvest] Company search for "${org}"`);
+      type CompanySearch = { elements: { id: string }[] };
+      const comp = await harvestGet<CompanySearch>("/linkedin/company-search", { search: org, limit: "3" });
+      const companyId = comp.elements?.[0]?.id;
 
-    if (harvestProfile && linkedInUrl) {
-      // Build comprehensive resume data with proper ordering
-      const lines: string[] = [];
-      
-      // Experience section
-      const experiences = harvestProfile.experience ?? [];
-      for (const exp of experiences) {
-        const startYear = exp.startDate?.year ? exp.startDate.year.toString() : "?";
-        const endYear = exp.endDate?.year ? exp.endDate.year.toString() : "Present";
-        lines.push(`${exp.title ?? "Role"} — ${exp.companyName ?? "Company"} (${startYear} – ${endYear})`);
-      }
-      
-      // Education section
-      const education = harvestProfile.education ?? [];
-      for (const ed of education) {
-        const startYear = ed.startDate?.year ? ed.startDate.year.toString() : "?";
-        const endYear = ed.endDate?.year ? ed.endDate.year.toString() : "?";
-        lines.push(
-          `Education — ${ed.schoolName ?? "School"}${ed.degreeName ? `, ${ed.degreeName}` : ""}` +
-          (ed.startDate?.year || ed.endDate?.year ? ` (${startYear}–${endYear})` : "")
-        );
-      }
-      
-      // Volunteer section
-      const volunteerWork = harvestProfile.volunteerExperience ?? [];
-      for (const v of volunteerWork) {
-        const startYear = v.startDate?.year ? v.startDate.year.toString() : "?";
-        const endYear = v.endDate?.year ? v.endDate.year.toString() : "?";
-        lines.push(
-          `Volunteer — ${v.role ?? "Role"} at ${v.companyName ?? "Org"}` +
-          (v.startDate?.year || v.endDate?.year ? ` (${startYear}–${endYear})` : "")
-        );
-      }
-      
-      // Set timeline and hasResumeData flag
-      if (lines.length === 0) {
-        jobHistoryTimeline = [
-          "LinkedIn sections are private — résumé details pulled instead from public web sources (see Highlights & Notes below)."
-        ];
+      if (companyId) {
+        harvestCreditsUsed += 10;           // company-search always 10
+
+        console.log(`[Harvest] Profile search for "${name}" (companyId=${companyId})`);
+        type ProfSearch = { elements: { linkedinUrl:string; name:string; headline?:string; position?:string; }[] };
+        const prof = await harvestGet<ProfSearch>("/linkedin/profile-search",
+                          { search: name, companyId, limit: "5" });
+        harvestCreditsUsed += H_SEARCH_CRED;
+
+        const normOrg = normalizeCompanyName(org);
+        const scored = prof.elements.map(p => {
+          const lastOk  = normalizeCompanyName(p.name.split(" ").slice(-1).join(" ")) === normalizeCompanyName(last);
+          const inHead  = (p.headline||"").toLowerCase().includes(normOrg);
+          const inPos   = (p.position||"").toLowerCase().includes(normOrg);
+          return { p, score: +lastOk + +inHead + +inPos };
+        }).filter(x => x.score >= 2);
+
+        if (scored.length === 1) {
+          const url = scored[0].p.linkedinUrl;
+          console.log(`[Harvest] Scraping full profile ${url}`);
+          type Full = { experiences?: LinkedInExperience[]; education?:unknown[]; volunteer?:unknown[]; headline?:string };
+          const full = await harvestGet<Full>("/linkedin/profile", { url });
+          harvestCreditsUsed += H_SCRAPE_CRED;
+
+          // populate timeline & flags -----------------------------------
+          proxyCurlData = full as unknown as ProxyCurlResult;  // reuse structure
+          (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData = !!(full.experiences?.length || full.education?.length || full.volunteer?.length);
+
+          jobHistoryTimeline = (full.experiences||[]).map(e =>
+            `${e.title||"Role"} — ${e.company||"Company"} (${formatJobSpanFromProxyCurl(e.starts_at,e.ends_at)})`
+          );
+
+          linkedInProfileResult = {
+            title: `${name} | LinkedIn`,
+            link: url,
+            snippet: full.headline ?? `LinkedIn profile for ${name}`
+          };
+          
+          collectedSerpResults.push(linkedInProfileResult);
+          console.log(`[MB] Successfully resolved LinkedIn profile with ${full.experiences?.length || 0} experiences`);
+
+          console.log("[Harvest] High-confidence profile found via Harvest.");
+        } else {
+          console.log(`[Harvest] 0 or >1 high-score hits (${scored.length}) – skipping.`);
+        }
       } else {
-        jobHistoryTimeline = lines;
+        console.log("[Harvest] Company search returned 0 results.");
       }
-      
-      // Global flag for resume data availability
-      (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData = !!(
-        experiences.length ||
-        education.length ||
-        volunteerWork.length
-      );
-      
-      linkedInProfileResult = {
-        title: `${name} | LinkedIn`,
-        link: linkedInUrl,
-        snippet: harvestProfile.headline ?? `LinkedIn profile for ${name}`
-      };
-      
-      collectedSerpResults.push(linkedInProfileResult);
-      console.log(`[MB] Successfully resolved LinkedIn profile with ${harvestProfile.experience?.length || 0} experiences`);
-    } else {
-      console.log(`[MB] No deterministic LinkedIn match found, proceeding without LinkedIn data`);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[Harvest] Pipeline failed: ${error.message}`);
     }
-
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[MB Error] Harvest LinkedIn resolution failed: ${err.message}`);
+  } else {
+    console.log("[Harvest] Skipped – no API key or not enough credits.");
   }
 
   // Apply SERP post-filter whenever we still lack resume data
@@ -616,10 +433,10 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
-  if (hasResumeData && harvestProfile?.experience) {
+  if (hasResumeData && proxyCurlData?.experiences) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
-    const priorCompanies = harvestProfile.experience
-      .map(exp => exp.companyName)
+    const priorCompanies = proxyCurlData.experiences
+      .map(exp => exp.company)
       .filter((c): c is string => !!c);
     const uniquePriorCompanies = priorCompanies
       .filter((c, i, arr) => 
@@ -736,8 +553,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       console.warn(`[MB Step 7] Firecrawl global time budget exhausted. Remaining sources use snippets.`);
       for (let j = i; j < sourcesToProcessForLLM.length; j++) {
         const source = sourcesToProcessForLLM[j];
-        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link && harvestProfile?.headline
-          ? `LinkedIn profile for ${name}. Headline: ${harvestProfile.headline}. URL: ${source.link}`
+        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link && proxyCurlData?.headline
+          ? `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`
           : `${source.title}. ${source.snippet ?? ""}`;
       }
       break;
@@ -749,8 +566,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       currentBatch.map(async (batchItem) => {
         const { sourceItem: source, globalIndex, indexInBatch: itemIdxInBatch } = batchItem;
         const attemptInfoForLogs = `Batch ${Math.floor(i / FIRECRAWL_BATCH_SIZE) + 1}, ItemInBatch ${itemIdxInBatch + 1}/${currentBatch.length}, GlobalIdx ${globalIndex + 1}`;
-        if (source.link === linkedInProfileResult?.link && harvestProfile?.headline) {
-          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. Headline: ${harvestProfile.headline}. URL: ${source.link}`; return;
+        if (source.link === linkedInProfileResult?.link && proxyCurlData?.headline) {
+          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`; return;
         }
         if (NO_SCRAPE_URL_SUBSTRINGS.some(skip => source.link.includes(skip))) {
           extractedTextsForLLM[globalIndex] = `${source.title}. ${source.snippet ?? ""}`; return;
@@ -892,3 +709,20 @@ ${llmSourceBlock}
     possibleSocialLinks,
   };
 }
+
+/* ── Harvest helper ────────────────────────────────────────────────────── */
+const harvestGet = async <T>(endpoint: string, qs: Record<string, string>): Promise<T> => {
+  const url = `${HARVEST_BASE}${endpoint}?` + new URLSearchParams(qs).toString();
+  const resp = await fetch(url, { headers: { "X-API-Key": HARVEST_API_KEY! } });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`[Harvest] ${endpoint} → ${resp.status}\n${body.slice(0,300)}`);
+  }
+  return resp.json() as Promise<T>;
+};
+
+const formatJobSpanFromProxyCurl = (starts_at?: YearMonthDay, ends_at?: YearMonthDay): string => {
+  const startYear = starts_at?.year ? starts_at.year.toString() : "?";
+  const endYear = ends_at?.year ? ends_at.year.toString() : "Present";
+  return `${startYear} – ${endYear}`;
+};
