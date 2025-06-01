@@ -162,7 +162,6 @@ interface LinkedInResolutionResult {
 }
 
 /* ── LinkedIn Person Lookup Helpers ─────────────────────────────────────── */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const splitFullName = (fullName: string): { first: string; last: string } => {
   const nameParts = fullName.trim().split(/\s+/);
   if (nameParts.length === 1) {
@@ -338,7 +337,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   };
 
   // Helper function with local harvestCharge
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const harvestGet = async <T>(path: string, qs: Record<string, unknown>): Promise<T> => {
     // stringify every defined value to keep URLSearchParams happy
     const clean: Record<string,string> = {};
@@ -352,6 +350,120 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     }
     harvestCharge(1, path);
     return resp.json() as Promise<T>;
+  };
+  
+  // ── HARVEST PROGRESSIVE PIPELINE (local function) ────
+  const resolveLinkedInViaHarvest = async (name: string, org: string): Promise<{profile: HarvestProfileDetail | null; url: string | null}> => {
+    const { first, last } = splitFullName(name);
+    
+    try {
+      // Step 1: Company search
+      console.log(`[Harvest] Company search for "${org}"`);
+      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { query: org, page: 1 });
+      const companyId = companyHits.elements?.[0]?.id ?? null;
+      
+      // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
+      console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
+      const searchParams: Record<string, unknown> = {
+        query: name,
+        maxItems: 10
+      };
+      if (companyId) {
+        searchParams.companyId = JSON.stringify([companyId]);
+      }
+      
+      const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
+      
+      // Step 3: Scoring & disambiguation
+      const candidates = profHits.elements || [];
+      const scoredCandidates = candidates.map((candidate: HarvestProfileSearchResult['elements'][0]) => {
+        const orgNorm = normalizeCompanyName(org);
+        let score = 0;
+        
+        // Check headline match
+        const headline = (candidate.headline || "").toLowerCase();
+        if (headline.includes(orgNorm)) score++;
+        
+        // Check current position match
+        const currentCompany = normalizeCompanyName(candidate.currentPositions?.[0]?.companyName || "");
+        if (currentCompany === orgNorm) score++;
+        
+        // Check first experience match
+        const exp0Company = normalizeCompanyName(candidate.experience?.[0]?.companyName || "");
+        if (exp0Company === orgNorm) score++;
+        
+        return { candidate, score };
+      });
+      
+      // Find candidates scoring >= 2
+      const highScoreCandidates = scoredCandidates.filter((c: { candidate: HarvestProfileSearchResult['elements'][0]; score: number }) => c.score >= 2);
+      
+      if (highScoreCandidates.length === 1) {
+        // Exactly one confident match - proceed with full scrape
+        const chosen = highScoreCandidates[0].candidate;
+        const linkedinUrl = `https://linkedin.com/in/${chosen.publicIdentifier}`;
+        
+        console.log(`[Harvest] Found confident match (score: ${highScoreCandidates[0].score}): ${linkedinUrl}`);
+        
+        // Step 4: Full profile scrape
+        const fullProfile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: linkedinUrl });
+        
+        return { profile: fullProfile, url: linkedinUrl };
+      }
+      
+      if (highScoreCandidates.length > 1) {
+        console.log(`[Harvest] Multiple candidates scored >= 2 (${highScoreCandidates.length}), falling back to Serper`);
+      } else {
+        console.log(`[Harvest] No candidates scored >= 2, falling back to Serper`);
+      }
+      
+      // Fallback to Serper
+      console.log(`[Harvest] Serper fallback for "${first} ${last}" at "${org}"`);
+      const strictQuery = `site:linkedin.com/in "${first} ${last}" "${org}"`;
+      const response = await postJSON<{ organic?: SerpResult[] }>(
+        SERPER_API_URL, 
+        { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
+        { "X-API-KEY": SERPER_KEY! }
+      );
+
+      if (response.organic) {
+        const scrapedUrls = new Set<string>();
+        
+        for (const result of response.organic.slice(0, 3)) {
+          if (!scrapedUrls.has(result.link)) {
+            scrapedUrls.add(result.link);
+            
+            try {
+              const profile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: result.link });
+              
+              // Apply same scoring logic
+              const orgNorm = normalizeCompanyName(org);
+              let score = 0;
+              
+              if ((profile.headline || "").toLowerCase().includes(orgNorm)) score++;
+              if (normalizeCompanyName(profile.currentPositions?.[0]?.companyName || "") === orgNorm) score++;
+              if (normalizeCompanyName(profile.experience?.[0]?.companyName || "") === orgNorm) score++;
+              
+              if (score >= 2) {
+                console.log(`[Harvest] Serper fallback found match (score: ${score}): ${result.link}`);
+                return { profile, url: result.link };
+              }
+            } catch (error: unknown) {
+              const err = error instanceof Error ? error : new Error(String(error));
+              console.warn(`[Harvest] Serper fallback scrape failed for ${result.link}: ${err.message}`);
+            }
+          }
+        }
+      }
+      
+      console.log(`[Harvest] No confident profile match found`);
+      return { profile: null, url: null };
+      
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[Harvest] Pipeline failed: ${err.message}`);
+      return { profile: null, url: null };
+    }
   };
   
   // Initialize counters
@@ -751,117 +863,3 @@ ${llmSourceBlock}
     possibleSocialLinks,
   };
 }
-
-// ── HARVEST PROGRESSIVE PIPELINE (local function) ────
-const resolveLinkedInViaHarvest = async (name: string, org: string): Promise<{profile: HarvestProfileDetail | null; url: string | null}> => {
-  const { first, last } = splitFullName(name);
-  
-  try {
-    // Step 1: Company search
-    console.log(`[Harvest] Company search for "${org}"`);
-    const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { query: org, page: 1 });
-    const companyId = companyHits.elements?.[0]?.id ?? null;
-    
-    // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
-    console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
-    const searchParams: Record<string, unknown> = {
-      query: name,
-      maxItems: 10
-    };
-    if (companyId) {
-      searchParams.companyId = JSON.stringify([companyId]);
-    }
-    
-    const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
-    
-    // Step 3: Scoring & disambiguation
-    const candidates = profHits.elements || [];
-    const scoredCandidates = candidates.map((candidate: HarvestProfileSearchResult['elements'][0]) => {
-      const orgNorm = normalizeCompanyName(org);
-      let score = 0;
-      
-      // Check headline match
-      const headline = (candidate.headline || "").toLowerCase();
-      if (headline.includes(orgNorm)) score++;
-      
-      // Check current position match
-      const currentCompany = normalizeCompanyName(candidate.currentPositions?.[0]?.companyName || "");
-      if (currentCompany === orgNorm) score++;
-      
-      // Check first experience match
-      const exp0Company = normalizeCompanyName(candidate.experience?.[0]?.companyName || "");
-      if (exp0Company === orgNorm) score++;
-      
-      return { candidate, score };
-    });
-    
-    // Find candidates scoring >= 2
-    const highScoreCandidates = scoredCandidates.filter((c: { candidate: HarvestProfileSearchResult['elements'][0]; score: number }) => c.score >= 2);
-    
-    if (highScoreCandidates.length === 1) {
-      // Exactly one confident match - proceed with full scrape
-      const chosen = highScoreCandidates[0].candidate;
-      const linkedinUrl = `https://linkedin.com/in/${chosen.publicIdentifier}`;
-      
-      console.log(`[Harvest] Found confident match (score: ${highScoreCandidates[0].score}): ${linkedinUrl}`);
-      
-      // Step 4: Full profile scrape
-      const fullProfile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: linkedinUrl });
-      
-      return { profile: fullProfile, url: linkedinUrl };
-    }
-    
-    if (highScoreCandidates.length > 1) {
-      console.log(`[Harvest] Multiple candidates scored >= 2 (${highScoreCandidates.length}), falling back to Serper`);
-    } else {
-      console.log(`[Harvest] No candidates scored >= 2, falling back to Serper`);
-    }
-    
-    // Fallback to Serper
-    console.log(`[Harvest] Serper fallback for "${first} ${last}" at "${org}"`);
-    const strictQuery = `site:linkedin.com/in "${first} ${last}" "${org}"`;
-    const response = await postJSON<{ organic?: SerpResult[] }>(
-      SERPER_API_URL, 
-      { q: strictQuery, num: 3, gl: "us", hl: "en" }, 
-      { "X-API-KEY": SERPER_KEY! }
-    );
-
-    if (response.organic) {
-      const scrapedUrls = new Set<string>();
-      
-      for (const result of response.organic.slice(0, 3)) {
-        if (!scrapedUrls.has(result.link)) {
-          scrapedUrls.add(result.link);
-          
-          try {
-            const profile = await harvestGet<HarvestProfileDetail>("/linkedin-profile-scraper", { url: result.link });
-            
-            // Apply same scoring logic
-            const orgNorm = normalizeCompanyName(org);
-            let score = 0;
-            
-            if ((profile.headline || "").toLowerCase().includes(orgNorm)) score++;
-            if (normalizeCompanyName(profile.currentPositions?.[0]?.companyName || "") === orgNorm) score++;
-            if (normalizeCompanyName(profile.experience?.[0]?.companyName || "") === orgNorm) score++;
-            
-            if (score >= 2) {
-              console.log(`[Harvest] Serper fallback found match (score: ${score}): ${result.link}`);
-              return { profile, url: result.link };
-            }
-          } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            console.warn(`[Harvest] Serper fallback scrape failed for ${result.link}: ${err.message}`);
-          }
-        }
-      }
-    }
-    
-    console.log(`[Harvest] No confident profile match found`);
-    return { profile: null, url: null };
-    
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[Harvest] Pipeline failed: ${err.message}`);
-    return { profile: null, url: null };
-  }
-};
