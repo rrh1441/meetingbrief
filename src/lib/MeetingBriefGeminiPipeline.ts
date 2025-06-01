@@ -23,9 +23,6 @@ const {
 
 const HARVEST_BASE = process.env.HARVEST_BASE || "https://api.harvest-api.com";
 
-// Harvest cost model (from pricing sheet)
-const H_SEARCH_CRED   = 20;     // profile-search upper-bound
-const H_SCRAPE_CRED   = 1;      // single full-profile scrape
 // run Harvest whenever we have an API key – let the API itself reject if the quota is exhausted
 const canUseHarvest = Boolean(HARVEST_API_KEY);
 
@@ -304,8 +301,8 @@ ${renderUnorderedListWithCitations(llmJsonBrief.researchNotes || [], citationsLi
 export async function buildMeetingBriefGemini(name: string, org: string): Promise<MeetingBriefPayload> {
   firecrawlGlobalAttempts = 0;
 
-  /* Harvest/Proxycurl credit bookkeeping */
-  let harvestCreditsUsed = 0;
+  /* Track whether Harvest threw a quota/auth error */
+  let harvestErrored = false;
   firecrawlGlobalSuccesses = 0;
   
   // Initialize counters
@@ -329,13 +326,13 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       const companyId = comp.elements?.[0]?.id;
 
       if (companyId) {
-        harvestCreditsUsed += 10;           // company-search always 10
+        /* company-search succeeded — no credit bookkeeping */
 
         console.log(`[Harvest] Profile search for "${name}" (companyId=${companyId})`);
         type ProfSearch = { elements: { linkedinUrl:string; name:string; headline?:string; position?:string; }[] };
         const prof = await harvestGet<ProfSearch>("/linkedin/profile-search",
                           { search: name, companyId, limit: "5" });
-        harvestCreditsUsed += H_SEARCH_CRED;
+        /* profile-search succeeded */
 
         const normOrg = normalizeCompanyName(org);
         const scored = prof.elements.map(p => {
@@ -350,11 +347,11 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
           console.log(`[Harvest] Scraping full profile ${url}`);
           type Full = { experiences?: LinkedInExperience[]; education?:unknown[]; volunteer?:unknown[]; headline?:string };
           const full = await harvestGet<Full>("/linkedin/profile", { url });
-          harvestCreditsUsed += H_SCRAPE_CRED;
+          /* full-profile scrape succeeded */
 
           // populate timeline & flags -----------------------------------
           proxyCurlData = full as unknown as ProxyCurlResult;  // reuse structure
-          (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData = !!(full.experiences?.length || full.education?.length || full.volunteer?.length);
+          (globalThis as { hasResumeData?: boolean }).hasResumeData = !!(full.experiences?.length || full.education?.length || full.volunteer?.length);
 
           jobHistoryTimeline = (full.experiences||[]).map(e =>
             `${e.title||"Role"} — ${e.company||"Company"} (${formatJobSpanFromProxyCurl(e.starts_at,e.ends_at)})`
@@ -378,14 +375,15 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
+      harvestErrored = true;
       console.warn(`[Harvest] Pipeline failed: ${error.message}`);
     }
   } else {
-    console.log("[Harvest] Skipped – no API key or not enough credits.");
+    console.log("[Harvest] Skipped – no API key.");
   }
 
   // Apply SERP post-filter whenever we still lack resume data
-  const hasResumeData = (globalThis as unknown as { hasResumeData?: boolean }).hasResumeData ?? false;
+  const hasResumeData = (globalThis as { hasResumeData?: boolean }).hasResumeData ?? false;
   if (!hasResumeData) {
     const orgToken = normalizeCompanyName(org);
     const heuristicDomain = `${slugifyCompanyName(org)}.com`;
@@ -465,7 +463,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   // This closes the loophole where later Serper queries re-introduce
   // irrelevant matches (e.g., the college-football Thomas Nance).
   // ------------------------------------------------------------------------
-  if (!(globalThis as unknown as { hasResumeData?: boolean }).hasResumeData) {
+  if (!(globalThis as { hasResumeData?: boolean }).hasResumeData) {
     const orgTok   = normalizeCompanyName(org);
     const domHint  = `${slugifyCompanyName(org)}.com`;
     const nameTok  = name.toLowerCase();
@@ -498,7 +496,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         tokensUsed: 0,
         serperSearchesMade: serperCallsMade,
         // Harvest credits
-        harvestCreditsUsed: harvestCreditsUsed,
+        harvestCreditsUsed: 0,
         // Legacy counters (deprecated but kept for compatibility)
         proxycurlCompanyLookupCalls: 0,
         proxycurlPersonLookupCalls: 0,
@@ -681,7 +679,7 @@ ${llmSourceBlock}
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
 
-  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. Harvest credits: ${harvestCreditsUsed}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
+  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. HarvestErrored=${harvestErrored}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
 
   return {
     brief: htmlBriefOutput, 
@@ -689,7 +687,7 @@ ${llmSourceBlock}
     tokensUsed: totalTokensUsed,
     serperSearchesMade: serperCallsMade, 
     // Harvest credits
-    harvestCreditsUsed: harvestCreditsUsed,
+    harvestCreditsUsed: 0,
     // Legacy counters (deprecated but kept for compatibility)
     proxycurlCompanyLookupCalls: 0,
     proxycurlPersonLookupCalls: 0,
