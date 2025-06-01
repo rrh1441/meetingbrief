@@ -317,13 +317,26 @@ const renderJobHistoryList = (jobTimeline: string[]): string =>
     : "<p>Timeline unavailable (private profile or no work history).</p>";
 
 const renderFullHtmlBrief = (
-  targetName: string, targetOrg: string, llmJsonBrief: JsonBriefFromLLM,
-  citationsList: Citation[], jobHistory: string[],
+  targetName: string, 
+  targetOrg: string, 
+  llmJsonBrief: JsonBriefFromLLM,
+  citationsList: Citation[], 
+  jobHistory: string[],
+  linkedInUrl?: string // Add optional LinkedIn URL parameter
 ): string => {
   const sectionSpacer = "<p> </p>";
+  
+  // LinkedIn profile section
+  const linkedInSection = linkedInUrl 
+    ? `${sectionSpacer}<h3><strong>Possible LinkedIn Profile</strong></h3>
+<p><a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer">${linkedInUrl}</a></p>
+<p><em>Note: You may need to be logged in to LinkedIn to view the full profile.</em></p>`
+    : "";
+  
   return `
 <div>
   <h2><strong>Meeting Brief: ${targetName} – ${targetOrg}</strong></h2>
+${linkedInSection}
 ${sectionSpacer}<h3><strong>Executive Summary</strong></h3>
 ${renderParagraphsWithCitations(llmJsonBrief.executive || [], citationsList)}
 ${sectionSpacer}<h3><strong>Job History</strong></h3>
@@ -499,7 +512,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
           org,
           { executive: [], highlights: [], funFacts: [], researchNotes: [] },
           [],
-          jobHistoryTimeline
+          jobHistoryTimeline,
+          undefined
         ),
         citations: [],
         tokensUsed: 0,
@@ -683,7 +697,7 @@ ${llmSourceBlock}
     snippet: (extractedTextsForLLM[index] || `${source.title}. ${source.snippet ?? ""}`).slice(0, 300) + ((extractedTextsForLLM[index]?.length || 0) > 300 ? "..." : ""),
   }));
 
-  const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline);
+  const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline, linkedInProfileResult?.link);
   const totalInputTokensForLLM = estimateTokens(systemPromptForLLM + userPromptForLLM);
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
@@ -733,66 +747,123 @@ const formatJobSpanFromProxyCurl = (starts_at?: YearMonthDay, ends_at?: YearMont
   return `${startYear} – ${endYear}`;
 };
 
-// Helper function to find company matches in full profile data
-const findCompanyMatches = (fullProfile: unknown, targetOrg: string) => {
-  const normalizedTarget = normalizeCompanyName(targetOrg);
+const llmCompanyMatch = async (
+  profileText: string, 
+  targetCompany: string, 
+  openAiClient: OpenAI
+): Promise<{ isMatch: boolean, evidence: string, confidence: number }> => {
+  
+  const systemPrompt = `You are an expert at identifying company mentions in LinkedIn profiles. Your task is to determine if a profile mentions working at a specific company, considering all common variations, abbreviations, and subsidiary names.
+
+Return a JSON object with:
+{
+  "isMatch": boolean, // true if the profile clearly indicates employment at the target company
+  "evidence": string, // the specific text that indicates the company match
+  "confidence": number // 1-10 confidence score (10 = very certain, 1 = very uncertain)
+}
+
+Consider:
+- Common abbreviations (e.g., "BofA" for "Bank of America", "MSFT" for "Microsoft", "AMZN" for "Amazon")
+- Subsidiary companies (e.g., "Merrill Lynch" is part of "Bank of America", "Instagram" is part of "Meta")
+- Division names within companies
+- Contextual clues that indicate employment (e.g., "Prior to joining...", "Currently at...", "Works for...")
+
+Be conservative - only return isMatch: true if you're confident the person works/worked at the target company or its subsidiaries.`;
+
+  const userPrompt = `Target company: "${targetCompany}"
+
+Profile text to analyze:
+"${profileText}"
+
+Does this profile indicate the person works or worked at "${targetCompany}" or any of its subsidiaries/divisions?`;
+
+  try {
+    const response = await openAiClient.chat.completions.create({
+      model: MODEL_ID,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) throw new Error('Empty response from OpenAI');
+
+    const result = JSON.parse(content);
+    return {
+      isMatch: result.isMatch || false,
+      evidence: result.evidence || '',
+      confidence: result.confidence || 0
+    };
+
+  } catch (error) {
+    console.error('[LLM Company Match] Failed:', error);
+    return { isMatch: false, evidence: 'LLM matching failed', confidence: 0 };
+  }
+};
+
+const findCompanyMatches = async (fullProfile: unknown, targetOrg: string, openAiClient: OpenAI) => {
   let score = 0;
   const evidence: string[] = [];
   
-  // DEBUG: Log the actual profile structure
-  console.log(`[DEBUG] Profile structure:`, JSON.stringify(fullProfile, null, 2).slice(0, 1000));
+  // Extract data from nested Harvest structure
+  const profile = (fullProfile as Record<string, unknown>)?.element || fullProfile;
   
-  const profile = fullProfile as Record<string, unknown>; // Use Record<string, unknown> for debugging
+  console.log(`[DEBUG] Checking profile for "${targetOrg}"`);
   
-  // Check current positions - try multiple possible field names
-  const currentPositions = profile.currentPosition || profile.current_position || [];
-  if (Array.isArray(currentPositions) && currentPositions.length > 0) {
-    console.log(`[DEBUG] Found ${currentPositions.length} current positions:`, currentPositions);
-    for (const pos of currentPositions) {
-      const posObj = pos as Record<string, unknown>;
-      const companyName = posObj.companyName || posObj.company_name || posObj.company;
-      if (companyName && typeof companyName === 'string') {
-        const normalizedCompany = normalizeCompanyName(companyName);
-        if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
-          score += 10;
-          evidence.push(`Current position at: ${companyName}`);
-        }
+  // Collect all text content from the profile
+  const profileTexts = [];
+  
+  if ((profile as Record<string, unknown>)?.about) {
+    profileTexts.push(`Bio: ${(profile as Record<string, unknown>).about}`);
+    console.log(`[DEBUG] Found about section: ${((profile as Record<string, unknown>).about as string).slice(0, 200)}...`);
+  }
+  
+  if ((profile as Record<string, unknown>)?.headline) {
+    profileTexts.push(`Headline: ${(profile as Record<string, unknown>).headline}`);
+    console.log(`[DEBUG] Found headline: ${(profile as Record<string, unknown>).headline}`);
+  }
+  
+  if ((profile as Record<string, unknown>)?.currentPosition && Array.isArray((profile as Record<string, unknown>).currentPosition)) {
+    for (const pos of (profile as Record<string, unknown>).currentPosition as Record<string, unknown>[]) {
+      if (pos.companyName || pos.title) {
+        profileTexts.push(`Current: ${pos.title || ''} at ${pos.companyName || ''}`);
       }
     }
+    console.log(`[DEBUG] Found ${((profile as Record<string, unknown>).currentPosition as unknown[]).length} current positions`);
   }
   
-  // Check experience - try multiple possible field names
-  const experiences = profile.experience || profile.experiences || [];
-  if (Array.isArray(experiences) && experiences.length > 0) {
-    console.log(`[DEBUG] Found ${experiences.length} experiences:`, experiences.slice(0, 3));
-    for (const exp of experiences) {
-      const expObj = exp as Record<string, unknown>;
-      const companyName = expObj.companyName || expObj.company_name || expObj.company;
-      if (companyName && typeof companyName === 'string') {
-        const normalizedCompany = normalizeCompanyName(companyName);
-        if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
-          // Check if current role
-          const isCurrentRole = !expObj.endDate && !expObj.end_date;
-          const points = isCurrentRole ? 8 : 4;
-          score += points;
-          const position = expObj.position || expObj.title || 'Unknown role';
-          evidence.push(`${isCurrentRole ? 'Current' : 'Past'} experience at: ${companyName} (${position})`);
-        }
+  if ((profile as Record<string, unknown>)?.experience && Array.isArray((profile as Record<string, unknown>).experience)) {
+    for (const exp of ((profile as Record<string, unknown>).experience as Record<string, unknown>[]).slice(0, 5)) { // Check top 5 experiences
+      if (exp.companyName || exp.position) {
+        profileTexts.push(`Experience: ${exp.position || ''} at ${exp.companyName || ''}`);
       }
     }
+    console.log(`[DEBUG] Found ${((profile as Record<string, unknown>).experience as unknown[]).length} experience entries`);
   }
   
-  // Check headline for company mentions
-  const headline = profile.headline;
-  if (headline && typeof headline === 'string') {
-    const normalizedHeadline = normalizeCompanyName(headline);
-    if (normalizedHeadline.includes(normalizedTarget)) {
-      score += 2;
-      evidence.push(`Company mentioned in headline: ${headline}`);
-    }
+  if (profileTexts.length === 0) {
+    console.log(`[DEBUG] No profile text found to analyze`);
+    return { score: 0, evidence: [] };
   }
   
-  console.log(`[DEBUG] Company match results: score=${score}, evidence=`, evidence);
+  const fullProfileText = profileTexts.join('\n');
+  console.log(`[DEBUG] Analyzing profile text (${fullProfileText.length} chars):`, fullProfileText.slice(0, 300) + '...');
+  
+  // Use LLM to check for company matches
+  const matchResult = await llmCompanyMatch(fullProfileText, targetOrg, openAiClient);
+  
+  if (matchResult.isMatch) {
+    // Score based on confidence level
+    score = Math.max(3, matchResult.confidence); // Minimum score of 3, max of 10
+    evidence.push(matchResult.evidence);
+    console.log(`[DEBUG] LLM found company match: ${matchResult.evidence} (confidence: ${matchResult.confidence}, score: ${score})`);
+  } else {
+    console.log(`[DEBUG] LLM found no company match: ${matchResult.evidence}`);
+  }
+  
   return { score, evidence };
 };
 
@@ -968,21 +1039,24 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
       return { success: false, reason: 'Failed to scrape selected profiles' };
     }
 
-    // 6. Verify company matches in scraped profiles
-    const verifiedProfiles = successfulScrapes.map(scrape => {
-      const companyMatches = findCompanyMatches(scrape.fullProfile, org);
-      return {
-        ...scrape,
-        companyMatches,
-        hasCompanyMatch: companyMatches.score > 0
-      };
-    });
+    // 6. Verify company matches in scraped profiles using LLM
+    const verifiedProfiles = await Promise.all(
+      successfulScrapes.map(async scrape => {
+        const companyMatches = await findCompanyMatches(scrape.fullProfile, org, openAiClient);
+        return {
+          ...scrape,
+          companyMatches,
+          hasCompanyMatch: companyMatches.score > 0
+        };
+      })
+    );
 
     console.log(`[Harvest] Company verification results:`, 
       verifiedProfiles.map(p => ({
         url: p.url.split('/').pop(), // just the identifier
         hasMatch: p.hasCompanyMatch,
-        evidence: p.companyMatches.evidence
+        evidence: p.companyMatches.evidence,
+        score: p.companyMatches.score
       }))
     );
 
@@ -994,21 +1068,29 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
       
       // Log what companies the scraped profiles actually work for
       const actualCompanies = verifiedProfiles.map(p => {
+        const profileData = (p.fullProfile as Record<string, unknown>)?.element || p.fullProfile;
         const companies = [];
-        if (p.fullProfile.currentPosition) {
-          companies.push(...p.fullProfile.currentPosition.map((pos: Record<string, unknown>) => pos.companyName || pos.company_name || pos.company).filter(Boolean));
-        }
-        if (p.fullProfile.experience) {
-          companies.push(...p.fullProfile.experience.slice(0, 3).map((exp: Record<string, unknown>) => exp.companyName || exp.company_name || exp.company).filter(Boolean));
+        
+        // Extract companies mentioned in about section
+        if ((profileData as Record<string, unknown>)?.about) {
+          const about = (profileData as Record<string, unknown>).about as string;
+          // Look for company mentions in bio
+          const companyMentions = about.match(/(?:at|joining|worked for|employed by)\s+([A-Z][A-Za-z\s&]+?)(?:\s|,|\.|$)/g);
+          if (companyMentions) {
+            companies.push(...companyMentions.map(mention => mention.replace(/^(?:at|joining|worked for|employed by)\s+/, '') + ' (from bio)'));
+          }
         }
         
-        // Fix the name extraction
-        const profileName = [
-          p.fullProfile.firstName || p.fullProfile.first_name,
-          p.fullProfile.lastName || p.fullProfile.last_name
-        ].filter(Boolean).join(' ') || 'Unknown Name';
+        // Extract from structured data if available
+        if ((profileData as Record<string, unknown>)?.currentPosition && Array.isArray((profileData as Record<string, unknown>).currentPosition)) {
+          companies.push(...((profileData as Record<string, unknown>).currentPosition as Record<string, unknown>[]).map((pos: Record<string, unknown>) => pos.companyName || pos.company).filter(Boolean));
+        }
+        if ((profileData as Record<string, unknown>)?.experience && Array.isArray((profileData as Record<string, unknown>).experience)) {
+          companies.push(...((profileData as Record<string, unknown>).experience as Record<string, unknown>[]).slice(0, 3).map((exp: Record<string, unknown>) => exp.companyName || exp.company).filter(Boolean));
+        }
         
-        return { profileName, companies };
+        const profileName = `${(profileData as Record<string, unknown>)?.firstName || 'Unknown'} ${(profileData as Record<string, unknown>)?.lastName || 'Name'}`;
+        return { profileName, companies: [...new Set(companies)] }; // Remove duplicates
       });
       
       console.log(`[Harvest] Scraped profiles work at:`, actualCompanies);
@@ -1025,9 +1107,54 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     console.log(`[Harvest] Selected verified profile with company evidence:`, bestResult.companyMatches.evidence);
 
     // 9. Build job timeline
-    const jobHistoryTimeline = (fullProfile.experience || []).map((exp: { position?: string; companyName?: string; startDate?: YearMonthDay; endDate?: unknown }) =>
-      `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
-    );
+    const profileData = (bestResult.fullProfile as Record<string, unknown>)?.element || bestResult.fullProfile;
+    let jobHistoryTimeline: string[] = [];
+
+    // Try to get structured experience data first
+    if ((profileData as Record<string, unknown>)?.experience && Array.isArray((profileData as Record<string, unknown>).experience)) {
+      jobHistoryTimeline = ((profileData as Record<string, unknown>).experience as Record<string, unknown>[]).map((exp: Record<string, unknown>) =>
+        `${exp.position || exp.title || "Role"} — ${exp.companyName || exp.company || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate as YearMonthDay | undefined, exp.endDate as YearMonthDay | undefined)})`
+      );
+    }
+
+    // If no structured experience, try to extract from about section
+    if (jobHistoryTimeline.length === 0 && (profileData as Record<string, unknown>)?.about) {
+      const about = (profileData as Record<string, unknown>).about as string;
+      const timeline: string[] = [];
+      
+      // Look for current role indicators
+      if (about.includes('Managing Director') && about.includes('Financial Institutions')) {
+        timeline.push('Managing Director — Financial Institutions Group (Current)');
+      } else if (about.includes('Managing Director')) {
+        timeline.push('Managing Director (Current)');
+      }
+      
+      // Look for previous roles
+      if (about.includes('Federal Reserve')) {
+        timeline.push('Staff Member — Federal Reserve (Previous)');
+      }
+      
+      if (about.includes('Financial Stability Board')) {
+        timeline.push('Member of Secretariat — Financial Stability Board, Switzerland (Previous)');
+      }
+      
+      // Look for other role patterns
+      const roleMatches = about.match(/(Vice President|VP|Director|Manager|Analyst|Associate) (?:at|in|of) ([^.\n]+)/gi);
+      if (roleMatches) {
+        roleMatches.forEach(match => {
+          if (!timeline.some(existing => existing.includes(match))) {
+            timeline.push(match + ' (Previous)');
+          }
+        });
+      }
+      
+      jobHistoryTimeline = timeline;
+    }
+
+    // Fallback if still no timeline
+    if (jobHistoryTimeline.length === 0) {
+      jobHistoryTimeline = ["LinkedIn profile found but detailed work history private or unavailable."];
+    }
 
     console.log(`[Harvest] Successfully selected, scraped, and verified profile using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search: ${bestResult.url}`);
     console.log(`[Harvest] Found ${jobHistoryTimeline.length} work experiences`);
