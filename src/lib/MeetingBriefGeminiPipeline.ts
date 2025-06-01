@@ -103,6 +103,26 @@ interface ProfSearch {
   }[] 
 }
 
+interface HarvestLinkedInProfile {
+  firstName?: string;
+  lastName?: string;
+  headline?: string;
+  currentPosition?: { companyName?: string }[];
+  experience?: { 
+    companyName?: string; 
+    position?: string; 
+    endDate?: unknown;
+    startDate?: YearMonthDay;
+  }[];
+  [key: string]: unknown;
+}
+
+interface ScrapeResult {
+  url: string;
+  fullProfile: HarvestLinkedInProfile;
+  success: boolean;
+}
+
 export interface Citation { marker: string; url: string; title: string; snippet: string; }
 
 export interface MeetingBriefPayload {
@@ -762,7 +782,7 @@ const findCompanyMatches = (fullProfile: unknown, targetOrg: string) => {
 
 // LLM-powered profile selection
 const llmProfileSelection = async (
-  candidates: unknown[], 
+  candidates: ProfSearch['elements'], 
   targetName: string, 
   targetOrg: string,
   openAiClient: OpenAI,
@@ -918,14 +938,14 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     const scrapeResults = await Promise.allSettled(
       selection.selectedUrls.map(async url => {
         console.log(`[Harvest] Scraping selected profile: ${url}`);
-        const fullProfile = await harvestGet<any>("/linkedin/profile", { url });
+        const fullProfile = await harvestGet<HarvestLinkedInProfile>("/linkedin/profile", { url });
         return { url, fullProfile, success: true };
       })
     );
 
     const successfulScrapes = scrapeResults
       .filter(result => result.status === 'fulfilled')
-      .map(result => result.value as any);
+      .map(result => result.value as ScrapeResult);
 
     if (successfulScrapes.length === 0) {
       console.log("[Harvest] Failed to scrape any selected profiles");
@@ -960,10 +980,10 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
       const actualCompanies = verifiedProfiles.map(p => {
         const companies = [];
         if (p.fullProfile.currentPosition) {
-          companies.push(...p.fullProfile.currentPosition.map((pos: any) => pos.companyName).filter(Boolean));
+          companies.push(...p.fullProfile.currentPosition.map((pos: { companyName?: string }) => pos.companyName).filter(Boolean));
         }
         if (p.fullProfile.experience) {
-          companies.push(...p.fullProfile.experience.slice(0, 3).map((exp: any) => exp.companyName).filter(Boolean));
+          companies.push(...p.fullProfile.experience.slice(0, 3).map((exp: { companyName?: string }) => exp.companyName).filter(Boolean));
         }
         return { profileName: p.fullProfile.firstName + ' ' + p.fullProfile.lastName, companies };
       });
@@ -982,8 +1002,8 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
     console.log(`[Harvest] Selected verified profile with company evidence:`, bestResult.companyMatches.evidence);
 
     // 9. Build job timeline
-    const jobHistoryTimeline = (fullProfile.experience || []).map((exp: any) =>
-      `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate)})`
+    const jobHistoryTimeline = (fullProfile.experience || []).map((exp: { position?: string; companyName?: string; startDate?: YearMonthDay; endDate?: unknown }) =>
+      `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
     );
 
     console.log(`[Harvest] Successfully selected, scraped, and verified profile using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search: ${bestResult.url}`);
