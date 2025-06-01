@@ -412,7 +412,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     
     // Safety net: abort if nothing survives
     if (collectedSerpResults.length === 0) {
-      jobHistoryTimeline = ["No public work, education, volunteer, or web mentions found."];
+      jobHistoryTimeline = ["LinkedIn profile searched but no verified employment record found."];
       console.log("[MB] No results survived filtering, returning minimal brief");
     }
   }
@@ -489,7 +489,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     // Optional short-circuit: return a stub brief if truly nothing useful
     if (collectedSerpResults.length === 0) {
       jobHistoryTimeline = [
-        "No public work, education, volunteer, or web mentions found."
+        "LinkedIn profile searched but no verified employment record found."
       ];
       console.log("[MB] No results after 2nd-pass filter – returning minimal brief.");
 
@@ -739,44 +739,60 @@ const findCompanyMatches = (fullProfile: unknown, targetOrg: string) => {
   let score = 0;
   const evidence: string[] = [];
   
-  // Check current positions
-  if ((fullProfile as { currentPosition?: { companyName?: string }[] }).currentPosition?.length) {
-    for (const pos of (fullProfile as { currentPosition: { companyName?: string }[] }).currentPosition) {
-      if (pos.companyName) {
-        const normalizedCompany = normalizeCompanyName(pos.companyName);
+  // DEBUG: Log the actual profile structure
+  console.log(`[DEBUG] Profile structure:`, JSON.stringify(fullProfile, null, 2).slice(0, 1000));
+  
+  const profile = fullProfile as Record<string, unknown>; // Use Record<string, unknown> for debugging
+  
+  // Check current positions - try multiple possible field names
+  const currentPositions = profile.currentPosition || profile.current_position || [];
+  if (Array.isArray(currentPositions) && currentPositions.length > 0) {
+    console.log(`[DEBUG] Found ${currentPositions.length} current positions:`, currentPositions);
+    for (const pos of currentPositions) {
+      const posObj = pos as Record<string, unknown>;
+      const companyName = posObj.companyName || posObj.company_name || posObj.company;
+      if (companyName && typeof companyName === 'string') {
+        const normalizedCompany = normalizeCompanyName(companyName);
         if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
           score += 10;
-          evidence.push(`Current position at: ${pos.companyName}`);
+          evidence.push(`Current position at: ${companyName}`);
         }
       }
     }
   }
   
-  // Check experience
-  if ((fullProfile as { experience?: { companyName?: string; position?: string; endDate?: unknown }[] }).experience?.length) {
-    for (const exp of (fullProfile as { experience: { companyName?: string; position?: string; endDate?: unknown }[] }).experience) {
-      if (exp.companyName) {
-        const normalizedCompany = normalizeCompanyName(exp.companyName);
+  // Check experience - try multiple possible field names
+  const experiences = profile.experience || profile.experiences || [];
+  if (Array.isArray(experiences) && experiences.length > 0) {
+    console.log(`[DEBUG] Found ${experiences.length} experiences:`, experiences.slice(0, 3));
+    for (const exp of experiences) {
+      const expObj = exp as Record<string, unknown>;
+      const companyName = expObj.companyName || expObj.company_name || expObj.company;
+      if (companyName && typeof companyName === 'string') {
+        const normalizedCompany = normalizeCompanyName(companyName);
         if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
-          // Current role gets more points
-          const isCurrentRole = !exp.endDate || exp.endDate === null;
+          // Check if current role
+          const isCurrentRole = !expObj.endDate && !expObj.end_date;
           const points = isCurrentRole ? 8 : 4;
           score += points;
-          evidence.push(`${isCurrentRole ? 'Current' : 'Past'} experience at: ${exp.companyName} (${exp.position || 'Unknown role'})`);
+          const position = expObj.position || expObj.title || 'Unknown role';
+          evidence.push(`${isCurrentRole ? 'Current' : 'Past'} experience at: ${companyName} (${position})`);
         }
       }
     }
   }
   
-  // Check headline for company mentions (lower weight)
-  if ((fullProfile as { headline?: string }).headline) {
-    const normalizedHeadline = normalizeCompanyName((fullProfile as { headline: string }).headline);
+  // Check headline for company mentions
+  const headline = profile.headline;
+  if (headline && typeof headline === 'string') {
+    const normalizedHeadline = normalizeCompanyName(headline);
     if (normalizedHeadline.includes(normalizedTarget)) {
       score += 2;
-      evidence.push(`Company mentioned in headline: ${(fullProfile as { headline: string }).headline}`);
+      evidence.push(`Company mentioned in headline: ${headline}`);
     }
   }
   
+  console.log(`[DEBUG] Company match results: score=${score}, evidence=`, evidence);
   return { score, evidence };
 };
 
@@ -980,12 +996,19 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
       const actualCompanies = verifiedProfiles.map(p => {
         const companies = [];
         if (p.fullProfile.currentPosition) {
-          companies.push(...p.fullProfile.currentPosition.map((pos: { companyName?: string }) => pos.companyName).filter(Boolean));
+          companies.push(...p.fullProfile.currentPosition.map((pos: Record<string, unknown>) => pos.companyName || pos.company_name || pos.company).filter(Boolean));
         }
         if (p.fullProfile.experience) {
-          companies.push(...p.fullProfile.experience.slice(0, 3).map((exp: { companyName?: string }) => exp.companyName).filter(Boolean));
+          companies.push(...p.fullProfile.experience.slice(0, 3).map((exp: Record<string, unknown>) => exp.companyName || exp.company_name || exp.company).filter(Boolean));
         }
-        return { profileName: p.fullProfile.firstName + ' ' + p.fullProfile.lastName, companies };
+        
+        // Fix the name extraction
+        const profileName = [
+          p.fullProfile.firstName || p.fullProfile.first_name,
+          p.fullProfile.lastName || p.fullProfile.last_name
+        ].filter(Boolean).join(' ') || 'Unknown Name';
+        
+        return { profileName, companies };
       });
       
       console.log(`[Harvest] Scraped profiles work at:`, actualCompanies);
