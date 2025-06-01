@@ -86,7 +86,25 @@ interface JsonBriefFromLLM {
   executive: BriefRow[]; highlights: BriefRow[];
   funFacts: BriefRow[]; researchNotes: BriefRow[];
 }
+
+interface CompanySearch { 
+  elements: { id: string }[] 
+}
+
+interface ProfSearch { 
+  elements: { 
+    linkedinUrl: string; 
+    name: string; 
+    headline?: string; 
+    position?: string; 
+    location?: { linkedinText: string };
+    publicIdentifier?: string;
+    hidden?: boolean;
+  }[] 
+}
+
 export interface Citation { marker: string; url: string; title: string; snippet: string; }
+
 export interface MeetingBriefPayload {
   brief: string; citations: Citation[]; tokensUsed: number;
   serperSearchesMade: number; 
@@ -320,58 +338,29 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   /* ─────────────  H A R V E S T   P I P E L I N E  ───────────── */
   if (canUseHarvest) {
     try {
-      console.log(`[Harvest] Company search for "${org}"`);
-      type CompanySearch = { elements: { id: string }[] };
-      const comp = await harvestGet<CompanySearch>("/linkedin/company-search", { search: org, limit: "3" });
-      const companyId = comp.elements?.[0]?.id;
+      const harvestResult = await llmEnhancedHarvestPipeline(name, org);
+      
+      if (harvestResult.success) {
+        proxyCurlData = harvestResult.profile as ProxyCurlResult | null;
+        jobHistoryTimeline = harvestResult.jobTimeline || [];
+        (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
 
-      if (companyId) {
-        /* company-search succeeded — no credit bookkeeping */
-
-        console.log(`[Harvest] Profile search for "${name}" (companyId=${companyId})`);
-        type ProfSearch = { elements: { linkedinUrl:string; name:string; headline?:string; position?:string; }[] };
-        const prof = await harvestGet<ProfSearch>("/linkedin/profile-search",
-                          { search: name, companyId, limit: "5" });
-        /* profile-search succeeded */
-
-        const normOrg = normalizeCompanyName(org);
-        const scored = prof.elements.map(p => {
-          const lastOk  = normalizeCompanyName(p.name.split(" ").slice(-1).join(" ")) === normalizeCompanyName(last);
-          const inHead  = (p.headline||"").toLowerCase().includes(normOrg);
-          const inPos   = (p.position||"").toLowerCase().includes(normOrg);
-          return { p, score: +lastOk + +inHead + +inPos };
-        }).filter(x => x.score >= 2);
-
-        if (scored.length === 1) {
-          const url = scored[0].p.linkedinUrl;
-          console.log(`[Harvest] Scraping full profile ${url}`);
-          type Full = { experiences?: LinkedInExperience[]; education?:unknown[]; volunteer?:unknown[]; headline?:string };
-          const full = await harvestGet<Full>("/linkedin/profile", { url });
-          /* full-profile scrape succeeded */
-
-          // populate timeline & flags -----------------------------------
-          proxyCurlData = full as unknown as ProxyCurlResult;  // reuse structure
-          (globalThis as { hasResumeData?: boolean }).hasResumeData = !!(full.experiences?.length || full.education?.length || full.volunteer?.length);
-
-          jobHistoryTimeline = (full.experiences||[]).map(e =>
-            `${e.title||"Role"} — ${e.company||"Company"} (${formatJobSpanFromProxyCurl(e.starts_at,e.ends_at)})`
-          );
-
-          linkedInProfileResult = {
-            title: `${name} | LinkedIn`,
-            link: url,
-            snippet: full.headline ?? `LinkedIn profile for ${name}`
-          };
-          
+        linkedInProfileResult = {
+          title: `${name} | LinkedIn`,
+          link: harvestResult.linkedinUrl || '',
+          snippet: (harvestResult.profile as { headline?: string }).headline ?? `LinkedIn profile for ${name}`
+        };
+        
+        if (linkedInProfileResult.link) {
           collectedSerpResults.push(linkedInProfileResult);
-          console.log(`[MB] Successfully resolved LinkedIn profile with ${full.experiences?.length || 0} experiences`);
-
-          console.log("[Harvest] High-confidence profile found via Harvest.");
-        } else {
-          console.log(`[Harvest] 0 or >1 high-score hits (${scored.length}) – skipping.`);
         }
+        
+        console.log(`[MB] Successfully resolved LinkedIn profile via Harvest + LLM`);
+        console.log(`[MB] LLM reasoning: ${harvestResult.llmReasoning}`);
+        console.log(`[MB] Company evidence: ${harvestResult.companyEvidence?.join('; ') || 'None provided'}`);
       } else {
-        console.log("[Harvest] Company search returned 0 results.");
+        console.log(`[Harvest] Failed: ${harvestResult.reason}`);
+        harvestErrored = true;
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -722,4 +711,271 @@ const formatJobSpanFromProxyCurl = (starts_at?: YearMonthDay, ends_at?: YearMont
   const startYear = starts_at?.year ? starts_at.year.toString() : "?";
   const endYear = ends_at?.year ? ends_at.year.toString() : "Present";
   return `${startYear} – ${endYear}`;
+};
+
+// Helper function to find company matches in full profile data
+const findCompanyMatches = (fullProfile: unknown, targetOrg: string) => {
+  const normalizedTarget = normalizeCompanyName(targetOrg);
+  let score = 0;
+  const evidence: string[] = [];
+  
+  // Check current positions
+  if ((fullProfile as { currentPosition?: unknown[] }).currentPosition?.length) {
+    for (const pos of (fullProfile as { currentPosition: { companyName?: string }[] }).currentPosition) {
+      if (pos.companyName) {
+        const normalizedCompany = normalizeCompanyName(pos.companyName);
+        if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
+          score += 10;
+          evidence.push(`Current position at: ${pos.companyName}`);
+        }
+      }
+    }
+  }
+  
+  // Check experience
+  if ((fullProfile as { experience?: unknown[] }).experience?.length) {
+    for (const exp of (fullProfile as { experience: { companyName?: string; position?: string; endDate?: unknown }[] }).experience) {
+      if (exp.companyName) {
+        const normalizedCompany = normalizeCompanyName(exp.companyName);
+        if (normalizedCompany.includes(normalizedTarget) || normalizedTarget.includes(normalizedCompany)) {
+          // Current role gets more points
+          const isCurrentRole = !exp.endDate || exp.endDate === null;
+          const points = isCurrentRole ? 8 : 4;
+          score += points;
+          evidence.push(`${isCurrentRole ? 'Current' : 'Past'} experience at: ${exp.companyName} (${exp.position || 'Unknown role'})`);
+        }
+      }
+    }
+  }
+  
+  // Check headline for company mentions (lower weight)
+  if ((fullProfile as { headline?: string }).headline) {
+    const normalizedHeadline = normalizeCompanyName((fullProfile as { headline: string }).headline);
+    if (normalizedHeadline.includes(normalizedTarget)) {
+      score += 2;
+      evidence.push(`Company mentioned in headline: ${(fullProfile as { headline: string }).headline}`);
+    }
+  }
+  
+  return { score, evidence };
+};
+
+// LLM-powered profile selection
+const llmProfileSelection = async (
+  candidates: unknown[], 
+  targetName: string, 
+  targetOrg: string,
+  openAiClient: OpenAI
+): Promise<{ selectedUrls: string[], reasoning: string }> => {
+  
+  const systemPrompt = `You are a LinkedIn profile matching expert. Your task is to identify which profiles from a search result most likely belong to a specific person at a specific company.
+
+IMPORTANT: You will receive profile search results that were already filtered by company, so all candidates work at or have worked at the target company. However, you need to pick the person with the right NAME.
+
+Return a JSON object with:
+{
+  "selectedUrls": ["url1", "url2"], // 1-2 URLs of most likely matches, ordered by confidence
+  "reasoning": "Brief explanation of why these profiles were selected"
+}
+
+Consider:
+1. Name similarity/matching (most important)
+2. Professional title/seniority level consistency
+3. Location plausibility 
+4. Profile completeness (profiles with positions vs empty ones)
+
+If no good matches, return empty selectedUrls array.`;
+
+  const candidatesJson = (candidates as { name?: string; position?: string; location?: { linkedinText?: string }; linkedinUrl?: string; publicIdentifier?: string }[]).map(c => ({
+    name: c.name,
+    position: c.position || 'Not specified',
+    location: c.location?.linkedinText || 'Not specified',
+    linkedinUrl: c.linkedinUrl,
+    publicIdentifier: c.publicIdentifier
+  }));
+
+  const userPrompt = `Target person: "${targetName}"
+Target company: "${targetOrg}"
+
+LinkedIn search results (already filtered by company):
+${JSON.stringify(candidatesJson, null, 2)}
+
+Which profile(s) most likely belong to "${targetName}"? Return 1-2 best matches.`;
+
+  try {
+    const response = await openAiClient.chat.completions.create({
+      model: MODEL_ID,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) throw new Error('Empty response from OpenAI');
+
+    const result = JSON.parse(content) as { selectedUrls?: string[]; reasoning?: string };
+    return {
+      selectedUrls: result.selectedUrls || [],
+      reasoning: result.reasoning || 'No reasoning provided'
+    };
+
+  } catch (error) {
+    console.error('[LLM Selection] Failed:', error);
+    // Fallback: pick the first candidate with a good name match
+    const fallback = (candidates as { name?: string; linkedinUrl?: string }[]).find(c => 
+      c.name?.toLowerCase().includes(targetName.toLowerCase()) ||
+      targetName.toLowerCase().includes(c.name?.toLowerCase() || '')
+    );
+    
+    return {
+      selectedUrls: fallback?.linkedinUrl ? [fallback.linkedinUrl] : [],
+      reasoning: 'LLM selection failed, used name matching fallback'
+    };
+  }
+};
+
+// Updated Harvest pipeline using LLM selection
+const llmEnhancedHarvestPipeline = async (name: string, org: string) => {
+  try {
+    // 1. Company search  
+    console.log(`[Harvest] Company search for "${org}"`);
+    const comp = await harvestGet<CompanySearch>("/linkedin/company-search", { search: org, limit: "3" });
+    const companyId = comp.elements?.[0]?.id;
+
+    if (!companyId) {
+      console.log("[Harvest] Company search returned 0 results.");
+      return { success: false, reason: 'Company not found' };
+    }
+
+    // 2. Profile search with larger limit
+    console.log(`[Harvest] Profile search for "${name}" (companyId=${companyId})`);
+    const prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
+      search: name, 
+      companyId, 
+      limit: "10" 
+    });
+
+    if (!prof.elements?.length) {
+      console.log("[Harvest] Profile search returned 0 results.");
+      return { success: false, reason: 'No profiles found' };
+    }
+
+    // 3. Filter out obviously bad matches (no URL, hidden profiles, etc.)
+    const validCandidates = prof.elements.filter((profile: ProfSearch['elements'][0]) => 
+      profile.linkedinUrl && 
+      profile.name && 
+      !profile.hidden &&
+      profile.name.toLowerCase() !== 'linkedin member'
+    );
+
+    if (validCandidates.length === 0) {
+      console.log("[Harvest] No valid candidates after filtering");
+      return { success: false, reason: 'No valid candidates' };
+    }
+
+    console.log(`[Harvest] Found ${validCandidates.length} valid candidates:`, 
+      validCandidates.map((c: ProfSearch['elements'][0]) => ({ name: c.name, position: c.position }))
+    );
+
+    // 4. Use LLM to select best candidate(s)
+    const openAiClient = getOpenAIClient();
+    const selection = await llmProfileSelection(validCandidates, name, org, openAiClient);
+    
+    console.log(`[LLM Selection] ${selection.reasoning}`);
+    console.log(`[LLM Selection] Selected ${selection.selectedUrls.length} URLs for scraping`);
+
+    if (selection.selectedUrls.length === 0) {
+      console.log("[Harvest] LLM found no suitable matches");
+      return { success: false, reason: 'LLM found no suitable matches' };
+    }
+
+    // 5. Scrape ALL selected profiles for company verification
+    const scrapeResults = await Promise.allSettled(
+      selection.selectedUrls.map(async url => {
+        console.log(`[Harvest] Scraping selected profile: ${url}`);
+        const fullProfile = await harvestGet<unknown>("/linkedin/profile", { url });
+        return { url, fullProfile, success: true };
+      })
+    );
+
+    const successfulScrapes = scrapeResults
+      .filter(result => result.status === 'fulfilled')
+      .map(result => (result as PromiseFulfilledResult<{ url: string; fullProfile: unknown; success: boolean }>).value);
+
+    if (successfulScrapes.length === 0) {
+      console.log("[Harvest] Failed to scrape any selected profiles");
+      return { success: false, reason: 'Failed to scrape selected profiles' };
+    }
+
+    // 6. Verify company matches in scraped profiles
+    const verifiedProfiles = successfulScrapes.map(scrape => {
+      const companyMatches = findCompanyMatches(scrape.fullProfile, org);
+      return {
+        ...scrape,
+        companyMatches,
+        hasCompanyMatch: companyMatches.score > 0
+      };
+    });
+
+    console.log(`[Harvest] Company verification results:`, 
+      verifiedProfiles.map(p => ({
+        url: p.url.split('/').pop(), // just the identifier
+        hasMatch: p.hasCompanyMatch,
+        evidence: p.companyMatches.evidence
+      }))
+    );
+
+    // 7. Filter to only profiles with actual company matches
+    const profilesWithCompanyMatch = verifiedProfiles.filter(p => p.hasCompanyMatch);
+
+    if (profilesWithCompanyMatch.length === 0) {
+      console.log(`[Harvest] None of the selected profiles actually work at "${org}". Falling back to web search.`);
+      console.log(`[Harvest] Scraped profiles had companies:`, 
+        verifiedProfiles.map(p => {
+          const companies = [];
+          if ((p.fullProfile as { currentPosition?: { companyName?: string }[] }).currentPosition) {
+            companies.push(...(p.fullProfile as { currentPosition: { companyName?: string }[] }).currentPosition.map(pos => pos.companyName).filter(Boolean));
+          }
+          if ((p.fullProfile as { experience?: { companyName?: string }[] }).experience) {
+            companies.push(...(p.fullProfile as { experience: { companyName?: string }[] }).experience.slice(0, 3).map(exp => exp.companyName).filter(Boolean));
+          }
+          return companies;
+        }).flat()
+      );
+      return { success: false, reason: 'No selected profiles actually work at target company' };
+    }
+
+    // 8. Take the best company-verified profile (prefer higher company match scores)
+    profilesWithCompanyMatch.sort((a, b) => b.companyMatches.score - a.companyMatches.score);
+    const bestResult = profilesWithCompanyMatch[0];
+    const fullProfile = bestResult.fullProfile;
+
+    console.log(`[Harvest] Selected verified profile with company evidence:`, bestResult.companyMatches.evidence);
+
+    // 9. Build job timeline
+    const jobHistoryTimeline = ((fullProfile as { experience?: { position?: string; companyName?: string; startDate?: YearMonthDay; endDate?: YearMonthDay }[] }).experience || []).map(exp =>
+      `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate)})`
+    );
+
+    console.log(`[Harvest] Successfully selected, scraped, and verified profile: ${bestResult.url}`);
+    console.log(`[Harvest] Found ${jobHistoryTimeline.length} work experiences`);
+    console.log(`[Harvest] Company verification: ${bestResult.companyMatches.evidence.join('; ')}`);
+
+    return {
+      success: true,
+      profile: fullProfile,
+      linkedinUrl: bestResult.url,
+      jobTimeline: jobHistoryTimeline,
+      llmReasoning: selection.reasoning,
+      companyEvidence: bestResult.companyMatches.evidence
+    };
+
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.warn(`[Harvest] Pipeline failed: ${error.message}`);
+    return { success: false, reason: error.message };
+  }
 };
