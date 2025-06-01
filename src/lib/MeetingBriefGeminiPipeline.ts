@@ -359,17 +359,17 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     try {
       // Step 1: Company search
       console.log(`[Harvest] Company search for "${org}"`);
-      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { query: org, page: 1 });
+      const companyHits = await harvestGet<HarvestCompanySearchResult>("/linkedin-company", { search: org, page: 1 });
       const companyId = companyHits.elements?.[0]?.id ?? null;
       
       // Step 2: Primary profile search (ID-anchored if we have a companyId, else string match)
       console.log(`[Harvest] Profile search for "${name}" ${companyId ? `at company ${companyId}` : 'without company filter'}`);
       const searchParams: Record<string, unknown> = {
-        query: name,
+        search: name,
         maxItems: 10
       };
       if (companyId) {
-        searchParams.companyId = JSON.stringify([companyId]);
+        searchParams.companyId = [companyId];
       }
       
       const profHits = await harvestGet<HarvestProfileSearchResult>("/linkedin-profile-search", searchParams);
