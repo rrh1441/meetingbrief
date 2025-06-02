@@ -89,6 +89,20 @@ interface HarvestLinkedInProfileElement {
     endDate?: unknown;
     startDate?: YearMonthDay;
   }[];
+  education?: {
+    schoolName?: string;
+    degreeName?: string;
+    fieldOfStudy?: string;
+    startDate?: YearMonthDay;
+    endDate?: YearMonthDay;
+  }[];
+  volunteering?: {
+    organizationName?: string;
+    role?: string;
+    cause?: string;
+    startDate?: YearMonthDay;
+    endDate?: YearMonthDay;
+  }[];
   [key: string]: unknown;
 }
 
@@ -649,9 +663,9 @@ The user will provide context about the person, their current organization, thei
 Your task is to populate a JSON object strictly adhering to the TEMPLATE provided.
 - Each item in the arrays ("executive", "highlights", "funFacts", "researchNotes") must be an object with "text" (a string) and "source" (the 1-based number of the source it came from, accurately referencing the provided SOURCES_FOR_ANALYSIS).
 - "executive" summary: 2-3 key sentences about the person, highly relevant for someone about to meet them professionally. Focus on their current role and one major accomplishment or characteristic.
-- "highlights": 3-5 bullet points covering notable achievements, skills, or significant public information. Prioritize information from fuller text sources if available.
-- "funFacts": 1-3 interesting, lighter details if available (e.g., hobbies mentioned, unique experiences, personal website info). If none, this array MUST be empty ([]).
-- "researchNotes": 4-6 distinct, concise notes or direct observations from the provided sources. These can be more granular than highlights. If a source is weak (e.g., just a snippet), a note might reflect that limited scope.
+- "highlights": 3-5 bullet points covering notable achievements, skills, or significant public information. Include relevant education credentials (e.g., prestigious universities, advanced degrees) and significant volunteering roles when they add professional context. Prioritize information from fuller text sources if available.
+- "funFacts": 1-3 interesting, lighter details if available (e.g., hobbies mentioned, unique educational background, interesting volunteer work, personal website info). Educational or volunteering details that are personally interesting rather than professionally critical can go here. If none, this array MUST be empty ([]).
+- "researchNotes": 4-6 distinct, concise notes or direct observations from the provided sources. These can include education and volunteering details that provide useful context. If a source is weak (e.g., just a snippet), a note might reflect that limited scope.
 - For ALL "text" fields: Be very concise. Do NOT invent information or make assumptions beyond the provided text. If a category has no relevant information from the sources, its array MUST be empty ([]).
 - Do NOT include phrases like "Source X says...", "According to Source Y...", or any citation markers like "[1]" or "(source 1)" directly within the "text" fields. The "source" number property provides all attribution.
 - Ensure all "source" numbers are accurate integers corresponding to the provided source list (1 to N, where N is the number of sources in SOURCES_FOR_ANALYSIS).
@@ -909,6 +923,38 @@ const findCompanyMatches = async (
     });
   } else {
     console.log("[findCompanyMatches] 'experience' data missing or not an array.");
+  }
+
+  // Extract education information
+  if (profileElement.education && Array.isArray(profileElement.education)) {
+    profileElement.education.slice(0, 3).forEach((edu, idx) => { // Check top 3 education entries
+      if (edu.schoolName || edu.degreeName || edu.fieldOfStudy) {
+        const degree = edu.degreeName || '';
+        const field = edu.fieldOfStudy || '';
+        const school = edu.schoolName || '';
+        const text = `Education ${idx + 1}: ${degree} ${field ? `in ${field}` : ''} ${school ? `from ${school}` : ''}`.replace(/\s+/g, ' ').trim();
+        profileTexts.push(text);
+        console.log(`[findCompanyMatches] Extracted education text: ${text}`);
+      }
+    });
+  } else {
+    console.log("[findCompanyMatches] 'education' data missing or not an array.");
+  }
+
+  // Extract volunteering information
+  if (profileElement.volunteering && Array.isArray(profileElement.volunteering)) {
+    profileElement.volunteering.slice(0, 3).forEach((vol, idx) => { // Check top 3 volunteering entries
+      if (vol.organizationName || vol.role || vol.cause) {
+        const role = vol.role || '';
+        const org = vol.organizationName || '';
+        const cause = vol.cause || '';
+        const text = `Volunteering ${idx + 1}: ${role} ${org ? `at ${org}` : ''} ${cause ? `(${cause})` : ''}`.replace(/\s+/g, ' ').trim();
+        profileTexts.push(text);
+        console.log(`[findCompanyMatches] Extracted volunteering text: ${text}`);
+      }
+    });
+  } else {
+    console.log("[findCompanyMatches] 'volunteering' data missing or not an array.");
   }
 
   if (profileTexts.length === 0) {
@@ -1236,6 +1282,22 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       }
       
       jobHistoryTimeline = timeline;
+    }
+
+    // Add education information if available and work history is present
+    if (jobHistoryTimeline.length > 0 && profileData?.education && Array.isArray(profileData.education)) {
+      const educationEntries = profileData.education.slice(0, 2).map((edu) => {
+        const degree = edu.degreeName || 'Degree';
+        const field = edu.fieldOfStudy ? ` in ${edu.fieldOfStudy}` : '';
+        const school = edu.schoolName || 'University';
+        const years = edu.endDate?.year ? ` (${edu.endDate.year})` : '';
+        return `${degree}${field} — ${school}${years}`;
+      });
+      
+      if (educationEntries.length > 0) {
+        jobHistoryTimeline.push(''); // Add blank line separator
+        jobHistoryTimeline.push(...educationEntries);
+      }
     }
 
     // Fallback if still no timeline
