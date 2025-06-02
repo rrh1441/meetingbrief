@@ -337,7 +337,7 @@ const renderFullHtmlBrief = (
   jobHistory: string[],
   linkedInUrl?: string // Add optional LinkedIn URL parameter
 ): string => {
-  const sectionSpacer = "<br><br>"; // Better spacing between sections
+  const sectionSpacer = "<br>"; // Single line break between sections
   
   // LinkedIn profile section (moved to bottom)
   const linkedInSection = linkedInUrl 
