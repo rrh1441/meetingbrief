@@ -38,7 +38,10 @@ if (!supabaseUrl || !supabaseAnon) {
   console.warn('Supabase not configured - some features may not work')
 }
 
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnon)
+// Only create Supabase client if both URL and key are available
+const supabase: SupabaseClient | null = (supabaseUrl && supabaseAnon) 
+  ? createClient(supabaseUrl, supabaseAnon)
+  : null;
 
 /* -------------------------------------------------------------------------- */
 /*  Static demo brief (shown when no API data is loaded)                      */
@@ -180,7 +183,7 @@ export default function Page() {
 
   /* analytics -------------------------------------------------------------- */
   const logSearchEvent = async (name: string, organization: string) => {
-    try { await supabase.from('search_events').insert([{ name, organization }]) }
+    try { await supabase?.from('search_events').insert([{ name, organization }]) }
     catch (err) { console.error('Supabase log error:', err) }
   }
 

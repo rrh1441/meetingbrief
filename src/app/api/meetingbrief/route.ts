@@ -146,6 +146,9 @@ export async function POST(request: NextRequest) {
       let userId: string;
       let planName: keyof typeof PLAN_LIMITS;
       let monthlyLimit: number;
+      let subscriptionPeriodStart: Date | null = null;
+      let subscriptionPeriodEnd: Date | null = null;
+      let userCreatedAt: Date | null = null;
 
       if (session?.user?.id) {
         // Authenticated user - check their plan
@@ -180,12 +183,24 @@ export async function POST(request: NextRequest) {
             [userId]
           );
 
+          // Also get user's registration date
+          const userResult = await client.query(
+            `SELECT "createdAt" FROM "user" WHERE id = $1`,
+            [userId]
+          );
+
+          if (userResult.rows.length > 0) {
+            userCreatedAt = new Date(userResult.rows[0].createdAt);
+          }
+
           if (subscriptionResult.rows.length > 0) {
             const subscription = subscriptionResult.rows[0];
             const plan = subscription.plan || "free";
             if (plan in PLAN_LIMITS) {
               planName = plan as keyof typeof PLAN_LIMITS;
               monthlyLimit = PLAN_LIMITS[planName];
+              subscriptionPeriodStart = subscription.periodStart ? new Date(subscription.periodStart) : null;
+              subscriptionPeriodEnd = subscription.periodEnd ? new Date(subscription.periodEnd) : null;
             }
           }
         } catch (error) {
@@ -242,15 +257,96 @@ export async function POST(request: NextRequest) {
       );
 
       let currentMonthCount = 0;
+      let currentPeriodStart: Date;
       
       if (usageResult.rows.length > 0) {
         const usage = usageResult.rows[0];
         const currentMonthStart = new Date(usage.current_month_start);
         const now = new Date();
-        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         
-        if (currentMonthStart.getTime() === thisMonthStart.getTime()) {
+        // Use subscription billing period if available, otherwise use registration-based period
+        if (subscriptionPeriodStart && subscriptionPeriodEnd) {
+          // For subscription users, determine the current billing period
+          // If we're within the current subscription period, use that
+          if (now >= subscriptionPeriodStart && now <= subscriptionPeriodEnd) {
+            currentPeriodStart = subscriptionPeriodStart;
+          } else {
+            // Calculate the current billing period based on subscription cycle
+            const subscriptionDurationMs = subscriptionPeriodEnd.getTime() - subscriptionPeriodStart.getTime();
+            const timeSinceOriginalStart = now.getTime() - subscriptionPeriodStart.getTime();
+            const periodsSinceStart = Math.floor(timeSinceOriginalStart / subscriptionDurationMs);
+            currentPeriodStart = new Date(subscriptionPeriodStart.getTime() + (periodsSinceStart * subscriptionDurationMs));
+          }
+        } else if (userCreatedAt) {
+          // For free users: use registration date to determine monthly reset
+          const registrationDay = userCreatedAt.getDate();
+          const currentYear = now.getFullYear();
+          const currentMonth = now.getMonth();
+          
+          // Calculate the reset day for this month
+          const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+          const resetDay = Math.min(registrationDay, daysInCurrentMonth);
+          
+          // Determine current period start
+          const thisMonthReset = new Date(currentYear, currentMonth, resetDay);
+          
+          if (now >= thisMonthReset) {
+            // We're past this month's reset date
+            currentPeriodStart = thisMonthReset;
+          } else {
+            // We're before this month's reset date, so current period started last month
+            const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+            const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+            const daysInLastMonth = new Date(lastMonthYear, lastMonth + 1, 0).getDate();
+            const lastMonthResetDay = Math.min(registrationDay, daysInLastMonth);
+            currentPeriodStart = new Date(lastMonthYear, lastMonth, lastMonthResetDay);
+          }
+        } else {
+          // Free users and anonymous: use calendar month
+          currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+        
+        if (currentMonthStart.getTime() === currentPeriodStart.getTime()) {
           currentMonthCount = usage.current_month_count;
+        }
+      } else {
+        const now = new Date();
+        // Calculate current period start for new users
+        if (subscriptionPeriodStart && subscriptionPeriodEnd) {
+          if (now >= subscriptionPeriodStart && now <= subscriptionPeriodEnd) {
+            currentPeriodStart = subscriptionPeriodStart;
+          } else {
+            const subscriptionDurationMs = subscriptionPeriodEnd.getTime() - subscriptionPeriodStart.getTime();
+            const timeSinceOriginalStart = now.getTime() - subscriptionPeriodStart.getTime();
+            const periodsSinceStart = Math.floor(timeSinceOriginalStart / subscriptionDurationMs);
+            currentPeriodStart = new Date(subscriptionPeriodStart.getTime() + (periodsSinceStart * subscriptionDurationMs));
+          }
+        } else if (userCreatedAt) {
+          // For free users: use registration date to determine monthly reset
+          const registrationDay = userCreatedAt.getDate();
+          const currentYear = now.getFullYear();
+          const currentMonth = now.getMonth();
+          
+          // Calculate the reset day for this month
+          const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+          const resetDay = Math.min(registrationDay, daysInCurrentMonth);
+          
+          // Determine current period start
+          const thisMonthReset = new Date(currentYear, currentMonth, resetDay);
+          
+          if (now >= thisMonthReset) {
+            // We're past this month's reset date
+            currentPeriodStart = thisMonthReset;
+          } else {
+            // We're before this month's reset date, so current period started last month
+            const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+            const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+            const daysInLastMonth = new Date(lastMonthYear, lastMonth + 1, 0).getDate();
+            const lastMonthResetDay = Math.min(registrationDay, daysInLastMonth);
+            currentPeriodStart = new Date(lastMonthYear, lastMonth, lastMonthResetDay);
+          }
+        } else {
+          currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1);
         }
       }
 
@@ -276,7 +372,7 @@ export async function POST(request: NextRequest) {
         [userId, sanitizedName, sanitizedOrganization, normalizedBrief]
       );
 
-      // Update usage count
+      // Update usage count using the calculated current period start
       await client.query(
         `INSERT INTO user_brief_counts (user_id, current_month_count, current_month_start)
          VALUES ($1, 1, $2)
@@ -287,7 +383,7 @@ export async function POST(request: NextRequest) {
              ELSE 1
            END,
            current_month_start = $2`,
-        [userId, new Date(new Date().getFullYear(), new Date().getMonth(), 1)]
+        [userId, currentPeriodStart]
       );
 
       // Log successful request for monitoring

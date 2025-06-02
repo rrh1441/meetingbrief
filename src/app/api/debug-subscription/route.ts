@@ -3,12 +3,21 @@ import { auth } from "@/lib/auth-server";
 import { headers } from "next/headers";
 import { Pool } from "pg";
 
-const pool = new Pool({
+// Check if DATABASE_URL is available
+if (!process.env.DATABASE_URL) {
+  console.warn("DATABASE_URL not available for debug-subscription endpoint");
+}
+
+const pool = process.env.DATABASE_URL ? new Pool({
   connectionString: process.env.DATABASE_URL,
-});
+}) : null;
 
 export async function GET() {
   try {
+    if (!pool) {
+      return NextResponse.json({ error: "Database not configured" }, { status: 503 });
+    }
+
     const headersList = await headers();
     
     // Get session using Better Auth

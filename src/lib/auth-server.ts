@@ -6,12 +6,14 @@ import Stripe from "stripe";
 // This file should ONLY be imported by server-side code (API routes)
 // It contains secrets and should never be bundled with client code
 
-// Validate required environment variables
-if (!process.env.DATABASE_URL) {
+// Validate required environment variables (but allow build-time without DATABASE_URL)
+const isBuilding = process.env.NODE_ENV === 'production' && !process.env.VERCEL && !process.env.DATABASE_URL;
+
+if (!process.env.DATABASE_URL && !isBuilding) {
   throw new Error("DATABASE_URL environment variable is required for Better Auth");
 }
 
-if (!process.env.BETTER_AUTH_SECRET && !process.env.AUTH_SECRET) {
+if (!process.env.BETTER_AUTH_SECRET && !process.env.AUTH_SECRET && !isBuilding) {
   throw new Error("BETTER_AUTH_SECRET or AUTH_SECRET environment variable is required");
 }
 
@@ -23,14 +25,14 @@ const stripeClient = process.env.STRIPE_SECRET_KEY
   : undefined;
 
 export const auth = betterAuth({
-  database: new Pool({
+  database: process.env.DATABASE_URL ? new Pool({
     connectionString: process.env.DATABASE_URL,
     // Optimize for serverless environments like Vercel
     max: 10, // Maximum number of connections in the pool
     idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
     connectionTimeoutMillis: 10000, // Timeout after 10 seconds if connection can't be established
-  }),
-  secret: process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET,
+  }) : new Pool({ connectionString: 'postgresql://dummy:dummy@localhost:5432/dummy' }), // Dummy for build
+  secret: process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'dummy-secret-for-build',
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || "https://meetingbrief.com",
   emailAndPassword: {
     enabled: true,
