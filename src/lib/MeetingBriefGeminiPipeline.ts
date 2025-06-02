@@ -886,6 +886,26 @@ const findCompanyMatches = async (
   }
 
   console.log(`[findCompanyMatches] Checking profile (ID: ${profileElement.publicIdentifier || 'N/A'}) for company "${targetOrg}"`);
+  
+  // DEBUG: Log all available fields in the profile element
+  console.log(`[DEBUG] Available profile fields:`, Object.keys(profileElement));
+  console.log(`[DEBUG] Full profile element structure:`, JSON.stringify(profileElement, null, 2).slice(0, 2000) + '...');
+
+  // DEBUG: Check for alternative field names
+  const possibleEducationFields = ['education', 'educations', 'schools', 'schoolExperience', 'degrees'];
+  const possibleVolunteerFields = ['volunteering', 'volunteerWork', 'volunteer', 'volunteerExperience', 'causes'];
+  
+  possibleEducationFields.forEach(field => {
+    if ((profileElement as Record<string, unknown>)[field]) {
+      console.log(`[DEBUG] Found potential education data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
+    }
+  });
+  
+  possibleVolunteerFields.forEach(field => {
+    if ((profileElement as Record<string, unknown>)[field]) {
+      console.log(`[DEBUG] Found potential volunteering data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
+    }
+  });
 
   const profileTexts: string[] = [];
 
@@ -939,6 +959,29 @@ const findCompanyMatches = async (
     });
   } else {
     console.log("[findCompanyMatches] 'education' data missing or not an array.");
+    
+    // Fallback: Try to extract education info from about section
+    if (profileElement.about) {
+      const educationPatterns = [
+        /(?:graduated|degree|studied|attended|alumni?)\s+(?:from\s+)?([A-Z][A-Za-z\s&.,-]+(?:University|College|School|Institute))/gi,
+        /([A-Z][A-Za-z\s&.,-]+(?:University|College|School|Institute))[\s,]*(?:graduate|alumni?|degree)/gi,
+        /(MBA|PhD|BA|BS|MS|Master|Bachelor|Doctorate)[\s\w]*(?:from\s+|at\s+)?([A-Z][A-Za-z\s&.,-]+)/gi
+      ];
+      
+      educationPatterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(profileElement.about || '')) !== null && profileTexts.filter(t => t.includes('Education')).length < 3) {
+          const institution = match[1] || match[2] || match[0];
+          if (institution && institution.length > 3) {
+            const text = `Education (from bio): ${institution.trim()}`;
+            if (!profileTexts.some(existing => existing.includes(institution.trim()))) {
+              profileTexts.push(text);
+              console.log(`[findCompanyMatches] Extracted education from about section: ${text}`);
+            }
+          }
+        }
+      });
+    }
   }
 
   // Extract volunteering information
@@ -955,6 +998,28 @@ const findCompanyMatches = async (
     });
   } else {
     console.log("[findCompanyMatches] 'volunteering' data missing or not an array.");
+    
+    // Fallback: Try to extract volunteering info from about section
+    if (profileElement.about) {
+      const volunteerPatterns = [
+        /(?:volunteer|board member|advisory|nonprofit|charity|foundation|community)[\s\w]*(?:at|for|with)\s+([A-Z][A-Za-z\s&.,-]+)/gi,
+        /([A-Z][A-Za-z\s&.,-]+)[\s,]*(?:volunteer|board|advisory|nonprofit|charity|foundation)/gi
+      ];
+      
+      volunteerPatterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(profileElement.about || '')) !== null && profileTexts.filter(t => t.includes('Volunteer')).length < 3) {
+          const organization = match[1] || match[0];
+          if (organization && organization.length > 3) {
+            const text = `Volunteering (from bio): ${organization.trim()}`;
+            if (!profileTexts.some(existing => existing.includes(organization.trim()))) {
+              profileTexts.push(text);
+              console.log(`[findCompanyMatches] Extracted volunteering from about section: ${text}`);
+            }
+          }
+        }
+      });
+    }
   }
 
   if (profileTexts.length === 0) {
