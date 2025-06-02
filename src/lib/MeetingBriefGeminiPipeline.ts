@@ -529,7 +529,132 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       jobHistoryTimeline = ["LinkedIn profile searched but no verified employment record found."];
       console.log("[MB] No results survived filtering, returning minimal brief");
     }
+  } else {
+    // ENHANCED FILTERING: When we have LinkedIn profile data, be much more strict
+    // to avoid mixing data from different people with the same name
+    console.log(`[MB] Enhanced filtering enabled - we have LinkedIn profile data for ${name} at ${org}`);
+    const orgToken = normalizeCompanyName(org);
+    const heuristicDomain = `${slugifyCompanyName(org)}.com`;
+    const nameToken = name.toLowerCase();
+    const initialSerpCount = collectedSerpResults.length;
+    
+    // Extract known companies and schools from LinkedIn data for positive filtering
+    const knownCompanies = new Set([orgToken]);
+    const knownSchools = new Set<string>();
+    
+    if (proxyCurlData?.experiences) {
+      proxyCurlData.experiences.forEach(exp => {
+        if (exp.company) {
+          knownCompanies.add(normalizeCompanyName(exp.company));
+        }
+      });
+    }
+    
+    if (educationTimeline.length > 0) {
+      educationTimeline.forEach(edu => {
+        // Extract school names from education entries like "MBA — Harvard Business School (2020)"
+        const schoolMatch = edu.match(/—\s*([^(]+)/);
+        if (schoolMatch) {
+          const school = schoolMatch[1].trim().toLowerCase();
+          knownSchools.add(school);
+          // Also add variations
+          knownSchools.add(school.replace(/university|college|school|institute/gi, '').trim());
+        }
+      });
+    }
+    
+    console.log(`[MB] Known companies: ${Array.from(knownCompanies).join(', ')}`);
+    console.log(`[MB] Known schools: ${Array.from(knownSchools).join(', ')}`);
+    
+    collectedSerpResults = collectedSerpResults.filter(r => {
+      // Always keep the LinkedIn profile we found
+      if (r.link === linkedInProfileResult?.link) {
+        return true;
+      }
+      
+      const titleSnippet = (r.title + " " + (r.snippet ?? "")).toLowerCase();
+      const nameInContent = titleSnippet.includes(nameToken);
+      const urlContainsOrg = r.link.includes(heuristicDomain);
+      
+      if (!nameInContent) {
+        return false; // Must mention the person's name
+      }
+      
+      // Check if it mentions any known company
+      const mentionsKnownCompany = Array.from(knownCompanies).some(company => 
+        titleSnippet.includes(company)
+      );
+      
+      // Check if it mentions any known school
+      const mentionsKnownSchool = Array.from(knownSchools).some(school => 
+        school.length > 2 && titleSnippet.includes(school)
+      );
+      
+      // Professional keywords that indicate relevant content
+      const professionalKeywords = [
+        'award', 'recognition', 'published', 'publication', 'interview', 'profile',
+        'keynote', 'speaker', 'webinar', 'conference', 'patent', 'executive',
+        'director', 'manager', 'analyst', 'vp', 'vice president', 'ceo', 'cto',
+        'promoted', 'joins', 'appointed', 'hired', 'news', 'press release'
+      ];
+      
+      const hasProfessionalKeywords = professionalKeywords.some(keyword => 
+        titleSnippet.includes(keyword)
+      );
+      
+      // Keep if: company domain OR (name + known company/school + professional context)
+      const isRelevant = urlContainsOrg || 
+        (mentionsKnownCompany && hasProfessionalKeywords) ||
+        (mentionsKnownSchool && hasProfessionalKeywords);
+      
+      if (!isRelevant) {
+        console.log(`[MB] Filtered out unrelated result: ${r.title}`);
+      }
+      
+      return isRelevant;
+    });
+    
+    console.log(`[MB] Enhanced post-filter applied – kept ${collectedSerpResults.length}/${initialSerpCount} results`);
   }
+
+  // Safety net: return a stub brief if truly nothing useful remains after filtering
+  if (collectedSerpResults.length === 0) {
+    jobHistoryTimeline = jobHistoryTimeline.length > 0 ? jobHistoryTimeline : [
+      "LinkedIn profile searched but no verified employment record found."
+    ];
+    console.log("[MB] No results after enhanced filtering – returning minimal brief.");
+
+    return {
+      brief: renderFullHtmlBrief(
+        name,
+        org,
+        { executive: [], highlights: [], funFacts: [], researchNotes: [] },
+        [],
+        jobHistoryTimeline,
+        educationTimeline,
+        linkedInProfileResult?.link
+      ),
+      citations: [],
+      tokensUsed: 0,
+      serperSearchesMade: serperCallsMade,
+      // Harvest credits
+      harvestCreditsUsed: 0,
+      // Legacy counters (deprecated but kept for compatibility)
+      proxycurlCompanyLookupCalls: 0,
+      proxycurlPersonLookupCalls: 0,
+      proxycurlProfileFreshCalls: 0,
+      proxycurlProfileDirectCalls: 0,
+      proxycurlCreditsUsed: 0,
+      proxycurlCallsMade: 0,
+      proxycurlLookupCallsMade: 0,
+      proxycurlFreshProfileCallsMade: 0,
+      firecrawlAttempts: firecrawlGlobalAttempts,
+      firecrawlSuccesses: firecrawlGlobalSuccesses,
+      finalSourcesConsidered: [],
+      possibleSocialLinks: [],
+    };
+  }
+  // ------------------------------------------------------------------------
 
   // ── Continue with existing pipeline for general research ─────────────────
   console.log(`[MB Step 4] Running initial Serper queries for "${name}" and "${org}"`);
@@ -583,10 +708,10 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   // SECOND-PASS SERP FILTER
   // If we still have **no resume data**, eliminate any results that
   // do NOT mention both the NAME **and** ORG token (or the org domain).
-  // This closes the loophole where later Serper queries re-introduce
-  // irrelevant matches (e.g., the college-football Thomas Nance).
+  // If we DO have resume data, apply even stricter filtering to avoid wrong-person contamination.
   // ------------------------------------------------------------------------
-  if (!(globalThis as { hasResumeData?: boolean }).hasResumeData) {
+  const hasResumeDataForSecondPass = (globalThis as { hasResumeData?: boolean }).hasResumeData ?? false;
+  if (!hasResumeDataForSecondPass) {
     const orgTok   = normalizeCompanyName(org);
     const domHint  = `${slugifyCompanyName(org)}.com`;
     const nameTok  = name.toLowerCase();
@@ -599,45 +724,66 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       return urlHasOrg || nameAndOrg;
     });
     console.log(`[MB] 2nd-pass SERP filter (no-resume path) – kept ${collectedSerpResults.length}/${pre}`);
+  } else {
+    // ENHANCED 2nd-pass filtering when we have LinkedIn data
+    const orgTok   = normalizeCompanyName(org);
+    const domHint  = `${slugifyCompanyName(org)}.com`;
+    const nameTok  = name.toLowerCase();
 
-    // Optional short-circuit: return a stub brief if truly nothing useful
-    if (collectedSerpResults.length === 0) {
-      jobHistoryTimeline = [
-        "LinkedIn profile searched but no verified employment record found."
-      ];
-      console.log("[MB] No results after 2nd-pass filter – returning minimal brief.");
-
-      return {
-        brief: renderFullHtmlBrief(
-          name,
-          org,
-          { executive: [], highlights: [], funFacts: [], researchNotes: [] },
-          [],
-          jobHistoryTimeline,
-          [],
-          undefined
-        ),
-        citations: [],
-        tokensUsed: 0,
-        serperSearchesMade: serperCallsMade,
-        // Harvest credits
-        harvestCreditsUsed: 0,
-        // Legacy counters (deprecated but kept for compatibility)
-        proxycurlCompanyLookupCalls: 0,
-        proxycurlPersonLookupCalls: 0,
-        proxycurlProfileFreshCalls: 0,
-        proxycurlProfileDirectCalls: 0,
-        proxycurlCreditsUsed: 0,
-        proxycurlCallsMade: 0,
-        proxycurlLookupCallsMade: 0,
-        proxycurlFreshProfileCallsMade: 0,
-        firecrawlAttempts: firecrawlGlobalAttempts,
-        firecrawlSuccesses: firecrawlGlobalSuccesses,
-        finalSourcesConsidered: [],
-        possibleSocialLinks: [],
-      };
-    }
+    const pre = collectedSerpResults.length;
+    collectedSerpResults = collectedSerpResults.filter(r => {
+      // Always keep the verified LinkedIn profile
+      if (r.link === linkedInProfileResult?.link) {
+        return true;
+      }
+      
+      const txt = (r.title + ' ' + (r.snippet ?? '')).toLowerCase();
+      const urlHasOrg   = r.link.includes(domHint);
+      const nameAndOrg  = txt.includes(nameTok) && txt.includes(orgTok);
+      
+      // For LinkedIn profiles, be extra strict - must mention target company
+      if (r.link.includes('linkedin.com/in/') && !txt.includes(orgTok)) {
+        console.log(`[MB] Filtered out LinkedIn profile without company mention: ${r.title}`);
+        return false;
+      }
+      
+      return urlHasOrg || nameAndOrg;
+    });
+    console.log(`[MB] 2nd-pass SERP filter (enhanced for resume data) – kept ${collectedSerpResults.length}/${pre}`);
   }
+
+  // Final safety net: if no results survive enhanced filtering, return brief with just LinkedIn data
+  if (collectedSerpResults.length === 0 && hasResumeDataForSecondPass) {
+    console.log("[MB] No results after enhanced filtering – returning brief with LinkedIn data only.");
+    return {
+      brief: renderFullHtmlBrief(
+        name,
+        org,
+        { executive: [], highlights: [], funFacts: [], researchNotes: [] },
+        [],
+        jobHistoryTimeline,
+        educationTimeline,
+        linkedInProfileResult?.link
+      ),
+      citations: [],
+      tokensUsed: 0,
+      serperSearchesMade: serperCallsMade,
+      harvestCreditsUsed: 0,
+      proxycurlCompanyLookupCalls: 0,
+      proxycurlPersonLookupCalls: 0,
+      proxycurlProfileFreshCalls: 0,
+      proxycurlProfileDirectCalls: 0,
+      proxycurlCreditsUsed: 0,
+      proxycurlCallsMade: 0,
+      proxycurlLookupCallsMade: 0,
+      proxycurlFreshProfileCallsMade: 0,
+      firecrawlAttempts: firecrawlGlobalAttempts,
+      firecrawlSuccesses: firecrawlGlobalSuccesses,
+      finalSourcesConsidered: [],
+      possibleSocialLinks: [],
+    };
+  }
+
   // ------------------------------------------------------------------------
 
   console.log(`[MB Step 6] Deduplicating and filtering SERP results. Initial count: ${collectedSerpResults.length}`);
