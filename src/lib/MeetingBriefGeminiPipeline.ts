@@ -678,11 +678,32 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
-  if (hasResumeData && proxyCurlData?.experiences) {
+  console.log(`[MB Step 5 Check] hasResumeData: ${hasResumeData}, proxyCurlData?.experiences: ${!!proxyCurlData?.experiences}, jobHistoryTimeline.length: ${jobHistoryTimeline.length}, educationTimeline.length: ${educationTimeline.length}`);
+  
+  if (hasResumeData && (proxyCurlData?.experiences || jobHistoryTimeline.length > 0)) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
-    const priorCompanies = proxyCurlData.experiences
-      .map(exp => exp.company)
-      .filter((c): c is string => !!c);
+    
+    // Get prior companies from either ProxyCurl format or Harvest-derived job timeline
+    let priorCompanies: string[] = [];
+    
+    if (proxyCurlData?.experiences) {
+      // ProxyCurl format
+      priorCompanies = proxyCurlData.experiences
+        .map(exp => exp.company)
+        .filter((c): c is string => !!c);
+    } else if (jobHistoryTimeline.length > 0) {
+      // Extract from Harvest-derived job timeline
+      priorCompanies = jobHistoryTimeline
+        .map(job => {
+          // Extract company from format: "Role — Company (years)"
+          const companyMatch = job.match(/—\s*([^(]+)/);
+          return companyMatch ? companyMatch[1].trim() : null;
+        })
+        .filter((c): c is string => !!c);
+    }
+    
+    console.log(`[MB Step 5] Extracted prior companies: ${priorCompanies.join(', ')}`);
+    
     const uniquePriorCompanies = priorCompanies
       .filter((c, i, arr) => 
         i === arr.findIndex(x => normalizeCompanyName(x) === normalizeCompanyName(c)) && 
@@ -731,6 +752,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         }
       }
     }
+  } else {
+    console.log(`[MB Step 5] Skipped - insufficient data for prior company searches`);
   }
 
   // ------------------------------------------------------------------------
