@@ -51,6 +51,7 @@ const GENERIC_NO_SCRAPE_DOMAINS = [
   "youtube.com/", "youtu.be/",
   "reddit.com/", 
   "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/", "linkedin.com/pub/",
+  "rocketreach.co", "rocketreach.com", // Removed from pipeline due to inaccurate data
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
@@ -58,7 +59,7 @@ const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAIN
 // Low-trust domains: keep them *only* when we'd otherwise feed the LLM
 // fewer than MIN_RELIABLE_SOURCES sources (after Firecrawl skip logic).
 // ------------------------------------------------------------------------
-const LOW_TRUST_DOMAINS = ["rocketreach.co", "rocketreach.com"];
+const LOW_TRUST_DOMAINS: string[] = []; // RocketReach removed - now completely excluded
 const MIN_RELIABLE_SOURCES = 5;
 
 /* ── TYPES ──────────────────────────────────────────────────────────────── */
