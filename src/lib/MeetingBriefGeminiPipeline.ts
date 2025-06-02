@@ -307,7 +307,7 @@ const renderParagraphsWithCitations = (rows: BriefRow[], citations: Citation[]):
           return `<p>${cleanLLMOutputText(row.text)} <sup>[source error]</sup></p>`;
       }
       const citation = citations[row.source - 1];
-      const supLink = `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer" title="${(citation.title || "").replace(/"/g, '"')}">${row.source}</a></sup>`;
+      const supLink = `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer" title="${(citation.title || "").replace(/"/g, '"')}" style="color: #0066cc; text-decoration: none;">${row.source}</a></sup>`;
       return `<p>${cleanLLMOutputText(row.text)} ${supLink}</p>`;
     }).join("\n");
 
@@ -319,7 +319,7 @@ const renderUnorderedListWithCitations = (rows: BriefRow[], citations: Citation[
               return `  <li>${cleanLLMOutputText(row.text)} <sup>[source error]</sup></li>`;
           }
           const citation = citations[row.source - 1];
-          const supLink = `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer" title="${(citation.title || "").replace(/"/g, '"')}">${row.source}</a></sup>`;
+          const supLink = `<sup><a href="${citation.url}" target="_blank" rel="noopener noreferrer" title="${(citation.title || "").replace(/"/g, '"')}" style="color: #0066cc; text-decoration: none;">${row.source}</a></sup>`;
           return `  <li>${cleanLLMOutputText(row.text)} ${supLink}</li>`;
         }).join("\n")}\n</ul>`
     : "";
@@ -337,19 +337,18 @@ const renderFullHtmlBrief = (
   jobHistory: string[],
   linkedInUrl?: string // Add optional LinkedIn URL parameter
 ): string => {
-  const sectionSpacer = "<p> </p>";
+  const sectionSpacer = "<br><br>"; // Better spacing between sections
   
-  // LinkedIn profile section
+  // LinkedIn profile section (moved to bottom)
   const linkedInSection = linkedInUrl 
     ? `${sectionSpacer}<h3><strong>Possible LinkedIn Profile</strong></h3>
-<p><a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer">${linkedInUrl}</a></p>
+<p><a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline;">${linkedInUrl}</a></p>
 <p><em>Note: You may need to be logged in to LinkedIn to view the full profile.</em></p>`
     : "";
   
   return `
 <div>
   <h2><strong>Meeting Brief: ${targetName} – ${targetOrg}</strong></h2>
-${linkedInSection}
 ${sectionSpacer}<h3><strong>Executive Summary</strong></h3>
 ${renderParagraphsWithCitations(llmJsonBrief.executive || [], citationsList)}
 ${sectionSpacer}<h3><strong>Job History</strong></h3>
@@ -358,6 +357,7 @@ ${sectionSpacer}<h3><strong>Highlights & Fun Facts</strong></h3>
 ${renderUnorderedListWithCitations([...(llmJsonBrief.highlights || []), ...(llmJsonBrief.funFacts || [])], citationsList)}
 ${sectionSpacer}<h3><strong>Detailed Research Notes</strong></h3>
 ${renderUnorderedListWithCitations(llmJsonBrief.researchNotes || [], citationsList)}
+${linkedInSection}
 </div>`.trim().replace(/^\s*\n/gm, "");
 };
 
