@@ -372,19 +372,7 @@ export async function POST(request: NextRequest) {
         [userId, sanitizedName, sanitizedOrganization, normalizedBrief]
       );
 
-      // Update usage count using the calculated current period start
-      await client.query(
-        `INSERT INTO user_brief_counts (user_id, current_month_count, current_month_start)
-         VALUES ($1, 1, $2)
-         ON CONFLICT (user_id)
-         DO UPDATE SET 
-           current_month_count = CASE 
-             WHEN user_brief_counts.current_month_start = $2 THEN user_brief_counts.current_month_count + 1
-             ELSE 1
-           END,
-           current_month_start = $2`,
-        [userId, currentPeriodStart]
-      );
+      // Note: user_brief_counts is automatically updated by database trigger
 
       // Log successful request for monitoring
       console.log("Brief generated:", {
