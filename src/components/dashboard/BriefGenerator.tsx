@@ -117,18 +117,8 @@ export function BriefGenerator() {
       const { brief } = (await res.json()) as { brief: string };
       setBriefHtml(brief);
       
-      // Optimistically update the counter immediately
-      if (usage) {
-        setUsage({
-          ...usage,
-          currentMonthCount: usage.currentMonthCount + 1
-        });
-      }
-      
-      // Wait a moment for the database trigger to complete, then fetch real data
-      setTimeout(() => {
-        fetchUsage();
-      }, 1000);
+      // Refresh usage data immediately since API now calculates correctly
+      fetchUsage();
     } catch (err) {
       setError((err as Error).message);
     } finally {
