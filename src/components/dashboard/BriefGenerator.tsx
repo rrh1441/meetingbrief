@@ -116,8 +116,19 @@ export function BriefGenerator() {
       if (!res.ok) throw new Error(await res.text());
       const { brief } = (await res.json()) as { brief: string };
       setBriefHtml(brief);
-      // Refresh usage after successful generation
-      fetchUsage();
+      
+      // Optimistically update the counter immediately
+      if (usage) {
+        setUsage({
+          ...usage,
+          currentMonthCount: usage.currentMonthCount + 1
+        });
+      }
+      
+      // Wait a moment for the database trigger to complete, then fetch real data
+      setTimeout(() => {
+        fetchUsage();
+      }, 1000);
     } catch (err) {
       setError((err as Error).message);
     } finally {
