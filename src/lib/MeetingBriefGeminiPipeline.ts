@@ -448,7 +448,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
             .map(pub => ({
               title: `Publication: ${pub.title}`,
               link: pub.url || pub.link!,
-              snippet: pub.description || `Publication by ${name}: ${pub.title}${pub.publisher ? ` (${pub.publisher})` : ''}`
+              snippet: pub.description || `Publication by ${name}: "${pub.title}"${pub.publisher ? ` published in ${pub.publisher}` : ''}${pub.publishedDate ? ` (${pub.publishedDate})` : ''}. This is a professional publication that may provide insights into ${name}'s expertise and thought leadership.`
             }));
           
           if (publicationUrls.length > 0) {
