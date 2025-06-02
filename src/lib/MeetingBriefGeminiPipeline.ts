@@ -372,9 +372,13 @@ const renderFullHtmlBrief = (
   llmJsonBrief: JsonBriefFromLLM,
   citationsList: Citation[], 
   jobHistory: string[],
+  education: string[] = [],
   linkedInUrl?: string // Add optional LinkedIn URL parameter
 ): string => {
   const sectionSpacer = "<br>"; // Single line break between sections
+  
+  // Filter out empty strings from job history
+  const cleanJobHistory = jobHistory.filter(job => job.trim() !== '');
   
   // LinkedIn profile section (moved to bottom)
   const linkedInSection = linkedInUrl 
@@ -383,13 +387,19 @@ const renderFullHtmlBrief = (
 <p><em>Note: You may need to be logged in to LinkedIn to view the full profile.</em></p>`
     : "";
   
+  // Education section (only show if we have education data)
+  const educationSection = education.length > 0 
+    ? `${sectionSpacer}<h3><strong>Education</strong></h3>
+${renderJobHistoryList(education)}` 
+    : "";
+  
   return `
 <div>
   <h2><strong>Meeting Brief: ${targetName} – ${targetOrg}</strong></h2>
 ${sectionSpacer}<h3><strong>Executive Summary</strong></h3>
 ${renderParagraphsWithCitations(llmJsonBrief.executive || [], citationsList)}
 ${sectionSpacer}<h3><strong>Job History</strong></h3>
-${renderJobHistoryList(jobHistory)}
+${renderJobHistoryList(cleanJobHistory)}${educationSection}
 ${sectionSpacer}<h3><strong>Highlights & Fun Facts</strong></h3>
 ${renderUnorderedListWithCitations([...(llmJsonBrief.highlights || []), ...(llmJsonBrief.funFacts || [])], citationsList)}
 ${sectionSpacer}<h3><strong>Detailed Research Notes</strong></h3>
@@ -414,6 +424,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let linkedInProfileResult: SerpResult | null = null;
   let proxyCurlData: ProxyCurlResult | null = null;
   let jobHistoryTimeline: string[] = [];
+  let educationTimeline: string[] = [];
 
   const { first, last } = splitFullName(name);
   console.log(`[MB Pipeline] Starting LinkedIn resolution for "${first} ${last}" at "${org}"`);
@@ -427,6 +438,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         // Use the profile element for ProxyCurlResult compatibility
         proxyCurlData = harvestResult.profile.element as unknown as ProxyCurlResult || null;
         jobHistoryTimeline = harvestResult.jobTimeline || [];
+        educationTimeline = harvestResult.educationTimeline || [];
         (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
 
         linkedInProfileResult = {
@@ -601,6 +613,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
           { executive: [], highlights: [], funFacts: [], researchNotes: [] },
           [],
           jobHistoryTimeline,
+          [],
           undefined
         ),
         citations: [],
@@ -785,7 +798,7 @@ ${llmSourceBlock}
     snippet: (extractedTextsForLLM[index] || `${source.title}. ${source.snippet ?? ""}`).slice(0, 300) + ((extractedTextsForLLM[index]?.length || 0) > 300 ? "..." : ""),
   }));
 
-  const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline, linkedInProfileResult?.link);
+  const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline, educationTimeline, linkedInProfileResult?.link);
   const totalInputTokensForLLM = estimateTokens(systemPromptForLLM + userPromptForLLM);
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
@@ -1254,6 +1267,7 @@ type HarvestPipelineResult = {
   profile: HarvestLinkedInProfileApiResponse;
   linkedinUrl: string;
   jobTimeline: string[];
+  educationTimeline: string[];
   llmReasoning: string;
   companyEvidence: string[];
   searchMethod: string;
@@ -1262,6 +1276,7 @@ type HarvestPipelineResult = {
   reason: string;
   linkedinUrlAttempted?: string; // URL of profile that was tried but failed verification
   jobTimeline?: never;
+  educationTimeline?: never;
   companyEvidence?: never;
   llmReasoning?: string; // Can still have reasoning for selection failure
   searchMethod?: string; // Can still indicate search method
@@ -1422,9 +1437,10 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
 
     console.log(`[Harvest] Selected verified profile with company evidence:`, bestResult.companyMatches.evidence);
 
-    // 9. Build job timeline
+    // 9. Build job timeline and education separately
     const profileData = bestResult.fullProfile?.element;
     let jobHistoryTimeline: string[] = [];
+    let educationTimeline: string[] = [];
 
     // Try to get structured experience data first
     if (profileData?.experience && Array.isArray(profileData.experience)) {
@@ -1467,9 +1483,9 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       jobHistoryTimeline = timeline;
     }
 
-    // Add education information if available and work history is present
-    if (jobHistoryTimeline.length > 0 && profileData?.education && Array.isArray(profileData.education)) {
-      const educationEntries = profileData.education.slice(0, 2).map((edu) => {
+    // Extract education information separately
+    if (profileData?.education && Array.isArray(profileData.education)) {
+      educationTimeline = profileData.education.slice(0, 2).map((edu) => {
         // Handle both Harvest format (title/degree) and legacy format (schoolName/degreeName)
         const school = edu.title || edu.schoolName || 'University';
         const degree = edu.degree || edu.degreeName || 'Degree';
@@ -1492,11 +1508,6 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
         const years = edu.endDate?.year ? ` (${edu.endDate.year})` : '';
         return `${degreeText}${fieldText ? ` in ${fieldText}` : ''} — ${school}${years}`;
       });
-      
-      if (educationEntries.length > 0) {
-        jobHistoryTimeline.push(''); // Add blank line separator
-        jobHistoryTimeline.push(...educationEntries);
-      }
     }
 
     // Fallback if still no timeline
@@ -1506,6 +1517,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
 
     console.log(`[Harvest] Successfully selected, scraped, and verified profile using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search: ${bestResult.url}`);
     console.log(`[Harvest] Found ${jobHistoryTimeline.length} work experiences`);
+    console.log(`[Harvest] Found ${educationTimeline.length} education entries`);
     console.log(`[Harvest] Company verification: ${bestResult.companyMatches.evidence.join('; ')}`);
 
     return {
@@ -1513,6 +1525,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       profile: fullProfile,
       linkedinUrl: bestResult.url,
       jobTimeline: jobHistoryTimeline,
+      educationTimeline: educationTimeline,
       llmReasoning: selection.reasoning,
       companyEvidence: bestResult.companyMatches.evidence,
       searchMethod: wasCompanyFiltered ? 'company-filtered' : 'broader'
