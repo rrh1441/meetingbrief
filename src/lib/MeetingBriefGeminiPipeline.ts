@@ -59,7 +59,7 @@ const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAIN
 // Low-trust domains: keep them *only* when we'd otherwise feed the LLM
 // fewer than MIN_RELIABLE_SOURCES sources (after Firecrawl skip logic).
 // ------------------------------------------------------------------------
-const LOW_TRUST_DOMAINS: string[] = []; // RocketReach removed - now completely excluded
+const LOW_TRUST_DOMAINS: string[] = ["zoominfo.com"]; // People-finder sites with high false positive rates
 const MIN_RELIABLE_SOURCES = 5;
 
 /* ── TYPES ──────────────────────────────────────────────────────────────── */
@@ -280,16 +280,17 @@ let firecrawlGlobalSuccesses = 0;
 const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Promise<string | null> => {
   firecrawlGlobalAttempts++;
   
-  // Skip PDFs and known slow domains - use shorter timeout
-  const isProbablySlowOrPdf = url.includes('.pdf') || 
-    url.includes('newyorkfed.org') || 
-    url.includes('fsb.org') || 
-    url.includes('brokercheck.finra.org') ||
-    url.includes('zoominfo.com');
+  // Detect if this might contain award/publication content
+  const awardKeywords = ['award', 'recognition', 'winner', 'recipient', 'achievement', 'honor', 'fellowship', 'grant', 'publication', 'research', 'paper', 'study', 'forbes', 'keynote', 'speaker', 'conference', 'patent'];
+  const urlLower = url.toLowerCase();
+  const isLikelyAwardContent = awardKeywords.some(keyword => urlLower.includes(keyword));
+  
+  // Skip PDFs - use shorter timeout unless it's award content
+  const isPdf = url.includes('.pdf');
   
   const tryScrapeOnce = async (timeoutMs: number): Promise<string | null> => {
     try {
-      console.log(`[Firecrawl Attempt] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms`);
+      console.log(`[Firecrawl Attempt] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms${isLikelyAwardContent ? ' (Award content detected)' : ''}`);
       const response = await Promise.race([
         postJSON<FirecrawlScrapeV1Result>(
           FIRECRAWL_API_URL, { url }, { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
@@ -306,7 +307,7 @@ const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Pr
       } else if (response && response.success && response.data) {
          const fallbackText = response.data.text_content || response.data.markdown;
          if (fallbackText && typeof fallbackText === 'string') {
-            console.warn(`[Firecrawl PartialSuccess] ${attemptInfoForLogs} - URL: ${url}. No article.text_content, but found other text (length: ${fallbackText.length}).`);
+            console.log(`[Firecrawl PartialSuccess] ${attemptInfoForLogs} - URL: ${url}. No article.text_content, but found other text (length: ${fallbackText.length}).`);
             firecrawlGlobalSuccesses++;
             return fallbackText;
          }
@@ -326,13 +327,29 @@ const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Pr
     }
   };
 
-  let content = await tryScrapeOnce(isProbablySlowOrPdf ? 3000 : 7000);
-  if (content === null && !isProbablySlowOrPdf) {
-    console.warn(`[Firecrawl Retry] First attempt failed for ${url} (${attemptInfoForLogs}). Retrying.`);
+  // First attempt - longer timeout for award content, reasonable timeout for PDFs
+  const firstTimeout = isLikelyAwardContent ? 15000 : (isPdf ? 10000 : 7000);
+  let content = await tryScrapeOnce(firstTimeout);
+  
+  // Retry with even longer timeout for award content, or standard retry for others including PDFs
+  if (content === null && !isPdf) {
+    const retryTimeout = isLikelyAwardContent ? 30000 : 15000;
+    console.warn(`[Firecrawl Retry] First attempt failed for ${url} (${attemptInfoForLogs}). Retrying with ${retryTimeout}ms timeout.`);
+    content = await tryScrapeOnce(retryTimeout);
+    if (content === null) {
+      if (isLikelyAwardContent) {
+        console.error(`[Firecrawl FailedAwardContent] Award/publication content failed both attempts: ${url} (${attemptInfoForLogs}). Will rely on snippet.`);
+      } else {
+        console.error(`[Firecrawl FailedAllAttempts] URL: ${url} (${attemptInfoForLogs}).`);
+      }
+    }
+  } else if (content === null && isPdf) {
+    // Give PDFs one retry since they might contain valuable research/publications
+    console.warn(`[Firecrawl Retry] PDF failed first attempt: ${url} (${attemptInfoForLogs}). Retrying once.`);
     content = await tryScrapeOnce(15000);
-    if (content === null) console.error(`[Firecrawl FailedAllAttempts] URL: ${url} (${attemptInfoForLogs}).`);
-  } else if (content === null && isProbablySlowOrPdf) {
-    console.warn(`[Firecrawl Skip] Skipping retry for slow/PDF URL: ${url} (${attemptInfoForLogs}).`);
+    if (content === null) {
+      console.warn(`[Firecrawl FailedPDF] PDF failed both attempts: ${url} (${attemptInfoForLogs}). Will rely on snippet.`);
+    }
   }
   return content;
 };
@@ -898,7 +915,24 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
           const snippetIsLikelyRedundant = snippetText && scrapedText.toLowerCase().includes(snippetText.toLowerCase().slice(0, Math.min(50, snippetText.length > 0 ? snippetText.length -1 : 0)));
           extractedTextsForLLM[globalIndex] = (snippetIsLikelyRedundant ? scrapedText : `${scrapedText}\n\nSnippet for context: ${source.title}. ${snippetText}`).slice(0, 3500);
         } else {
-          extractedTextsForLLM[globalIndex] = `${source.title}. ${source.snippet ?? ""}`;
+          // Firecrawl failed - enhance snippet fallback especially for award content
+          const snippetText = source.snippet || "";
+          const titleLower = source.title.toLowerCase();
+          const snippetLower = snippetText.toLowerCase();
+          
+          // Detect if this appears to be award/publication content
+          const awardKeywords = ['award', 'recognition', 'winner', 'recipient', 'achievement', 'honor', 'fellowship', 'grant', 'publication', 'research', 'paper', 'study', 'forbes', 'keynote', 'speaker', 'conference', 'patent', 'cited', 'published', 'authored'];
+          const isLikelyAwardContent = awardKeywords.some(keyword => 
+            titleLower.includes(keyword) || snippetLower.includes(keyword)
+          );
+          
+          if (isLikelyAwardContent && snippetText) {
+            // Enhanced presentation for award content
+            extractedTextsForLLM[globalIndex] = `IMPORTANT ACHIEVEMENT/RECOGNITION CONTENT:\nTitle: ${source.title}\nDetails: ${snippetText}\n\nNote: This appears to contain information about awards, recognition, or publications that may be highly relevant for professional context.`;
+          } else {
+            // Standard fallback
+            extractedTextsForLLM[globalIndex] = `${source.title}. ${snippetText}`;
+          }
         }
       }),
     );
