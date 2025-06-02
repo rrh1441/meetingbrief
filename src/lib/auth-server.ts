@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { stripe } from "@better-auth/stripe";
 import { Pool } from "pg";
 import Stripe from "stripe";
-// import { Resend } from "resend"; // TODO: Install resend package: npm install resend
+import { Resend } from "resend";
 
 // This file should ONLY be imported by server-side code (API routes)
 // It contains secrets and should never be bundled with client code
@@ -26,11 +26,9 @@ const stripeClient = process.env.STRIPE_SECRET_KEY
   : undefined;
 
 // Initialize Resend client (only if API key is provided)
-// TODO: Uncomment after installing resend package
-// const resendClient = process.env.RESEND_API_KEY 
-//   ? new Resend(process.env.RESEND_API_KEY)
-//   : undefined;
-const resendClient: { emails: { send: (options: { from: string; to: string[]; subject: string; html: string }) => Promise<unknown> } } | undefined = undefined; // Temporarily disabled for build
+const resendClient = process.env.RESEND_API_KEY 
+  ? new Resend(process.env.RESEND_API_KEY)
+  : undefined;
 
 export const auth = betterAuth({
   database: process.env.DATABASE_URL ? new Pool({
@@ -58,7 +56,7 @@ export const auth = betterAuth({
       }
       
       try {
-        await (resendClient as { emails: { send: (options: { from: string; to: string[]; subject: string; html: string }) => Promise<unknown> } }).emails.send({
+        await resendClient.emails.send({
           from: process.env.RESEND_FROM_EMAIL || 'noreply@meetingbrief.com',
           to: [data.user.email],
           subject: 'Verify your MeetingBrief account',
@@ -99,7 +97,7 @@ export const auth = betterAuth({
       }
       
       try {
-        await (resendClient as { emails: { send: (options: { from: string; to: string[]; subject: string; html: string }) => Promise<unknown> } }).emails.send({
+        await resendClient.emails.send({
           from: process.env.RESEND_FROM_EMAIL || 'noreply@meetingbrief.com',
           to: [data.user.email],
           subject: 'Reset your MeetingBrief password',
