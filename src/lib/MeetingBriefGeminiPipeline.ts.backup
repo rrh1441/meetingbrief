@@ -107,24 +107,6 @@ interface HarvestLinkedInProfileElement {
     startDate?: YearMonthDay;
     endDate?: YearMonthDay;
   }[];
-  certifications?: {
-    name?: string;
-    authority?: string;
-    licenseCertificationNumber?: string;
-    startDate?: YearMonthDay;
-    endDate?: YearMonthDay;
-  }[];
-  languages?: {
-    name?: string;
-    proficiency?: string;
-  }[];
-  publications?: {
-    title?: string;
-    url?: string;
-    publishedDate?: string;
-    description?: string;
-    publisher?: string;
-  }[];
   [key: string]: unknown;
 }
 
@@ -436,24 +418,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         
         if (linkedInProfileResult.link) {
           collectedSerpResults.push(linkedInProfileResult);
-        }
-        
-        // Extract publication URLs from Harvest profile for scraping
-        const profileElement = harvestResult.profile.element;
-        if (profileElement?.publications && Array.isArray(profileElement.publications)) {
-          const publicationUrls = profileElement.publications
-            .filter(pub => pub.url && pub.title)
-            .slice(0, 3) // Limit to top 3 publications to avoid overwhelming
-            .map(pub => ({
-              title: `Publication: ${pub.title}`,
-              link: pub.url!,
-              snippet: pub.description || `Publication by ${name}: ${pub.title}${pub.publisher ? ` (${pub.publisher})` : ''}`
-            }));
-          
-          if (publicationUrls.length > 0) {
-            console.log(`[MB] Found ${publicationUrls.length} publication URLs from Harvest profile for scraping`);
-            collectedSerpResults.push(...publicationUrls);
-          }
         }
         
         console.log(`[MB] Successfully resolved LinkedIn profile via Harvest + LLM (${harvestResult.searchMethod} search)`);
@@ -810,6 +774,42 @@ ${llmSourceBlock}
     }
   }
 
+  // Add education information if available and work history is present
+  if (jobHistoryTimeline.length > 0 && proxyCurlData?.experiences) {
+    console.log(`[MB] Adding education information to job history for "${name}" at "${org}"`);
+    const profileData = proxyCurlData.experiences.find(exp => exp.company === org)?.experiences?.[0];
+    if (profileData) {
+      const educationEntries = profileData.map((exp: LinkedInExperience) => {
+        // Handle both Harvest format (title/degree) and legacy format (schoolName/degreeName)
+        const school = exp.companyName || 'University';
+        const degree = exp.position || 'Degree';
+        let fieldText = exp.fieldOfStudy || '';
+        
+        // Parse degree and field from Harvest's combined degree field if needed
+        let degreeText = degree;
+        if (degree && degree.includes(' - ') && !fieldText) {
+          const parts = degree.split(' - ');
+          if (parts.length >= 2) {
+            degreeText = parts[0].trim();
+            const secondPart = parts[1].trim();
+            // Extract field from "MA, International Relations" format
+            if (secondPart.includes(', ')) {
+              fieldText = secondPart.split(', ').slice(1).join(', ');
+            }
+          }
+        }
+        
+        const years = exp.endDate?.year ? ` (${exp.endDate.year})` : '';
+        return `${degreeText}${fieldText ? ` in ${fieldText}` : ''} — ${school}${years}`;
+      });
+      
+      if (educationEntries.length > 0) {
+        jobHistoryTimeline.push(''); // Add blank line separator
+        jobHistoryTimeline.push(...educationEntries);
+      }
+    }
+  }
+
   return {
     brief: htmlBriefOutput, 
     citations: finalCitations, 
@@ -929,27 +929,21 @@ const findCompanyMatches = async (
   
   // DEBUG: Log all available fields in the profile element
   console.log(`[DEBUG] Available profile fields:`, Object.keys(profileElement));
+  console.log(`[DEBUG] Full profile element structure:`, JSON.stringify(profileElement, null, 2).slice(0, 2000) + '...');
+
+  // DEBUG: Check for alternative field names
+  const possibleEducationFields = ['education', 'educations', 'schools', 'schoolExperience', 'degrees'];
+  const possibleVolunteerFields = ['volunteering', 'volunteerWork', 'volunteer', 'volunteerExperience', 'causes'];
   
-  // DEBUG: Check for new data fields
-  const possibleCertificationFields = ['certifications', 'certification', 'certs', 'licenses'];
-  const possibleLanguageFields = ['languages', 'language', 'spoken'];
-  const possiblePublicationFields = ['publications', 'publication', 'papers', 'articles'];
-  
-  possibleCertificationFields.forEach(field => {
+  possibleEducationFields.forEach(field => {
     if ((profileElement as Record<string, unknown>)[field]) {
-      console.log(`[DEBUG] Found potential certification data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
+      console.log(`[DEBUG] Found potential education data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
     }
   });
-
-  possibleLanguageFields.forEach(field => {
+  
+  possibleVolunteerFields.forEach(field => {
     if ((profileElement as Record<string, unknown>)[field]) {
-      console.log(`[DEBUG] Found potential language data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
-    }
-  });
-
-  possiblePublicationFields.forEach(field => {
-    if ((profileElement as Record<string, unknown>)[field]) {
-      console.log(`[DEBUG] Found potential publication data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
+      console.log(`[DEBUG] Found potential volunteering data in field '${field}':`, (profileElement as Record<string, unknown>)[field]);
     }
   });
 
@@ -1081,62 +1075,6 @@ const findCompanyMatches = async (
         }
       });
     }
-  }
-
-  // Extract certifications information
-  if (profileElement.certifications && Array.isArray(profileElement.certifications)) {
-    profileElement.certifications.slice(0, 5).forEach((cert) => { // Check top 5 certifications
-      if (cert.name || cert.authority) {
-        const certName = cert.name || 'Certification';
-        const authority = cert.authority ? ` from ${cert.authority}` : '';
-        const text = `Certified in ${certName}${authority}`;
-        profileTexts.push(text);
-        console.log(`[findCompanyMatches] Extracted certification text: ${text}`);
-      }
-    });
-  } else {
-    console.log("[findCompanyMatches] 'certifications' data missing or not an array.");
-  }
-
-  // Extract languages information
-  if (profileElement.languages && Array.isArray(profileElement.languages)) {
-    const languageList = profileElement.languages
-      .slice(0, 5) // Limit to top 5 languages
-      .map(lang => {
-        const name = lang.name || 'Unknown Language';
-        const proficiency = lang.proficiency ? ` (${lang.proficiency})` : '';
-        return `${name}${proficiency}`;
-      })
-      .join(', ');
-    
-    if (languageList) {
-      const text = `Languages: ${languageList}`;
-      profileTexts.push(text);
-      console.log(`[findCompanyMatches] Extracted languages text: ${text}`);
-    }
-  } else {
-    console.log("[findCompanyMatches] 'languages' data missing or not an array.");
-  }
-
-  // Extract publications information
-  if (profileElement.publications && Array.isArray(profileElement.publications)) {
-    profileElement.publications.slice(0, 3).forEach((pub, idx) => { // Check top 3 publications
-      if (pub.title) {
-        const title = pub.title;
-        const publisher = pub.publisher ? ` (${pub.publisher})` : '';
-        const date = pub.publishedDate ? ` - ${pub.publishedDate}` : '';
-        const text = `Publication ${idx + 1}: ${title}${publisher}${date}`;
-        profileTexts.push(text);
-        console.log(`[findCompanyMatches] Extracted publication text: ${text}`);
-        
-        // Store publication URL for potential Firecrawl scraping
-        if (pub.url) {
-          console.log(`[findCompanyMatches] Found publication URL for potential scraping: ${pub.url}`);
-        }
-      }
-    });
-  } else {
-    console.log("[findCompanyMatches] 'publications' data missing or not an array.");
   }
 
   if (profileTexts.length === 0) {
