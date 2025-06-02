@@ -661,7 +661,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const initialQueries = [
     { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
     { q: `"${name}" "${org}" (interview OR profile OR news OR "press release" OR biography)`, num: 10 },
-    { q: `"${name}" (award OR recognition OR keynote OR webinar OR conference OR patent OR publication)`, num: 10 },
+    { q: `"${name}" "${org}" (award OR recognition OR keynote OR webinar OR conference OR patent OR publication OR podcast OR interview OR article OR blog OR whitepaper OR research OR paper OR study OR report OR testimony OR speaking OR panel OR book OR chapter OR quoted OR expert OR commentary OR analysis OR guest OR featured OR winner OR recipient OR achievement OR honor OR fellowship OR grant OR advisory OR board OR presentation OR workshop OR seminar OR briefing)`, num: 10 },
   ];
 
   for (const query of initialQueries) {
@@ -690,16 +690,45 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       )
       .slice(0, 3);
     
-    for (const company of uniquePriorCompanies) {
-      try {
-        const response = await postJSON<{ organic?: SerpResult[] }>(
-          SERPER_API_URL, { q: `"${name}" "${company}"`, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! },
-        );
-        serperCallsMade++;
-        if (response.organic) collectedSerpResults.push(...response.organic);
-      } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e));
-        console.warn(`[MB Step 5] Serper query failed for prior company "${company}". Error: ${err.message}`);
+    // Extract school names from education timeline
+    const schools = educationTimeline.map(edu => {
+      const schoolMatch = edu.match(/—\s*([^(]+)/);
+      return schoolMatch ? schoolMatch[1].trim() : null;
+    }).filter(Boolean).slice(0, 2); // Limit to top 2 schools
+    
+    // All known institutions (prior companies + schools)
+    const allInstitutions = [...uniquePriorCompanies, ...schools];
+    
+    console.log(`[MB Step 5] Searching across ${allInstitutions.length} known institutions: ${allInstitutions.join(', ')}`);
+    
+    // Define all query types to run for each institution
+    const queryTypes = [
+      { keywords: "", label: "basic" }, // Basic name + institution
+      { keywords: "(interview OR profile OR news OR \"press release\" OR biography)", label: "news/profile" },
+      { keywords: "(award OR recognition OR keynote OR webinar OR conference OR patent OR publication OR podcast OR interview OR article OR blog OR whitepaper OR research OR paper OR study OR report OR testimony OR speaking OR panel OR book OR chapter OR quoted OR expert OR commentary OR analysis OR guest OR featured OR winner OR recipient OR achievement OR honor OR fellowship OR grant OR advisory OR board OR presentation OR workshop OR seminar OR briefing)", label: "awards/content" }
+    ];
+    
+    // Run all query types for each institution
+    for (const institution of allInstitutions) {
+      for (const queryType of queryTypes) {
+        try {
+          const query = queryType.keywords 
+            ? `"${name}" "${institution}" ${queryType.keywords}`
+            : `"${name}" "${institution}"`;
+          
+          const response = await postJSON<{ organic?: SerpResult[] }>(
+            SERPER_API_URL, { q: query, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! }
+          );
+          serperCallsMade++;
+          
+          if (response.organic) {
+            console.log(`[MB Step 5] Found ${response.organic.length} ${queryType.label} results for "${institution}"`);
+            collectedSerpResults.push(...response.organic);
+          }
+        } catch (e: unknown) {
+          const err = e instanceof Error ? e : new Error(String(e));
+          console.warn(`[MB Step 5] ${queryType.label} query failed for "${institution}". Error: ${err.message}`);
+        }
       }
     }
   }
