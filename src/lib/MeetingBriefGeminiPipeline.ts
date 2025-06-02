@@ -121,6 +121,7 @@ interface HarvestLinkedInProfileElement {
   publications?: {
     title?: string;
     url?: string;
+    link?: string;
     publishedDate?: string;
     description?: string;
     publisher?: string;
@@ -442,11 +443,11 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         const profileElement = harvestResult.profile.element;
         if (profileElement?.publications && Array.isArray(profileElement.publications)) {
           const publicationUrls = profileElement.publications
-            .filter(pub => pub.url && pub.title)
+            .filter(pub => (pub.url || pub.link) && pub.title)
             .slice(0, 3) // Limit to top 3 publications to avoid overwhelming
             .map(pub => ({
               title: `Publication: ${pub.title}`,
-              link: pub.url!,
+              link: pub.url || pub.link!,
               snippet: pub.description || `Publication by ${name}: ${pub.title}${pub.publisher ? ` (${pub.publisher})` : ''}`
             }));
           
