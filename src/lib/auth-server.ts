@@ -42,7 +42,7 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || "https://meetingbrief.com",
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true, // Enable email verification with Resend
+    requireEmailVerification: false, // Make email verification optional
     minPasswordLength: 8,
     autoSignInAfterVerification: true,
   },
@@ -162,7 +162,7 @@ export const auth = betterAuth({
         createCustomerOnSignUp: true,
         subscription: {
           enabled: true,
-          requireEmailVerification: true,
+          requireEmailVerification: false,
           plans: [
             {
               name: "free",
