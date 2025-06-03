@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { stripe } from "@better-auth/stripe";
 import { Pool } from "pg";
 import Stripe from "stripe";
+import { Resend } from "resend";
 
 // This file should ONLY be imported by server-side code (API routes)
 // It contains secrets and should never be bundled with client code
@@ -24,6 +25,11 @@ const stripeClient = process.env.STRIPE_SECRET_KEY
     })
   : undefined;
 
+// Initialize Resend client (only if API key is provided)
+const resendClient = process.env.RESEND_API_KEY 
+  ? new Resend(process.env.RESEND_API_KEY)
+  : undefined;
+
 export const auth = betterAuth({
   database: process.env.DATABASE_URL ? new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -36,8 +42,92 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || "https://meetingbrief.com",
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: false, // Set to true if you want email verification
+    requireEmailVerification: true, // Enable email verification with Resend
     minPasswordLength: 8,
+    autoSignInAfterVerification: true,
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendEmail: async (data: { user: { email: string; name?: string }; url: string; token: string }) => {
+      if (!resendClient) {
+        console.log('[Email] Resend client not configured, skipping email verification');
+        return;
+      }
+      
+      try {
+        await resendClient.emails.send({
+          from: process.env.RESEND_FROM_EMAIL || 'noreply@meetingbrief.com',
+          to: [data.user.email],
+          subject: 'Verify your MeetingBrief account',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">Welcome to MeetingBrief!</h2>
+              <p>Hi ${data.user.name || data.user.email},</p>
+              <p>Thanks for signing up! Please click the button below to verify your email address:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${data.url}" 
+                   style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Verify Email Address
+                </a>
+              </div>
+              <p>Or copy and paste this link in your browser:</p>
+              <p style="word-break: break-all; color: #666;">${data.url}</p>
+              <p>This link will expire in 24 hours.</p>
+              <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+              <p style="font-size: 14px; color: #666;">
+                If you didn&apos;t create an account with MeetingBrief, you can safely ignore this email.
+              </p>
+            </div>
+          `
+        });
+        console.log(`[Email] Verification email sent to ${data.user.email}`);
+      } catch (error) {
+        console.error('[Email] Failed to send verification email:', error);
+        throw error;
+      }
+    },
+  },
+  forgetPassword: {
+    enabled: true,
+    sendEmail: async (data: { user: { email: string; name?: string }; url: string; token: string }) => {
+      if (!resendClient) {
+        console.log('[Email] Resend client not configured, skipping password reset email');
+        return;
+      }
+      
+      try {
+        await resendClient.emails.send({
+          from: process.env.RESEND_FROM_EMAIL || 'noreply@meetingbrief.com',
+          to: [data.user.email],
+          subject: 'Reset your MeetingBrief password',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">Reset Your Password</h2>
+              <p>Hi ${data.user.name || data.user.email},</p>
+              <p>We received a request to reset your password for your MeetingBrief account.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${data.url}" 
+                   style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Reset Password
+                </a>
+              </div>
+              <p>Or copy and paste this link in your browser:</p>
+              <p style="word-break: break-all; color: #666;">${data.url}</p>
+              <p>This link will expire in 1 hour.</p>
+              <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+              <p style="font-size: 14px; color: #666;">
+                If you didn&apos;t request a password reset, you can safely ignore this email. Your password will not be changed.
+              </p>
+            </div>
+          `
+        });
+        console.log(`[Email] Password reset email sent to ${data.user.email}`);
+      } catch (error) {
+        console.error('[Email] Failed to send password reset email:', error);
+        throw error;
+      }
+    },
   },
   socialProviders: {
     google: {
@@ -72,7 +162,7 @@ export const auth = betterAuth({
         createCustomerOnSignUp: true,
         subscription: {
           enabled: true,
-          requireEmailVerification: false,
+          requireEmailVerification: true,
           plans: [
             {
               name: "free",
