@@ -534,6 +534,18 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const knownCompanies = new Set([orgToken]);
     const knownSchools = new Set<string>();
     
+    // Add prior companies from job history
+    if (jobHistoryTimeline.length > 0) {
+      jobHistoryTimeline.forEach(job => {
+        // Extract company from format: "Role — Company (years)"
+        const companyMatch = job.match(/—\s*([^(]+)/);
+        if (companyMatch) {
+          const company = companyMatch[1].trim();
+          knownCompanies.add(normalizeCompanyName(company));
+        }
+      });
+    }
+    
     if (educationTimeline.length > 0) {
       educationTimeline.forEach(edu => {
         // Extract school names from education entries like "MBA — Harvard Business School (2020)"
