@@ -49,57 +49,48 @@ const supabase: SupabaseClient | null = (supabaseUrl && supabaseAnon)
 const sampleBriefHtmlContent = `
 <div>
   <h2><strong>Meeting Brief: Jensen Huang – NVIDIA</strong></h2>
-  <p>&nbsp;</p>
+  <br>
   <h3><strong>Executive Summary</strong></h3>
-  <p>
-    Jensen Huang is the founder and CEO of NVIDIA, a position he has held since
-    founding the company in 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
-  </p>
-  <p>&nbsp;</p>
+  <p>Jensen Huang is the co-founder, president, and CEO of NVIDIA, leading the company since 1993. <sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer" title="NVIDIA Official Bio" style="color: #0066cc; text-decoration: none;">1</a></sup> Under his leadership, NVIDIA pioneered the GPU, transforming gaming, AI, and accelerated computing industries. <sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer" title="From Denny's to Trillion" style="color: #0066cc; text-decoration: none;">2</a></sup> He is recognized as one of TIME's 100 most influential people and has received numerous prestigious awards including the IEEE Founder's Medal. <sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer" title="Carnegie Corporation Award" style="color: #0066cc; text-decoration: none;">3</a></sup></p>
+  <br>
   <h3><strong>Job History</strong></h3>
   <ul class="list-disc pl-5">
     <li>Founder and CEO — NVIDIA (1993 – Present)</li>
+    <li>Engineer — Advanced Micro Devices (1985 – 1993)</li>
+    <li>Engineer — LSI Logic (1984 – 1985)</li>
     <li>Dishwasher, Busboy, Waiter — Denny's (1978 – 1983)</li>
   </ul>
-  <p>&nbsp;</p>
-  <h3><strong>Highlights</strong></h3>
+  <br>
+  <h3><strong>Education</strong></h3>
   <ul class="list-disc pl-5">
-    <li>
-      Jensen Huang co-founded NVIDIA in 1993 and has led it to become the most
-      valuable public company in the world as of 2024.<sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer">14</a></sup>
-    </li>
-    <li>
-      Before founding NVIDIA, Huang worked at Denny's as a dishwasher,
-      busboy and waiter from 1978 to 1983.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
-    </li>
-    <li>
-      His journey from Denny's to a trillion-dollar tech company inspired
-      Denny's to create a special "NVIDIA Breakfast Bytes" menu item.<sup><a href="https://www.dennys.com/news/dennys-debuts-new-nvidiar-breakfast-bytes" target="_blank" rel="noopener noreferrer">17</a></sup>
-    </li>
-    <li>
-      NVIDIA was originally planned in a local Denny's where the founders met.<sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer">18</a></sup>
-    </li>
+    <li>MSEE — Stanford University (1992)</li>
+    <li>BSEE — Oregon State University (1984)</li>
   </ul>
-  <p>&nbsp;</p>
+  <br>
+  <h3><strong>Highlights & Fun Facts</strong></h3>
+  <ul class="list-disc pl-5">
+    <li>Co-founded NVIDIA in 1993 and has served as CEO and president since inception, leading it to become one of the world's most valuable companies. <sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer" title="NVIDIA Official Bio" style="color: #0066cc; text-decoration: none;">1</a></sup></li>
+    <li>Led NVIDIA to invent the GPU in 1999, sparking unprecedented growth in PC gaming and modern AI computing. <sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer" title="GPU Innovation History" style="color: #0066cc; text-decoration: none;">2</a></sup></li>
+    <li>Recipient of the IEEE Founder's Medal, Robert N. Noyce Award, and multiple honorary doctorates from prestigious universities. <sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer" title="Awards and Recognition" style="color: #0066cc; text-decoration: none;">3</a></sup></li>
+    <li>Named world's best CEO by Fortune, The Economist, and Brand Finance in recent years. <sup><a href="https://fortune.com/ranking/worlds-greatest-leaders/" target="_blank" rel="noopener noreferrer" title="CEO Recognition" style="color: #0066cc; text-decoration: none;">4</a></sup></li>
+    <li>Started working at Denny's as a dishwasher, busboy, and waiter during his youth, experiences that shaped his work ethic. <sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer" title="Denny's Origins" style="color: #0066cc; text-decoration: none;">5</a></sup></li>
+    <li>The founding idea for NVIDIA was actually conceived at a Denny's restaurant booth, where Huang met with his co-founders. <sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer" title="NVIDIA Origin Story" style="color: #0066cc; text-decoration: none;">2</a></sup></li>
+    <li>Known for his signature black leather jacket, which has become an iconic part of his CEO persona instead of traditional business suits. <sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer" title="Personal Style" style="color: #0066cc; text-decoration: none;">6</a></sup></li>
+  </ul>
+  <br>
   <h3><strong>Detailed Research Notes</strong></h3>
   <ul class="list-disc pl-5">
-    <li>
-      Huang has served as president, CEO and board member of NVIDIA continuously
-      since 1993.<sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer">6</a></sup>
-    </li>
-    <li>
-      He highlighted AI's impact in his GTC 2025 keynote.<sup><a href="https://www.nvidia.com/gtc/keynote/" target="_blank" rel="noopener noreferrer">12</a></sup>
-    </li>
-    <li>
-      Huang stated that China is "not behind" in AI development.<sup><a href="https://www.cnbc.com/2025/04/30/nvidia-ceo-jensen-huang-says-china-not-behind-in-ai.html" target="_blank" rel="noopener noreferrer">9</a></sup>
-    </li>
-    <li>
-      Early Denny's work taught him valuable life lessons.<sup><a href="https://www.dennys.com/jensen-huang-dennys-story-his-favorite-order-how-make-it" target="_blank" rel="noopener noreferrer">16</a></sup>
-    </li>
-    <li>
-      A plaque marks the Denny's where NVIDIA was conceived.<sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer">19</a></sup>
-    </li>
+    <li>Born in 1963 in Tainan, Taiwan, and moved to the United States at age 10, eventually becoming a naturalized citizen. <sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer" title="Early Life" style="color: #0066cc; text-decoration: none;">6</a></sup></li>
+    <li>Worked at LSI Logic and Advanced Micro Devices before founding NVIDIA, gaining crucial semiconductor industry experience. <sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer" title="Career Background" style="color: #0066cc; text-decoration: none;">1</a></sup></li>
+    <li>NVIDIA's distinctive culture is shaped by early financial struggles, including being just 30 days from bankruptcy in 1996. <sup><a href="https://quartr.com/insights/edge/the-story-of-jensen-huang-and-nvidia" target="_blank" rel="noopener noreferrer" title="Early Struggles" style="color: #0066cc; text-decoration: none;">7</a></sup></li>
+    <li>Emphasizes that resilience and character are formed through suffering, viewing challenges as essential for growth and success. <sup><a href="https://quartr.com/insights/edge/the-story-of-jensen-huang-and-nvidia" target="_blank" rel="noopener noreferrer" title="Leadership Philosophy" style="color: #0066cc; text-decoration: none;">7</a></sup></li>
+    <li>Has been named to the U.S. Immigrant Entrepreneur Hall of Fame and received the Dr. Morris Chang Exemplary Leadership Award. <sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer" title="Additional Awards" style="color: #0066cc; text-decoration: none;">3</a></sup></li>
+    <li>Married to Lori Huang since 1985 and has two children, maintaining a relatively private family life despite his public prominence. <sup><a href="https://en.wikipedia.org/wiki/Jensen_Huang" target="_blank" rel="noopener noreferrer" title="Personal Life" style="color: #0066cc; text-decoration: none;">6</a></sup></li>
   </ul>
+  <br>
+  <h3><strong>Possible LinkedIn Profile</strong></h3>
+  <p><a href="https://www.linkedin.com/in/jenhsunhuang" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline;">https://www.linkedin.com/in/jenhsunhuang</a></p>
+  <p><em>Note: You may need to be logged in to LinkedIn to view the full profile.</em></p>
 </div>
 `
 
