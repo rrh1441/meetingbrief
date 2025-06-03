@@ -420,6 +420,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let linkedInProfileResult: SerpResult | null = null;
   let jobHistoryTimeline: string[] = [];
   let educationTimeline: string[] = [];
+  let harvestProfileData: HarvestLinkedInProfileElement | null = null;
 
   const { first, last } = splitFullName(name);
   console.log(`[MB Pipeline] Starting LinkedIn resolution for "${first} ${last}" at "${org}"`);
@@ -430,6 +431,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       const harvestResult = await llmEnhancedHarvestPipeline(name, org);
       
       if (harvestResult.success) {
+        harvestProfileData = harvestResult.profile.element || null;
         jobHistoryTimeline = harvestResult.jobTimeline || [];
         educationTimeline = harvestResult.educationTimeline || [];
         (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
@@ -535,13 +537,25 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const knownSchools = new Set<string>();
     
     // Add prior companies from job history
-    if (jobHistoryTimeline.length > 0) {
+    if (harvestProfileData?.experience && Array.isArray(harvestProfileData.experience)) {
+      console.log(`[MB] Extracting companies from ${harvestProfileData.experience.length} Harvest experience entries`);
+      harvestProfileData.experience.forEach((exp, idx) => {
+        if (exp.companyName) {
+          const normalizedCompany = normalizeCompanyName(exp.companyName);
+          knownCompanies.add(normalizedCompany);
+          console.log(`[MB] Added company ${idx + 1}: "${exp.companyName}" -> "${normalizedCompany}"`);
+        }
+      });
+    } else if (jobHistoryTimeline.length > 0) {
+      // Fallback to regex parsing if no structured data available
+      console.log(`[MB] No structured experience data, falling back to timeline parsing`);
       jobHistoryTimeline.forEach(job => {
-        // Extract company from format: "Role — Company (years)"
         const companyMatch = job.match(/—\s*([^(]+)/);
         if (companyMatch) {
           const company = companyMatch[1].trim();
-          knownCompanies.add(normalizeCompanyName(company));
+          const normalizedCompany = normalizeCompanyName(company);
+          knownCompanies.add(normalizedCompany);
+          console.log(`[MB] Extracted company: "${company}" -> "${normalizedCompany}"`);
         }
       });
     }
