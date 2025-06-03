@@ -39,6 +39,13 @@ export const auth = betterAuth({
     requireEmailVerification: false, // Set to true if you want email verification
     minPasswordLength: 8,
   },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+      enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    },
+  },
   session: {
     // Use default cookie-based sessions for simplicity and security
     cookieCache: {
