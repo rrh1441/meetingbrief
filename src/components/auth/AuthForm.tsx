@@ -1,20 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { authClient } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
 
 interface AuthFormProps {
   mode: "signin" | "signup";
   onSuccess?: () => void;
+  initialEmail?: string | null;
 }
 
-export function AuthForm({ mode, onSuccess }: AuthFormProps) {
+export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  // Set initial email if provided
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [initialEmail]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +40,19 @@ export function AuthForm({ mode, onSuccess }: AuthFormProps) {
         });
         
         if (result.error) {
+          const errorMessage = result.error.message?.toLowerCase() || "";
+          
+          // Check if the error indicates user already exists
+          if (errorMessage.includes("already exists") || 
+              errorMessage.includes("already registered") ||
+              errorMessage.includes("user exists") ||
+              errorMessage.includes("email is already taken")) {
+            
+            // Redirect to sign in with pre-filled email
+            router.push(`/auth/signin?email=${encodeURIComponent(email)}&message=${encodeURIComponent("Account already exists. Please sign in instead.")}`);
+            return;
+          }
+          
           setError(result.error.message || "An error occurred during signup");
         } else {
           onSuccess?.();
