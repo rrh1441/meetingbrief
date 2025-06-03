@@ -10,6 +10,7 @@
 
 import OpenAI from "openai";
 import fetch, { Response as FetchResponse, RequestInit } from "node-fetch"; // Ensure 'node-fetch' and '@types/node-fetch' are installed
+import { proxyCurlBackupPipeline } from "./ProxyCurlBackup";
 
 export const runtime = "nodejs";
 
@@ -414,6 +415,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   
   // Initialize counters
   let serperCallsMade = 0;
+  let proxycurlCreditsUsed = 0; // Track ProxyCurl credits
 
   const startTime = Date.now();
   let collectedSerpResults: SerpResult[] = [];
@@ -494,6 +496,50 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       const error = err instanceof Error ? err : new Error(String(err));
       harvestErrored = true;
       console.warn(`[Harvest] Main Pipeline catcher failed: ${error.message}`);
+      
+      // Check if error suggests credit exhaustion and trigger ProxyCurl backup
+      const errorMessage = error.message.toLowerCase();
+      const isCreditsExhausted = errorMessage.includes('credit') || 
+                                 errorMessage.includes('quota') || 
+                                 errorMessage.includes('limit') ||
+                                 errorMessage.includes('403');
+      
+      if (isCreditsExhausted) {
+        console.log(`[MB] Harvest appears to be out of credits, attempting ProxyCurl backup...`);
+        try {
+          const proxycurlResult = await proxyCurlBackupPipeline(name, org);
+          proxycurlCreditsUsed = proxycurlResult.creditsUsed;
+          
+          if (proxycurlResult.success && proxycurlResult.profile) {
+            console.log(`[MB] ProxyCurl backup successful! Found profile via ProxyCurl.`);
+            
+            // Convert ProxyCurl profile to Harvest-compatible format for timeline display
+            jobHistoryTimeline = proxycurlResult.jobTimeline;
+            educationTimeline = proxycurlResult.educationTimeline;
+            (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
+            
+            linkedInProfileResult = {
+              title: `${name} | LinkedIn Profile (via ProxyCurl)`,
+              link: proxycurlResult.linkedinUrl!,
+              snippet: proxycurlResult.profile.headline ?? `LinkedIn profile for ${name} at ${org} (via ProxyCurl backup)`
+            };
+            
+            if (linkedInProfileResult.link) {
+              collectedSerpResults.push(linkedInProfileResult);
+            }
+            
+            // Clear error state since backup succeeded
+            harvestErrored = false;
+            
+            console.log(`[MB] ProxyCurl backup evidence: ${proxycurlResult.companyEvidence?.join('; ') || 'None provided'}`);
+          } else {
+            console.log(`[MB] ProxyCurl backup failed: ${proxycurlResult.reason}`);
+          }
+        } catch (backupError: unknown) {
+          const backupErr = backupError instanceof Error ? backupError : new Error(String(backupError));
+          console.warn(`[MB] ProxyCurl backup also failed: ${backupErr.message}`);
+        }
+      }
     }
   } else {
     console.log("[Harvest] Skipped – no API key.");
@@ -557,7 +603,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       proxycurlPersonLookupCalls: 0,
       proxycurlProfileFreshCalls: 0,
       proxycurlProfileDirectCalls: 0,
-      proxycurlCreditsUsed: 0,
+      proxycurlCreditsUsed: proxycurlCreditsUsed,
       proxycurlCallsMade: 0,
       proxycurlLookupCallsMade: 0,
       proxycurlFreshProfileCallsMade: 0,
@@ -801,11 +847,11 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       proxycurlPersonLookupCalls: 0,
       proxycurlProfileFreshCalls: 0,
       proxycurlProfileDirectCalls: 0,
-      proxycurlCreditsUsed: 0,
+      proxycurlCreditsUsed: proxycurlCreditsUsed,
       proxycurlCallsMade: 0,
       proxycurlLookupCallsMade: 0,
       proxycurlFreshProfileCallsMade: 0,
-      firecrawlAttempts: firecrawlGlobalAttempts,
+      firecrawlAttempts: firecrawlGlobalAttempts, 
       firecrawlSuccesses: firecrawlGlobalSuccesses,
       finalSourcesConsidered: [],
       possibleSocialLinks: [],
@@ -988,10 +1034,48 @@ ${llmSourceBlock}
   llmJsonBrief.highlights = deduplicateBriefRows(llmJsonBrief.highlights);
   llmJsonBrief.funFacts = deduplicateBriefRows(llmJsonBrief.funFacts);
 
-  const finalCitations: Citation[] = sourcesToProcessForLLM.map((source, index) => ({
-    marker: `[${index + 1}]`, url: source.link, title: source.title,
-    snippet: (extractedTextsForLLM[index] || `${source.title}. ${source.snippet ?? ""}`).slice(0, 300) + ((extractedTextsForLLM[index]?.length || 0) > 300 ? "..." : ""),
-  }));
+  // ── CITATION RENUMBERING ─────────────────────────────────────────────────
+  // Collect all unique source numbers that are actually used in the brief
+  const allUsedSources = new Set<number>();
+  [...llmJsonBrief.executive, ...llmJsonBrief.highlights, ...llmJsonBrief.funFacts, ...llmJsonBrief.researchNotes]
+    .forEach(row => {
+      if (typeof row.source === 'number' && row.source >= 1 && row.source <= sourcesToProcessForLLM.length) {
+        allUsedSources.add(row.source);
+      }
+    });
+
+  // Create mapping from original source numbers to new sequential numbers
+  const usedSourcesArray = Array.from(allUsedSources).sort((a, b) => a - b);
+  const sourceMapping = new Map<number, number>();
+  usedSourcesArray.forEach((originalSource, index) => {
+    sourceMapping.set(originalSource, index + 1);
+  });
+
+  console.log(`[MB] Renumbering citations: ${usedSourcesArray.length} sources used, mapping: ${Array.from(sourceMapping.entries()).map(([old, new_]) => `${old}→${new_}`).join(', ')}`);
+
+  // Update all BriefRow objects with new source numbers
+  const renumberBriefRows = (rows: BriefRow[]): BriefRow[] => {
+    return rows.map(row => ({
+      ...row,
+      source: sourceMapping.get(row.source) || row.source
+    }));
+  };
+
+  llmJsonBrief.executive = renumberBriefRows(llmJsonBrief.executive);
+  llmJsonBrief.highlights = renumberBriefRows(llmJsonBrief.highlights);
+  llmJsonBrief.funFacts = renumberBriefRows(llmJsonBrief.funFacts);
+  llmJsonBrief.researchNotes = renumberBriefRows(llmJsonBrief.researchNotes);
+
+  // Create final citations array with only used sources, in new order
+  const finalCitations: Citation[] = usedSourcesArray.map((originalSourceIndex, newIndex) => {
+    const source = sourcesToProcessForLLM[originalSourceIndex - 1]; // Convert to 0-based
+    return {
+      marker: `[${newIndex + 1}]`,
+      url: source.link,
+      title: source.title,
+      snippet: (extractedTextsForLLM[originalSourceIndex - 1] || `${source.title}. ${source.snippet ?? ""}`).slice(0, 300) + ((extractedTextsForLLM[originalSourceIndex - 1]?.length || 0) > 300 ? "..." : "")
+    };
+  });
 
   const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline, educationTimeline, linkedInProfileResult?.link);
   const totalInputTokensForLLM = estimateTokens(systemPromptForLLM + userPromptForLLM);
@@ -1031,7 +1115,7 @@ ${llmSourceBlock}
     proxycurlPersonLookupCalls: 0,
     proxycurlProfileFreshCalls: 0,
     proxycurlProfileDirectCalls: 0,
-    proxycurlCreditsUsed: 0,
+    proxycurlCreditsUsed: proxycurlCreditsUsed,
     proxycurlCallsMade: 0,
     proxycurlLookupCallsMade: 0,
     proxycurlFreshProfileCallsMade: 0,
