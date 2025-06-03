@@ -524,108 +524,11 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       console.log("[MB] No results survived filtering, returning minimal brief");
     }
   } else {
-    // ENHANCED FILTERING: When we have LinkedIn profile data, be much more strict
-    // to avoid mixing data from different people with the same name
-    console.log(`[MB] Enhanced filtering enabled - we have LinkedIn profile data for ${name} at ${org}`);
-    const orgToken = normalizeCompanyName(org);
-    const heuristicDomain = `${slugifyCompanyName(org)}.com`;
-    const nameToken = name.toLowerCase();
-    const initialSerpCount = collectedSerpResults.length;
-    
-    // Extract known companies and schools from LinkedIn data for positive filtering
-    const knownCompanies = new Set([orgToken]);
-    const knownSchools = new Set<string>();
-    
-    // Add prior companies from job history
-    if (harvestProfileData?.experience && Array.isArray(harvestProfileData.experience)) {
-      console.log(`[MB] Extracting companies from ${harvestProfileData.experience.length} Harvest experience entries`);
-      harvestProfileData.experience.forEach((exp, idx) => {
-        if (exp.companyName) {
-          const normalizedCompany = normalizeCompanyName(exp.companyName);
-          knownCompanies.add(normalizedCompany);
-          console.log(`[MB] Added company ${idx + 1}: "${exp.companyName}" -> "${normalizedCompany}"`);
-        }
-      });
-    } else if (jobHistoryTimeline.length > 0) {
-      // Fallback to regex parsing if no structured data available
-      console.log(`[MB] No structured experience data, falling back to timeline parsing`);
-      jobHistoryTimeline.forEach(job => {
-        const companyMatch = job.match(/—\s*([^(]+)/);
-        if (companyMatch) {
-          const company = companyMatch[1].trim();
-          const normalizedCompany = normalizeCompanyName(company);
-          knownCompanies.add(normalizedCompany);
-          console.log(`[MB] Extracted company: "${company}" -> "${normalizedCompany}"`);
-        }
-      });
-    }
-    
-    if (educationTimeline.length > 0) {
-      educationTimeline.forEach(edu => {
-        // Extract school names from education entries like "MBA — Harvard Business School (2020)"
-        const schoolMatch = edu.match(/—\s*([^(]+)/);
-        if (schoolMatch) {
-          const school = schoolMatch[1].trim().toLowerCase();
-          knownSchools.add(school);
-          // Also add variations
-          knownSchools.add(school.replace(/university|college|school|institute/gi, '').trim());
-        }
-      });
-    }
-    
-    console.log(`[MB] Known companies: ${Array.from(knownCompanies).join(', ')}`);
-    console.log(`[MB] Known schools: ${Array.from(knownSchools).join(', ')}`);
-    
-    collectedSerpResults = collectedSerpResults.filter(r => {
-      // Always keep the LinkedIn profile we found
-      if (r.link === linkedInProfileResult?.link) {
-        return true;
-      }
-      
-      const titleSnippet = (r.title + " " + (r.snippet ?? "")).toLowerCase();
-      const nameInContent = titleSnippet.includes(nameToken);
-      const urlContainsOrg = r.link.includes(heuristicDomain);
-      
-      if (!nameInContent) {
-        return false; // Must mention the person's name
-      }
-      
-      // Check if it mentions any known company
-      const mentionsKnownCompany = Array.from(knownCompanies).some(company => 
-        titleSnippet.includes(company)
-      );
-      
-      // Check if it mentions any known school
-      const mentionsKnownSchool = Array.from(knownSchools).some(school => 
-        school.length > 2 && titleSnippet.includes(school)
-      );
-      
-      // Professional keywords that indicate relevant content
-      const professionalKeywords = [
-        'award', 'recognition', 'published', 'publication', 'interview', 'profile',
-        'keynote', 'speaker', 'webinar', 'conference', 'patent', 'executive',
-        'director', 'manager', 'analyst', 'vp', 'vice president', 'ceo', 'cto',
-        'promoted', 'joins', 'appointed', 'hired', 'news', 'press release'
-      ];
-      
-      const hasProfessionalKeywords = professionalKeywords.some(keyword => 
-        titleSnippet.includes(keyword)
-      );
-      
-      // Keep if: company domain OR (name + known company/school + professional context)
-      const isRelevant = urlContainsOrg || 
-        (mentionsKnownCompany && hasProfessionalKeywords) ||
-        (mentionsKnownSchool && hasProfessionalKeywords);
-      
-      if (!isRelevant) {
-        console.log(`[MB] Filtered out unrelated result: ${r.title}`);
-      }
-      
-      return isRelevant;
-    });
-    
-    console.log(`[MB] Enhanced post-filter applied – kept ${collectedSerpResults.length}/${initialSerpCount} results`);
+    // When we have resume data, skip early filtering - will do enhanced filtering after Serper searches
+    console.log(`[MB] Resume data available - skipping early filtering, will apply enhanced filtering after Serper searches`);
   }
+
+  
 
   // Safety net: return a stub brief if truly nothing useful remains after filtering
   if (collectedSerpResults.length === 0) {
@@ -782,10 +685,43 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     });
     console.log(`[MB] 2nd-pass SERP filter (no-resume path) – kept ${collectedSerpResults.length}/${pre}`);
   } else {
-    // ENHANCED 2nd-pass filtering when we have LinkedIn data
-    const orgTok   = normalizeCompanyName(org);
-    const domHint  = `${slugifyCompanyName(org)}.com`;
-    const nameTok  = name.toLowerCase();
+    // ENHANCED filtering when we have LinkedIn data - use known companies from Harvest
+    console.log(`[MB] Enhanced filtering enabled - we have LinkedIn profile data for ${name} at ${org}`);
+    const orgTok = normalizeCompanyName(org);
+    const domHint = `${slugifyCompanyName(org)}.com`;
+    const nameTok = name.toLowerCase();
+    
+    // Extract known companies and schools from LinkedIn data for positive filtering
+    const knownCompanies = new Set([orgTok]);
+    const knownSchools = new Set<string>();
+    
+    // Add prior companies from job history using harvestProfileData
+    if (harvestProfileData?.experience && Array.isArray(harvestProfileData.experience)) {
+      console.log(`[MB] Extracting companies from ${harvestProfileData.experience.length} Harvest experience entries`);
+      harvestProfileData.experience.forEach((exp, idx) => {
+        if (exp.companyName) {
+          const normalizedCompany = normalizeCompanyName(exp.companyName);
+          knownCompanies.add(normalizedCompany);
+          console.log(`[MB] Added company ${idx + 1}: "${exp.companyName}" -> "${normalizedCompany}"`);
+        }
+      });
+    }
+    
+    if (educationTimeline.length > 0) {
+      educationTimeline.forEach(edu => {
+        // Extract school names from education entries like "MBA — Harvard Business School (2020)"
+        const schoolMatch = edu.match(/—\s*([^(]+)/);
+        if (schoolMatch) {
+          const school = schoolMatch[1].trim().toLowerCase();
+          knownSchools.add(school);
+          // Also add variations
+          knownSchools.add(school.replace(/university|college|school|institute/gi, '').trim());
+        }
+      });
+    }
+    
+    console.log(`[MB] Known companies for filtering: ${Array.from(knownCompanies).join(', ')}`);
+    console.log(`[MB] Known schools for filtering: ${Array.from(knownSchools).join(', ')}`);
 
     const pre = collectedSerpResults.length;
     collectedSerpResults = collectedSerpResults.filter(r => {
@@ -795,18 +731,53 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       }
       
       const txt = (r.title + ' ' + (r.snippet ?? '')).toLowerCase();
-      const urlHasOrg   = r.link.includes(domHint);
-      const nameAndOrg  = txt.includes(nameTok) && txt.includes(orgTok);
+      const nameInContent = txt.includes(nameTok);
+      const urlContainsOrg = r.link.includes(domHint);
+      
+      if (!nameInContent) {
+        return false; // Must mention the person's name
+      }
+      
+      // Check if it mentions any known company
+      const mentionsKnownCompany = Array.from(knownCompanies).some(company => 
+        txt.includes(company)
+      );
+      
+      // Check if it mentions any known school
+      const mentionsKnownSchool = Array.from(knownSchools).some(school => 
+        school.length > 2 && txt.includes(school)
+      );
+      
+      // Professional keywords that indicate relevant content
+      const professionalKeywords = [
+        'award', 'recognition', 'published', 'publication', 'interview', 'profile',
+        'keynote', 'speaker', 'webinar', 'conference', 'patent', 'executive',
+        'director', 'manager', 'analyst', 'vp', 'vice president', 'ceo', 'cto',
+        'promoted', 'joins', 'appointed', 'hired', 'news', 'press release'
+      ];
+      
+      const hasProfessionalKeywords = professionalKeywords.some(keyword => 
+        txt.includes(keyword)
+      );
       
       // For LinkedIn profiles, be extra strict - must mention target company
-      if (r.link.includes('linkedin.com/in/') && !txt.includes(orgTok)) {
-        console.log(`[MB] Filtered out LinkedIn profile without company mention: ${r.title}`);
+      if (r.link.includes('linkedin.com/in/') && !mentionsKnownCompany) {
+        console.log(`[MB] Filtered out LinkedIn profile without known company mention: ${r.title}`);
         return false;
       }
       
-      return urlHasOrg || nameAndOrg;
+      // Keep if: company domain OR (name + known company/school + professional context)
+      const isRelevant = urlContainsOrg || 
+        (mentionsKnownCompany && hasProfessionalKeywords) ||
+        (mentionsKnownSchool && hasProfessionalKeywords);
+      
+      if (!isRelevant) {
+        console.log(`[MB] Filtered out unrelated result: ${r.title}`);
+      }
+      
+      return isRelevant;
     });
-    console.log(`[MB] 2nd-pass SERP filter (enhanced for resume data) – kept ${collectedSerpResults.length}/${pre}`);
+    console.log(`[MB] Enhanced SERP filter (with known companies) – kept ${collectedSerpResults.length}/${pre}`);
   }
 
   // Final safety net: if no results survive enhanced filtering, return brief with just LinkedIn data
