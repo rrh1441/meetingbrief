@@ -931,6 +931,9 @@ ${llmJsonTemplate}
 ### EMPLOYMENT_TIMELINE (from LinkedIn, for context)
 ${jobHistoryTimeline.join("\n") || "Not available."}
 
+### EDUCATION_TIMELINE (from LinkedIn, for context)
+${educationTimeline.join("\n") || "Not available."}
+
 ### SOURCES_FOR_ANALYSIS (numbered 1 to ${sourcesToProcessForLLM.length})
 ${llmSourceBlock}
 `.trim();
