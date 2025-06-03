@@ -40,8 +40,6 @@ const FIRECRAWL_BATCH_SIZE = 10;
 const FIRECRAWL_GLOBAL_BUDGET_MS = 35_000;
 
 // Credit-aware LinkedIn resolution URLs
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const PROFILE_FRESH_DAYS = 30;
 
 /* ── DOMAIN RULES ───────────────────────────────────────────────────────── */
 const SOCIAL_DOMAINS = [
@@ -144,14 +142,6 @@ interface ScrapeResult {
   success: boolean;
 }
 
-interface LinkedInExperience { company?: string; title?: string; starts_at?: YearMonthDay; ends_at?: YearMonthDay }
-interface ProxyCurlResult {
-    headline?: string;
-    experiences?: LinkedInExperience[];
-    last_updated?: number;
-    [key: string]: unknown;
-}
-
 interface BriefRow { text: string; source: number }
 interface JsonBriefFromLLM {
   executive: BriefRow[]; highlights: BriefRow[];
@@ -246,19 +236,7 @@ const slugifyCompanyName = (org: string): string => {
   return org.toLowerCase().replace(/[^a-z0-9]/g, "");
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const isOlderThan = (lastUpdatedEpoch: number, days: number): boolean => {
-  const now = Date.now() / 1000; // Current time in Unix seconds
-  const ageDays = (now - lastUpdatedEpoch) / 86400; // Convert to days
-  return ageDays >= days;
-};
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-interface LinkedInResolutionResult {
-  url: string;
-  profile: ProxyCurlResult | null;
-  creditsUsed: number;
-}
 
 /* ── LinkedIn Person Lookup Helpers ─────────────────────────────────────── */
 const splitFullName = (fullName: string): { first: string; last: string } => {
@@ -440,7 +418,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const startTime = Date.now();
   let collectedSerpResults: SerpResult[] = [];
   let linkedInProfileResult: SerpResult | null = null;
-  let proxyCurlData: ProxyCurlResult | null = null;
   let jobHistoryTimeline: string[] = [];
   let educationTimeline: string[] = [];
 
@@ -453,8 +430,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       const harvestResult = await llmEnhancedHarvestPipeline(name, org);
       
       if (harvestResult.success) {
-        // Use the profile element for ProxyCurlResult compatibility
-        proxyCurlData = harvestResult.profile.element as unknown as ProxyCurlResult || null;
         jobHistoryTimeline = harvestResult.jobTimeline || [];
         educationTimeline = harvestResult.educationTimeline || [];
         (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
@@ -558,14 +533,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     // Extract known companies and schools from LinkedIn data for positive filtering
     const knownCompanies = new Set([orgToken]);
     const knownSchools = new Set<string>();
-    
-    if (proxyCurlData?.experiences) {
-      proxyCurlData.experiences.forEach(exp => {
-        if (exp.company) {
-          knownCompanies.add(normalizeCompanyName(exp.company));
-        }
-      });
-    }
     
     if (educationTimeline.length > 0) {
       educationTimeline.forEach(edu => {
@@ -695,20 +662,15 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
-  console.log(`[MB Step 5 Check] hasResumeData: ${hasResumeData}, proxyCurlData?.experiences: ${!!proxyCurlData?.experiences}, jobHistoryTimeline.length: ${jobHistoryTimeline.length}, educationTimeline.length: ${educationTimeline.length}`);
+  console.log(`[MB Step 5 Check] hasResumeData: ${hasResumeData}, harvestData: true, jobHistoryTimeline.length: ${jobHistoryTimeline.length}, educationTimeline.length: ${educationTimeline.length}`);
   
-  if (hasResumeData && (proxyCurlData?.experiences || jobHistoryTimeline.length > 0)) {
+  if (hasResumeData && (jobHistoryTimeline.length > 0)) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
     
     // Get prior companies from either ProxyCurl format or Harvest-derived job timeline
     let priorCompanies: string[] = [];
     
-    if (proxyCurlData?.experiences) {
-      // ProxyCurl format
-      priorCompanies = proxyCurlData.experiences
-        .map(exp => exp.company)
-        .filter((c): c is string => !!c);
-    } else if (jobHistoryTimeline.length > 0) {
+    if (jobHistoryTimeline.length > 0) {
       // Extract from Harvest-derived job timeline
       priorCompanies = jobHistoryTimeline
         .map(job => {
@@ -890,8 +852,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       console.warn(`[MB Step 7] Firecrawl global time budget exhausted. Remaining sources use snippets.`);
       for (let j = i; j < sourcesToProcessForLLM.length; j++) {
         const source = sourcesToProcessForLLM[j];
-        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link && proxyCurlData?.headline
-          ? `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`
+        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link 
+          ? `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`
           : `${source.title}. ${source.snippet ?? ""}`;
       }
       break;
@@ -903,8 +865,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       currentBatch.map(async (batchItem) => {
         const { sourceItem: source, globalIndex, indexInBatch: itemIdxInBatch } = batchItem;
         const attemptInfoForLogs = `Batch ${Math.floor(i / FIRECRAWL_BATCH_SIZE) + 1}, ItemInBatch ${itemIdxInBatch + 1}/${currentBatch.length}, GlobalIdx ${globalIndex + 1}`;
-        if (source.link === linkedInProfileResult?.link && proxyCurlData?.headline) {
-          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. Headline: ${proxyCurlData.headline}. URL: ${source.link}`; return;
+        if (source.link === linkedInProfileResult?.link ) {
+          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`; return;
         }
         if (NO_SCRAPE_URL_SUBSTRINGS.some(skip => source.link.includes(skip))) {
           extractedTextsForLLM[globalIndex] = `${source.title}. ${source.snippet ?? ""}`; return;
@@ -1094,7 +1056,7 @@ const harvestGet = async <T>(endpoint: string, qs: Record<string, string>): Prom
   return resp.json() as Promise<T>;
 };
 
-const formatJobSpanFromProxyCurl = (starts_at?: YearMonthDay, ends_at?: YearMonthDay): string => {
+const formatJobSpan = (starts_at?: YearMonthDay, ends_at?: YearMonthDay): string => {
   const startYear = starts_at?.year ? starts_at.year.toString() : "?";
   const endYear = ends_at?.year ? ends_at.year.toString() : "Present";
   return `${startYear} – ${endYear}`;
@@ -1678,7 +1640,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     // Try to get structured experience data first
     if (profileData?.experience && Array.isArray(profileData.experience)) {
       jobHistoryTimeline = profileData.experience.map((exp) =>
-        `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpanFromProxyCurl(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
+        `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpan(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
       );
     }
 
