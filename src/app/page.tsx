@@ -154,12 +154,17 @@ export default function Page() {
 
   /* stepper effect --------------------------------------------------------- */
   useEffect(() => {
-    if (!loading) return
-    const timer = setInterval(() => {
-      setStepIdx(prev => Math.min(prev + 1, STEPS.length - 1))
-      setRemaining(prev => Math.max(prev - 1, 1))
-    }, 8000) // 8 seconds per step (33% increase from original 6s)
-    return () => clearInterval(timer)
+    if (!loading) { setStepIdx(0); setRemaining(60); return; }
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - t0) / 1000);
+      setRemaining(Math.max(5, 60 - elapsed));
+      if (elapsed < 60 && elapsed % 12 === 0) {
+        setStepIdx(i => Math.min(i + 1, STEPS.length - 1));
+      }
+      if (elapsed >= 60) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
   }, [loading])
 
   /* analytics -------------------------------------------------------------- */
@@ -409,7 +414,7 @@ export default function Page() {
                 <CardHeader>
                   <CardTitle>{STEPS[stepIdx]}</CardTitle>
                   <CardDescription>
-                    {remaining > 10 ? `${remaining}s remaining` : '≈ 10 s remaining'}
+                    {remaining > 10 ? `${remaining}s remaining` : `${remaining}s remaining`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent />
@@ -438,17 +443,16 @@ export default function Page() {
                       >
                         {pdfBusy ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
                       </Button>
+                      {/* Add Feedback Widget for authenticated users with briefId */}
+                      {user && briefId && (
+                        <FeedbackWidget briefId={briefId} />
+                      )}
                     </CardAction>
                   </CardHeader>
                   <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
                     <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
                   </CardContent>
                 </Card>
-
-                {/* Add Feedback Widget for authenticated users with briefId */}
-                {user && briefId && (
-                  <FeedbackWidget briefId={briefId} />
-                )}
               </div>
             )}
 

@@ -194,6 +194,7 @@ export function BriefHistory() {
                   >
                     {pdfBusy[brief.id] ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
                   </Button>
+                  <FeedbackWidget briefId={brief.id} />
                 </div>
                 
                 {expandedBrief === brief.id && (
@@ -204,9 +205,6 @@ export function BriefHistory() {
                         dangerouslySetInnerHTML={{ __html: brief.brief_content }}
                       />
                     </div>
-                    
-                    {/* Add Feedback Widget */}
-                    <FeedbackWidget briefId={brief.id} />
                   </div>
                 )}
               </CardContent>
