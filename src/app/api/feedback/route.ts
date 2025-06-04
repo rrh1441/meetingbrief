@@ -59,15 +59,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate optional string inputs
-    const validatedFalsePositivesExplanation = falsePositivesExplanation 
-      ? validateStringInput(falsePositivesExplanation, 1000) 
-      : null;
-    const validatedMissingInfoExplanation = missingInfoExplanation 
-      ? validateStringInput(missingInfoExplanation, 1000) 
-      : null;
-    const validatedOtherFeedback = otherFeedback 
-      ? validateStringInput(otherFeedback, 1000) 
-      : null;
+    let validatedFalsePositivesExplanation = null;
+    if (falsePositivesExplanation && typeof falsePositivesExplanation === 'string') {
+      const validation = validateStringInput(falsePositivesExplanation, "False positives explanation", 0);
+      if (!validation.isValid) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+      validatedFalsePositivesExplanation = validation.sanitized;
+    }
+
+    let validatedMissingInfoExplanation = null;
+    if (missingInfoExplanation && typeof missingInfoExplanation === 'string') {
+      const validation = validateStringInput(missingInfoExplanation, "Missing info explanation", 0);
+      if (!validation.isValid) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+      validatedMissingInfoExplanation = validation.sanitized;
+    }
+
+    let validatedOtherFeedback = null;
+    if (otherFeedback && typeof otherFeedback === 'string') {
+      const validation = validateStringInput(otherFeedback, "Other feedback", 0);
+      if (!validation.isValid) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+      validatedOtherFeedback = validation.sanitized;
+    }
 
     const client = await pool.connect();
     
