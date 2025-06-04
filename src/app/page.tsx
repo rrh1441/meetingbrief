@@ -134,7 +134,7 @@ export default function Page() {
   const [pdfBusy, setPdfBusy] = useState(false)
 
   const [stepIdx, setStepIdx] = useState(0)
-  const [remaining, setRemaining] = useState(30)
+  const [remaining, setRemaining] = useState(60)
 
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -158,7 +158,7 @@ export default function Page() {
     const timer = setInterval(() => {
       setStepIdx(prev => Math.min(prev + 1, STEPS.length - 1))
       setRemaining(prev => Math.max(prev - 1, 1))
-    }, 4000)
+    }, 8000) // 8 seconds per step (33% increase from original 6s)
     return () => clearInterval(timer)
   }, [loading])
 
@@ -409,7 +409,7 @@ export default function Page() {
                 <CardHeader>
                   <CardTitle>{STEPS[stepIdx]}</CardTitle>
                   <CardDescription>
-                    {remaining > 5 ? `${remaining}s remaining` : '≈ 5 s remaining'}
+                    {remaining > 10 ? `${remaining}s remaining` : '≈ 10 s remaining'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent />

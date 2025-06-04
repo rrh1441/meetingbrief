@@ -32,8 +32,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
-    // Rate limiting - 10 feedback submissions per hour per user
-    const rateLimitCheck = checkRateLimit(session.user.id, 10, 3600000); // 1 hour
+    // Rate limiting - 10 feedback submissions per user (using default window)
+    const rateLimitCheck = checkRateLimit(session.user.id, 10);
     if (!rateLimitCheck.allowed) {
       return createRateLimitResponse(
         rateLimitCheck.resetTime!, 
