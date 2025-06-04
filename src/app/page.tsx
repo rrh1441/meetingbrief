@@ -27,6 +27,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { UsageTracker, type UsageData } from '@/lib/usage-tracker'
+import { FeedbackWidget } from '@/components/ui/FeedbackWidget'
 
 /* -------------------------------------------------------------------------- */
 /*  Supabase client (public keys only)                                        */
@@ -95,7 +96,7 @@ const sampleBriefHtmlContent = `
 `
 
 /* -------------------------------------------------------------------------- */
-/*  Countdown status text                                                     */
+/*  Constants                                                                 */
 /* -------------------------------------------------------------------------- */
 const STEPS = [
   'Sourcing search results …',
@@ -106,25 +107,16 @@ const STEPS = [
   'Wrapping up …',
 ] as const
 
-/* helpers ------------------------------------------------------------------ */
 const normaliseHtml = (html: string) => html.replace(/<p>&nbsp;<\/p>/g, '')
 
-/** keep <a> only inside <sup>; strip href everywhere else */
 const prepareHtmlForClipboard = (raw: string) => {
-  const div = document.createElement('div')
-  div.innerHTML = normaliseHtml(raw)
-
-  div.querySelectorAll<HTMLAnchorElement>('a').forEach(a => {
-    if (a.closest('sup')) return            // keep citation links blue
-    a.removeAttribute('href')
-    a.style.textDecoration = 'none'
-    a.style.color = 'inherit'
-  })
-
-  return {
-    html: div.innerHTML,
-    text: div.innerText,
-  }
+  const html = `<meta charset="utf-8">${raw}`
+  
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = raw
+  const text = tempDiv.textContent || tempDiv.innerText || ''
+  
+  return { html, text }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -133,43 +125,41 @@ const prepareHtmlForClipboard = (raw: string) => {
 export default function Page() {
   const { user } = useAuth()
 
-  /* state ------------------------------------------------------------------ */
-  const [form, setForm]           = useState({ name: '', organization: '' })
-  const [loading,   setLoading]   = useState(false)
+  const [form, setForm] = useState({ name: '', organization: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [briefHtml, setBriefHtml] = useState<string | null>(null)
-  const [error,     setError]     = useState<string | null>(null)
-  const [usage, setUsage]         = useState<UsageData | null>(null)
-
-  const [stepIdx,   setStepIdx]   = useState(0)
-  const [remaining, setRemaining] = useState(45)
-
+  const [briefId, setBriefId] = useState<number | null>(null)
+  const [usage, setUsage] = useState<UsageData | null>(null)
   const [pdfBusy, setPdfBusy] = useState(false)
-  const pdfCooldownUntil = useRef<number>(0)
 
-  const formRef = useRef<HTMLFormElement | null>(null)
+  const [stepIdx, setStepIdx] = useState(0)
+  const [remaining, setRemaining] = useState(30)
 
-  /* load usage data -------------------------------------------------------- */
+  const formRef = useRef<HTMLFormElement>(null)
+
+  /* preload usage ---------------------------------------------------------- */
   useEffect(() => {
     const loadUsage = async () => {
-      const usageData = await UsageTracker.getUsageData(!!user);
-      setUsage(usageData);
+      try {
+        const usageData = await UsageTracker.getUsageData(!!user);
+        setUsage(usageData);
+      } catch (error) {
+        console.error('Failed to load usage data:', error);
+      }
     };
+
     loadUsage();
   }, [user]);
 
-  /* countdown ticker ------------------------------------------------------- */
+  /* stepper effect --------------------------------------------------------- */
   useEffect(() => {
-    if (!loading) { setStepIdx(0); setRemaining(45); return }
-    const t0 = Date.now()
-    const id = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - t0) / 1000)
-      setRemaining(Math.max(5, 45 - elapsed))
-      if (elapsed < 45 && elapsed % 9 === 0) {
-        setStepIdx(i => Math.min(i + 1, STEPS.length - 1))
-      }
-      if (elapsed >= 45) clearInterval(id)
-    }, 1_000)
-    return () => clearInterval(id)
+    if (!loading) return
+    const timer = setInterval(() => {
+      setStepIdx(prev => Math.min(prev + 1, STEPS.length - 1))
+      setRemaining(prev => Math.max(prev - 1, 1))
+    }, 4000)
+    return () => clearInterval(timer)
   }, [loading])
 
   /* analytics -------------------------------------------------------------- */
@@ -201,7 +191,7 @@ export default function Page() {
       ?.querySelectorAll<HTMLInputElement>('input')
       .forEach(el => (el.defaultValue = el.value))
 
-    setLoading(true); setError(null); setBriefHtml(null)
+    setLoading(true); setError(null); setBriefHtml(null); setBriefId(null)
     void logSearchEvent(form.name.trim(), form.organization.trim())
 
     try {
@@ -212,8 +202,9 @@ export default function Page() {
         body: JSON.stringify(form),
       })
       if (!res.ok) throw new Error(await res.text())
-      const { brief } = (await res.json()) as { brief: string }
+      const { brief, briefId: returnedBriefId } = (await res.json()) as { brief: string; briefId: number }
       setBriefHtml(brief)
+      setBriefId(returnedBriefId)
 
       // Update usage after successful generation
       if (!user) {
@@ -262,13 +253,10 @@ export default function Page() {
     }
   }
 
-  /* download PDF ----------------------------------------------------------- */
+  /* pdf -------------------------------------------------------------------- */
   const downloadPdf = async () => {
-    if (pdfBusy || Date.now() < pdfCooldownUntil.current) return
+    if (pdfBusy || !briefHtml) return
     setPdfBusy(true)
-    pdfCooldownUntil.current = Date.now() + 10_000
-
-    if (!briefHtml) { toast('Nothing to export'); setPdfBusy(false); return }
 
     try {
       const res = await fetch('/api/generate-pdf', {
@@ -278,8 +266,8 @@ export default function Page() {
       })
       if (!res.ok) throw new Error(await res.text())
       const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
       a.href = url
       a.download = 'meeting-brief.pdf'
       document.body.appendChild(a)
@@ -431,30 +419,37 @@ export default function Page() {
             {error && <p className="text-red-600 mt-4">{error}</p>}
 
             {!loading && briefHtml && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
-                  </CardTitle>
-                  <CardDescription>Scroll, copy, or export</CardDescription>
-                  <CardAction className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={copyHtml}>
-                      Copy Brief
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={downloadPdf}
-                      disabled={pdfBusy}
-                    >
-                      {pdfBusy ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
-                    </Button>
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
-                  <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
-                </CardContent>
-              </Card>
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      Brief ready <CheckCircle2 className="inline h-5 w-5 text-green-600" />
+                    </CardTitle>
+                    <CardDescription>Scroll, copy, or export</CardDescription>
+                    <CardAction className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={copyHtml}>
+                        Copy Brief
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={downloadPdf}
+                        disabled={pdfBusy}
+                      >
+                        {pdfBusy ? <Loader2 className="animate-spin h-4 w-4" /> : 'Download PDF'}
+                      </Button>
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent className="prose prose-lg prose-slate max-w-none text-left prose-li:marker:text-slate-600">
+                    <div dangerouslySetInnerHTML={{ __html: briefHtml }} />
+                  </CardContent>
+                </Card>
+
+                {/* Add Feedback Widget for authenticated users with briefId */}
+                {user && briefId && (
+                  <FeedbackWidget briefId={briefId} />
+                )}
+              </div>
             )}
 
             {!loading && !briefHtml && (

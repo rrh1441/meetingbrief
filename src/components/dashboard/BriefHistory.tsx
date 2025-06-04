@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, Calendar, User, Building } from "lucide-react";
 import { toast } from "sonner";
+import { FeedbackWidget } from "@/components/ui/FeedbackWidget";
 
 interface BriefHistoryItem {
   id: number;
@@ -196,11 +197,16 @@ export function BriefHistory() {
                 </div>
                 
                 {expandedBrief === brief.id && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                    <div 
-                      className="prose prose-sm prose-slate max-w-none text-left prose-li:marker:text-slate-600"
-                      dangerouslySetInnerHTML={{ __html: brief.brief_content }}
-                    />
+                  <div className="mt-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <div 
+                        className="prose prose-sm prose-slate max-w-none text-left prose-li:marker:text-slate-600"
+                        dangerouslySetInnerHTML={{ __html: brief.brief_content }}
+                      />
+                    </div>
+                    
+                    {/* Add Feedback Widget */}
+                    <FeedbackWidget briefId={brief.id} />
                   </div>
                 )}
               </CardContent>

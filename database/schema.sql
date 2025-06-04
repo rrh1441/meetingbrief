@@ -46,4 +46,23 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER trigger_update_brief_counts
   AFTER INSERT ON user_briefs
   FOR EACH ROW
-  EXECUTE FUNCTION update_brief_counts(); 
+  EXECUTE FUNCTION update_brief_counts();
+
+-- Brief feedback tracking
+CREATE TABLE IF NOT EXISTS brief_feedback (
+  id SERIAL PRIMARY KEY,
+  brief_id INTEGER NOT NULL REFERENCES user_briefs(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  thumbs_up BOOLEAN NOT NULL,
+  false_positives_found BOOLEAN,
+  false_positives_explanation TEXT,
+  missing_info_found BOOLEAN,
+  missing_info_explanation TEXT,
+  other_feedback TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add indexes for feedback queries
+CREATE INDEX IF NOT EXISTS idx_brief_feedback_brief_id ON brief_feedback(brief_id);
+CREATE INDEX IF NOT EXISTS idx_brief_feedback_user_id ON brief_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_brief_feedback_created_at ON brief_feedback(created_at); 

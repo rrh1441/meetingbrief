@@ -366,11 +366,14 @@ export async function POST(request: NextRequest) {
       const normalizedBrief = normalizeCitations(result.brief, result.citations);
 
       // Save to database with sanitized inputs
-      await client.query(
+      const insertResult = await client.query(
         `INSERT INTO user_briefs (user_id, name, organization, brief_content)
-         VALUES ($1, $2, $3, $4)`,
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
         [userId, sanitizedName, sanitizedOrganization, normalizedBrief]
       );
+
+      const briefId = insertResult.rows[0].id;
 
       // Note: user_brief_counts is automatically updated by database trigger
 
@@ -383,6 +386,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ 
         brief: normalizedBrief,
+        briefId,
         remainingBriefs: monthlyLimit - currentMonthCount - 1,
         isAnonymous: !session?.user?.id
       });
