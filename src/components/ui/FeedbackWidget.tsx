@@ -114,16 +114,19 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
 
       {/* Modal Overlay */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <Card className="border-0 shadow-2xl">
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4"
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+            <Card className="border-0 shadow-none">
               <CardHeader className="relative">
                 <CardTitle className="text-lg pr-8">How was this brief?</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleClose}
-                  className="absolute right-2 top-2 h-8 w-8 p-0"
+                  className="absolute right-2 top-2 h-8 w-8 p-0 hover:bg-gray-100"
                 >
                   <X className="h-4 w-4" />
                 </Button>
