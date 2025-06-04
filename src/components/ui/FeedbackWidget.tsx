@@ -136,7 +136,7 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
 
         {/* Missing Info */}
         <div className="space-y-2">
-          <Label>Was there anything you expected to see but didn't?</Label>
+          <Label>Was there anything you expected to see but didn&apos;t?</Label>
           <div className="flex gap-2">
             <Button
               variant={missingInfo === true ? "default" : "outline"}
