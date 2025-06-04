@@ -211,6 +211,17 @@ export default function Page() {
       setBriefHtml(brief)
       setBriefId(returnedBriefId)
 
+      // Clear form to prevent browser warning about unsaved changes
+      setForm({ name: '', organization: '' })
+      
+      // Also reset the form element's defaultValues
+      formRef.current
+        ?.querySelectorAll<HTMLInputElement>('input')
+        .forEach(el => {
+          el.defaultValue = ''
+          el.value = ''
+        })
+
       // Update usage after successful generation
       if (!user) {
         // For anonymous users, increment local storage
