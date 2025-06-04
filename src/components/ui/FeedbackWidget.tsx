@@ -115,13 +115,13 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
       {/* Modal Overlay */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4"
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[9999] p-4"
           style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
         >
-          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl border-2 border-black">
             <Card className="border-0 shadow-none">
               <CardHeader className="relative">
-                <CardTitle className="text-lg pr-8">How was this brief?</CardTitle>
+                <CardTitle className="text-lg pr-8 text-left">How was this brief?</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -134,7 +134,7 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
               <CardContent className="space-y-4">
                 {/* Thumbs Up/Down */}
                 <div className="space-y-2">
-                  <Label>Rate this brief</Label>
+                  <Label className="text-left block">Rate this brief</Label>
                   <div className="flex gap-2">
                     <Button
                       variant={thumbsUp === true ? "default" : "outline"}
@@ -159,7 +159,7 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
 
                 {/* False Positives */}
                 <div className="space-y-2">
-                  <Label>Were there any false positives? (incorrect information)</Label>
+                  <Label className="text-left block">Were there any false positives? (incorrect information)</Label>
                   <div className="flex gap-2">
                     <Button
                       variant={falsePositives === true ? "default" : "outline"}
@@ -188,7 +188,7 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
 
                 {/* Missing Info */}
                 <div className="space-y-2">
-                  <Label>Was there anything you expected to see but didn&apos;t?</Label>
+                  <Label className="text-left block">Was there anything you expected to see but didn&apos;t?</Label>
                   <div className="flex gap-2">
                     <Button
                       variant={missingInfo === true ? "default" : "outline"}
@@ -217,7 +217,7 @@ export function FeedbackWidget({ briefId, onSubmit }: FeedbackWidgetProps) {
 
                 {/* Other Feedback */}
                 <div className="space-y-2">
-                  <Label>Any other feedback? (optional)</Label>
+                  <Label className="text-left block">Any other feedback? (optional)</Label>
                   <Textarea
                     placeholder="Share any other thoughts or suggestions..."
                     value={otherFeedback}
