@@ -152,8 +152,9 @@ export function checkRateLimit(userId: string, maxRequests: number = SECURITY_LI
     };
   }
 
-  // Check minimum interval between requests
-  if (userLimit.lastRequestTime > 0 && 
+  // Check minimum interval between requests (only for anonymous users)
+  const isAnonymousUser = userId.startsWith('anon_') || userId.startsWith('fp_');
+  if (isAnonymousUser && userLimit.lastRequestTime > 0 && 
       (now - userLimit.lastRequestTime) < SECURITY_LIMITS.MIN_REQUEST_INTERVAL) {
     userLimit.suspiciousScore += 2;
     return { 
