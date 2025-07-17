@@ -75,7 +75,6 @@ export function CreditCounter() {
     return null;
   }
 
-  const totalUsed = credits.subscriptionCredits + credits.addonCredits;
   const originalLimit = credits.subscriptionCredits > 5 ? 50 : 5; // Determine if starter or free
   const subscriptionUsed = originalLimit - credits.subscriptionCredits;
 
@@ -84,7 +83,7 @@ export function CreditCounter() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-gray-900">
-            You've used {subscriptionUsed} of {originalLimit} monthly briefs
+            You&apos;ve used {subscriptionUsed} of {originalLimit} monthly briefs
           </p>
           {credits.addonCredits > 0 && (
             <p className="text-sm text-gray-600">

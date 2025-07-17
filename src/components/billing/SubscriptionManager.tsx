@@ -39,18 +39,6 @@ const PLAN_FEATURES = {
   ]
 };
 
-const ADDONS = [
-  {
-    name: "credits_addon",
-    displayName: "Credit Add-on",
-    price: "$10",
-    features: [
-      "50 additional meeting briefs",
-      "One-time purchase",
-      "No expiration"
-    ],
-  },
-];
 
 export function SubscriptionManager() {
   const { user } = useAuth();
@@ -148,25 +136,6 @@ export function SubscriptionManager() {
     }
   };
 
-  const handleRestore = async () => {
-    setActionLoading("restore");
-    try {
-      const result = await authClient.subscription.restore();
-
-      if (result.error) {
-        console.error("Restore failed:", result.error);
-        alert(`Restore failed: ${result.error.message}`);
-      } else {
-        alert("Subscription restored successfully!");
-        await loadSubscriptions();
-      }
-    } catch (error) {
-      console.error("Restore error:", error);
-      alert("An error occurred during restoration");
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
   if (loading) {
     return <div className="text-center py-8">Loading subscription information...</div>;
@@ -214,7 +183,7 @@ export function SubscriptionManager() {
         </div>
 
         <div className="mb-6">
-          <h4 className="font-medium mb-3">What's included:</h4>
+          <h4 className="font-medium mb-3">What&apos;s included:</h4>
           <ul className="space-y-2">
             {planFeatures.map((feature, index) => (
               <li key={index} className="flex items-center">
