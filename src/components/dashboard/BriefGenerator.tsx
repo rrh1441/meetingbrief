@@ -195,27 +195,6 @@ export function BriefGenerator() {
 
   return (
     <div className="space-y-6">
-      {/* Usage Overview */}
-      {usage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Brief Usage</CardTitle>
-            <CardDescription>
-              {usage.currentMonthCount} of {usage.monthlyLimit === -1 ? 'unlimited' : usage.monthlyLimit} briefs used this month
-            </CardDescription>
-          </CardHeader>
-          {usage.monthlyLimit !== -1 && (
-            <CardContent>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full" 
-                  style={{ width: `${Math.min((usage.currentMonthCount / usage.monthlyLimit) * 100, 100)}%` }}
-                />
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      )}
 
       {/* Brief Generator Form */}
       <motion.form

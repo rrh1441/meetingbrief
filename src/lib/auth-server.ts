@@ -190,7 +190,7 @@ export const auth = betterAuth({
               },
             },
           ],
-          getCheckoutSessionParams: async ({ user }) => {
+          getCheckoutSessionParams: async () => {
             return {
               params: {
                 allow_promotion_codes: true,
@@ -198,7 +198,6 @@ export const auth = betterAuth({
                 tax_id_collection: {
                   enabled: true
                 },
-                customer_email: user.email,
                 custom_text: {
                   submit: {
                     message: "We'll start your subscription right away"
