@@ -70,6 +70,13 @@ export function SubscriptionManager() {
   const handleUpgrade = async (planName: string) => {
     setActionLoading(planName);
     try {
+      // Clean up any incomplete subscriptions before creating new one
+      try {
+        await fetch('/api/cleanup-subscriptions', { method: 'POST' });
+      } catch (cleanupError) {
+        console.warn('Cleanup failed, continuing with upgrade:', cleanupError);
+      }
+      
       // Handle paid plans through Stripe
       const baseUrl = process.env.NODE_ENV === "production" 
         ? "https://meetingbrief.com" 

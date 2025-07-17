@@ -7,16 +7,6 @@ import {
   validateUserId
 } from "@/lib/api-security";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Plan limits mapping
-const PLAN_LIMITS = {
-  free: 5,
-  starter: 50,
-} as const;
-
 export async function GET() {
   try {
     const headersList = await headers();
@@ -40,28 +30,21 @@ export async function GET() {
     
     console.log(`[DEBUG] Credit balance for ${session.user.id}:`, creditBalance);
     
-    // Calculate usage for legacy compatibility
-    const totalAvailable = creditBalance.subscriptionCredits + creditBalance.addonCredits;
-    const planName = creditBalance.subscriptionCredits > 5 ? 'starter' : 'free';
-    const originalLimit = planName === 'starter' ? 50 : 5;
-    const currentMonthUsed = originalLimit - creditBalance.subscriptionCredits;
-    
     return NextResponse.json({
-      // New format
       subscriptionCredits: creditBalance.subscriptionCredits,
       addonCredits: creditBalance.addonCredits,
-      totalCredits: totalAvailable,
+      totalCredits: creditBalance.totalCredits,
       periodStart: creditBalance.periodStart,
       periodEnd: creditBalance.periodEnd,
       
       // Legacy format for compatibility
-      currentMonthCount: Math.max(0, currentMonthUsed),
-      monthlyLimit: originalLimit,
-      planName,
+      currentMonthCount: Math.max(0, 50 - creditBalance.subscriptionCredits), // Assuming starter plan
+      monthlyLimit: creditBalance.subscriptionCredits + creditBalance.addonCredits,
+      planName: creditBalance.subscriptionCredits > 5 ? 'starter' : 'free'
     });
 
   } catch (error) {
     console.error('Error fetching credit balance:', error);
-    return createSecureErrorResponse(error, "Failed to fetch usage data");
+    return createSecureErrorResponse(error, "Failed to fetch credit balance");
   }
-} 
+}
