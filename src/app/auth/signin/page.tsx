@@ -142,7 +142,13 @@ export default function SignInPage() {
           </p>
         </div>
         
-        <AuthForm mode="signin" />
+        <AuthForm 
+          mode="signin" 
+          onSuccess={() => {
+            console.log("Signin successful, redirecting to dashboard");
+            window.location.href = "/dashboard";
+          }} 
+        />
         
         <div className="text-center">
           <button

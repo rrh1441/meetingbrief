@@ -36,7 +36,7 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
     setLoading(true);
     setError(null);
 
-    console.log("Form submitted with:", { email, mode });
+    console.log("Form submitted with:", { email, mode, hasPassword: !!password });
 
     try {
       if (mode === "signup") {
@@ -82,6 +82,7 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
         } else {
           // Store last login method
           localStorage.setItem('lastLoginMethod', 'email');
+          console.log("Signin successful, calling onSuccess");
           onSuccess?.();
         }
       }
@@ -165,6 +166,9 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
 
       {/* Email/Password Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="hidden">
+          <input type="text" name="username" autoComplete="username" />
+        </div>
         {mode === "signup" && (
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-gray-700">
@@ -187,10 +191,12 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           </label>
           <input
             id="email"
+            name="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
@@ -201,11 +207,13 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           </label>
           <input
             id="password"
+            name="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
