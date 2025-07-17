@@ -17,19 +17,26 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastLoginMethod, setLastLoginMethod] = useState<string | null>(null);
   const router = useRouter();
 
-  // Set initial email if provided
+  // Set initial email if provided and get last login method
   useEffect(() => {
     if (initialEmail) {
       setEmail(initialEmail);
     }
+    
+    // Get last login method from localStorage
+    const storedMethod = localStorage.getItem('lastLoginMethod');
+    setLastLoginMethod(storedMethod);
   }, [initialEmail]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    console.log("Form submitted with:", { email, mode });
 
     try {
       if (mode === "signup") {
@@ -38,6 +45,8 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           password,
           name,
         });
+        
+        console.log("Signup result:", result);
         
         if (result.error) {
           const errorMessage = result.error.message?.toLowerCase() || "";
@@ -55,6 +64,8 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           
           setError(result.error.message || "An error occurred during signup");
         } else {
+          // Store last login method
+          localStorage.setItem('lastLoginMethod', 'email');
           onSuccess?.();
         }
       } else {
@@ -63,13 +74,19 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           password,
         });
         
+        console.log("Signin result:", result);
+        
         if (result.error) {
+          console.error("Signin error:", result.error);
           setError(result.error.message || "An error occurred during signin");
         } else {
+          // Store last login method
+          localStorage.setItem('lastLoginMethod', 'email');
           onSuccess?.();
         }
       }
     } catch (err) {
+      console.error("Auth error:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
@@ -81,6 +98,9 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
     setError(null);
 
     try {
+      // Store last login method before redirect
+      localStorage.setItem('lastLoginMethod', 'google');
+      
       const result = await authClient.signIn.social({
         provider: "google",
         callbackURL: "/dashboard", // Redirect to dashboard after successful sign-in
@@ -99,12 +119,23 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
 
   return (
     <div className="space-y-4 w-full max-w-md">
+      {/* Last Login Method Indicator */}
+      {mode === "signin" && lastLoginMethod && (
+        <div className="text-sm text-gray-600 text-center bg-blue-50 p-3 rounded-md">
+          <span className="font-medium">Last signed in with:</span> {lastLoginMethod === 'google' ? 'Google' : 'Email'}
+        </div>
+      )}
+      
       {/* Google OAuth Button */}
       <button
         type="button"
         onClick={handleGoogleSignIn}
         disabled={googleLoading}
-        className="w-full flex justify-center items-center gap-2 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`w-full flex justify-center items-center gap-2 py-2 px-4 border rounded-md shadow-sm text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
+          lastLoginMethod === 'google' 
+            ? 'border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:ring-blue-500' 
+            : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:ring-blue-500'
+        } focus:outline-none focus:ring-2 focus:ring-offset-2`}
       >
         {googleLoading ? (
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
@@ -117,6 +148,7 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
             Continue with Google
+            {lastLoginMethod === 'google' && <span className="text-xs">(Last used)</span>}
           </>
         )}
       </button>
@@ -187,9 +219,14 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white disabled:opacity-50 ${
+            lastLoginMethod === 'email' 
+              ? 'bg-blue-700 hover:bg-blue-800 focus:ring-blue-600' 
+              : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+          } focus:outline-none focus:ring-2 focus:ring-offset-2`}
         >
           {loading ? "Loading..." : mode === "signup" ? "Sign Up" : "Sign In"}
+          {lastLoginMethod === 'email' && mode === "signin" && <span className="ml-2 text-xs">(Last used)</span>}
         </button>
       </form>
     </div>
