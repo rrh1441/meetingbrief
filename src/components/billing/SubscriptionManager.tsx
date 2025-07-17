@@ -17,19 +17,27 @@ interface Subscription {
   priceId?: string;
 }
 
-const PLANS = [
-  {
-    name: "starter",
-    displayName: "Starter",
-    price: "$10/month",
-    features: [
-      "50 meeting briefs per month",
-      "Additional credits available for purchase",
-      "LinkedIn Chrome Extension (Coming Soon)",
-      "Calendar Integration (Coming Soon)"
-    ],
-  },
-];
+const PLAN_FEATURES = {
+  free: [
+    "5 meeting briefs per month",
+    "Basic research and insights",
+    "Standard support"
+  ],
+  starter: [
+    "50 meeting briefs per month",
+    "Advanced research and insights",
+    "Priority support",
+    "LinkedIn Chrome Extension (Coming Soon)",
+    "Calendar Integration (Coming Soon)"
+  ],
+  scale: [
+    "50 meeting briefs per month", // Migrated to starter equivalent
+    "Advanced research and insights",
+    "Priority support",
+    "LinkedIn Chrome Extension (Coming Soon)",
+    "Calendar Integration (Coming Soon)"
+  ]
+};
 
 const ADDONS = [
   {
@@ -107,6 +115,15 @@ export function SubscriptionManager() {
     }
   };
 
+  const handleGetMoreBriefs = async () => {
+    setActionLoading("credits_addon");
+    try {
+      await handleUpgrade("credits_addon");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleCancel = async () => {
     setActionLoading("cancel");
     try {
@@ -159,133 +176,108 @@ export function SubscriptionManager() {
     sub => sub.status === "active" || sub.status === "trialing"
   );
 
+  const currentPlan = activeSubscription ? activeSubscription.plan : 'free';
+  const planFeatures = PLAN_FEATURES[currentPlan as keyof typeof PLAN_FEATURES] || PLAN_FEATURES.free;
+  const planDisplayName = currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1);
+
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-6">Subscription Management</h2>
+      <h2 className="text-2xl font-bold mb-6">Billing & Subscriptions</h2>
 
-      {activeSubscription ? (
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h3 className="text-lg font-semibold mb-4">Current Subscription</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p><strong>Plan:</strong> {activeSubscription.plan.charAt(0).toUpperCase() + activeSubscription.plan.slice(1)}</p>
-              <p><strong>Status:</strong> 
-                <span className={`ml-2 px-2 py-1 rounded text-sm ${
-                  activeSubscription.status === "active" 
-                    ? "bg-green-100 text-green-800" 
-                    : "bg-yellow-100 text-yellow-800"
-                }`}>
-                  {activeSubscription.status}
-                </span>
-              </p>
-              <p><strong>Period:</strong> {
-                activeSubscription.periodStart && activeSubscription.periodEnd
-                  ? `${new Date(activeSubscription.periodStart).toLocaleDateString()} - ${new Date(activeSubscription.periodEnd).toLocaleDateString()}`
-                  : 'N/A'
-              }</p>
-            </div>
-            <div>
-              {activeSubscription.limits && (
-                <p><strong>Monthly Briefs:</strong> {
-                  activeSubscription.limits.briefsPerMonth === -1 
-                    ? "Unlimited" 
-                    : activeSubscription.limits.briefsPerMonth || 'N/A'
-                }</p>
-              )}
-            </div>
+      {/* Current Subscription Card */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h3 className="text-xl font-semibold mb-2">Current Plan: {planDisplayName}</h3>
+            {activeSubscription && (
+              <div className="space-y-1 text-sm text-gray-600">
+                <p><strong>Status:</strong> 
+                  <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                    activeSubscription.status === "active" 
+                      ? "bg-green-100 text-green-800" 
+                      : "bg-yellow-100 text-yellow-800"
+                  }`}>
+                    {activeSubscription.status}
+                  </span>
+                </p>
+                {activeSubscription.periodStart && activeSubscription.periodEnd && (
+                  <p><strong>Billing Period:</strong> {new Date(activeSubscription.periodStart).toLocaleDateString()} - {new Date(activeSubscription.periodEnd).toLocaleDateString()}</p>
+                )}
+              </div>
+            )}
           </div>
-          
-          <div className="mt-4 space-x-4">
-            {activeSubscription.cancelAtPeriodEnd ? (
-              <button
-                onClick={handleRestore}
-                disabled={actionLoading === "restore"}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded disabled:opacity-50"
-              >
-                {actionLoading === "restore" ? "Restoring..." : "Restore Subscription"}
-              </button>
-            ) : (
-              <button
-                onClick={handleCancel}
-                disabled={actionLoading === "cancel"}
-                className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded disabled:opacity-50"
-              >
-                {actionLoading === "cancel" ? "Processing..." : "Manage Billing"}
-              </button>
+          <div className="text-right">
+            {currentPlan !== 'free' && (
+              <p className="text-2xl font-bold text-blue-600">$10/month</p>
             )}
           </div>
         </div>
-      ) : (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8">
-          <p className="text-blue-800">Currently on the Free Plan. Upgrade below for more briefs!</p>
-        </div>
-      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {PLANS.map((plan) => (
-          <div key={plan.name} className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-xl font-semibold mb-2">{plan.displayName}</h3>
-            <p className="text-2xl font-bold text-blue-600 mb-4">{plan.price}</p>
-            <ul className="space-y-2 mb-6">
-              {plan.features.map((feature, index) => (
-                <li key={index} className="flex items-center">
-                  <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                  {feature}
-                </li>
-              ))}
-            </ul>
+        <div className="mb-6">
+          <h4 className="font-medium mb-3">What's included:</h4>
+          <ul className="space-y-2">
+            {planFeatures.map((feature, index) => (
+              <li key={index} className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <span className="text-gray-700">{feature}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="flex space-x-4">
+          <button
+            onClick={handleGetMoreBriefs}
+            disabled={actionLoading === "credits_addon"}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md font-medium disabled:opacity-50"
+          >
+            {actionLoading === "credits_addon" ? "Processing..." : "Get More Briefs"}
+          </button>
+          
+          {activeSubscription && (
             <button
-              onClick={() => handleUpgrade(plan.name)}
-              disabled={
-                actionLoading === plan.name ||
-                (activeSubscription && activeSubscription.plan === plan.name)
-              }
-              className={`w-full py-2 px-4 rounded font-medium ${
-                activeSubscription && activeSubscription.plan === plan.name
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
-              }`}
+              onClick={handleCancel}
+              disabled={actionLoading === "cancel"}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-md font-medium disabled:opacity-50"
             >
-              {actionLoading === plan.name 
-                ? "Processing..." 
-                : activeSubscription && activeSubscription.plan === plan.name
-                ? "Current Plan"
-                : "Choose Plan"
-              }
+              {actionLoading === "cancel" ? "Processing..." : "Manage Billing"}
             </button>
-          </div>
-        ))}
+          )}
+          
+          {currentPlan === 'free' && (
+            <button
+              onClick={() => handleUpgrade("starter")}
+              disabled={actionLoading === "starter"}
+              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md font-medium disabled:opacity-50"
+            >
+              {actionLoading === "starter" ? "Processing..." : "Upgrade to Starter"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Add-on Credits Section */}
-      <div className="mt-12">
-        <h3 className="text-xl font-semibold mb-6 text-center">Need More Credits?</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {ADDONS.map((addon) => (
-            <div key={addon.name} className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-xl font-semibold mb-2">{addon.displayName}</h3>
-              <p className="text-2xl font-bold text-green-600 mb-4">{addon.price}</p>
-              <ul className="space-y-2 mb-6">
-                {addon.features.map((feature, index) => (
-                  <li key={index} className="flex items-center">
-                    <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    {feature}
-                  </li>
-                ))}
-              </ul>
+      <div className="bg-gray-50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Add-on Credits</h3>
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h4 className="font-medium">Credit Add-on Pack</h4>
+              <p className="text-sm text-gray-600">50 additional briefs • One-time purchase • No expiration</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-bold text-green-600">$10</p>
               <button
-                onClick={() => handleUpgrade(addon.name)}
-                disabled={actionLoading === addon.name}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium disabled:opacity-50"
+                onClick={handleGetMoreBriefs}
+                disabled={actionLoading === "credits_addon"}
+                className="mt-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
               >
-                {actionLoading === addon.name ? "Processing..." : "Purchase Credits"}
+                {actionLoading === "credits_addon" ? "Processing..." : "Purchase"}
               </button>
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </div>

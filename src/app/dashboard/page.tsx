@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { SubscriptionManager } from "@/components/billing/SubscriptionManager";
 import { BriefGenerator } from "@/components/dashboard/BriefGenerator";
 import { BriefHistory } from "@/components/dashboard/BriefHistory";
+import { CreditCounter } from "@/components/dashboard/CreditCounter";
 
 export default function DashboardPage() {
   const { user, loading, signOut } = useAuth();
@@ -90,8 +91,13 @@ export default function DashboardPage() {
           </nav>
         </div>
 
+        {/* Credit Counter - Always visible */}
+        <div className="mt-6 px-4 sm:px-0">
+          <CreditCounter />
+        </div>
+
         {/* Tab Content */}
-        <div className="mt-6">
+        <div className="mt-0">
           {activeTab === "generate" && (
             <div className="px-4 py-6 sm:px-0">
               <BriefGenerator />
