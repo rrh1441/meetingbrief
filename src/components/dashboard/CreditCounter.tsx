@@ -82,29 +82,14 @@ export function CreditCounter() {
   return (
     <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div>
-            <p className="text-sm font-medium text-gray-900">
-              You've used {subscriptionUsed} of {originalLimit} monthly briefs
+        <div>
+          <p className="text-sm font-medium text-gray-900">
+            You've used {subscriptionUsed} of {originalLimit} monthly briefs
+          </p>
+          {credits.addonCredits > 0 && (
+            <p className="text-sm text-gray-600">
+              Plus {credits.addonCredits} add-on credits available
             </p>
-            {credits.addonCredits > 0 && (
-              <p className="text-sm text-gray-600">
-                Plus {credits.addonCredits} add-on credits available
-              </p>
-            )}
-          </div>
-          {totalUsed > 0 && (
-            <div className="flex items-center space-x-2">
-              <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min((subscriptionUsed / originalLimit) * 100, 100)}%` }}
-                />
-              </div>
-              <span className="text-xs text-gray-500">
-                {Math.round((subscriptionUsed / originalLimit) * 100)}%
-              </span>
-            </div>
           )}
         </div>
         <button

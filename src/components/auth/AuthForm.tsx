@@ -149,9 +149,9 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
         
         {/* Arrow indicator for Google */}
         {mode === "signin" && lastLoginMethod === 'google' && (
-          <div className="absolute -right-2 top-1/2 transform -translate-y-1/2 translate-x-full flex items-center">
-            <span className="text-xs text-blue-600 font-medium whitespace-nowrap mr-1">Last Used for Sign In</span>
-            <svg className="w-4 h-4 text-blue-600 rotate-180" fill="currentColor" viewBox="0 0 20 20">
+          <div className="absolute -left-2 top-1/2 transform -translate-y-1/2 -translate-x-full flex items-center">
+            <span className="text-xs text-blue-600 font-medium whitespace-nowrap mr-2">Last Used for Sign In</span>
+            <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </div>
@@ -243,9 +243,9 @@ export function AuthForm({ mode, onSuccess, initialEmail }: AuthFormProps) {
           
           {/* Arrow indicator for Email */}
           {mode === "signin" && lastLoginMethod === 'email' && (
-            <div className="absolute -right-2 top-1/2 transform -translate-y-1/2 translate-x-full flex items-center">
-              <span className="text-xs text-blue-600 font-medium whitespace-nowrap mr-1">Last Used for Sign In</span>
-              <svg className="w-4 h-4 text-blue-600 rotate-180" fill="currentColor" viewBox="0 0 20 20">
+            <div className="absolute -left-2 top-1/2 transform -translate-y-1/2 -translate-x-full flex items-center">
+              <span className="text-xs text-blue-600 font-medium whitespace-nowrap mr-2">Last Used for Sign In</span>
+              <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
             </div>
