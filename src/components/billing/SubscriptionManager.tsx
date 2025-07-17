@@ -24,6 +24,7 @@ const PLANS = [
     price: "$10/month",
     features: [
       "50 meeting briefs per month",
+      "Additional credits available for purchase",
       "LinkedIn Chrome Extension (Coming Soon)",
       "Calendar Integration (Coming Soon)"
     ],

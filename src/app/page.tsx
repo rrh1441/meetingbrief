@@ -358,7 +358,7 @@ export default function Page() {
               Instant&nbsp;intel for every meeting
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Stop digging for info – gain back valuable hours and arrive prepared for every conversation
+              Save hours on research and come prepared for every conversation
             </p>
           </div>
 
@@ -540,22 +540,21 @@ export default function Page() {
             Credits refresh every month—use them when you need them.
           </p>
           
-          <div className="grid gap-8 sm:grid-cols-1 lg:grid-cols-2 max-w-4xl mx-auto">
+          <div className="grid gap-8 sm:grid-cols-1 max-w-md mx-auto">
             {[
-              { plan: 'Starter', price: '$10', credits: '50', ideal: 'Perfect for professionals who brief regularly', type: 'subscription' },
-              { plan: 'Credit Add-on', price: '$10', credits: '50', ideal: 'One-time purchase for additional credits', type: 'addon' },
+              { plan: 'Starter', price: '$10', credits: '50', ideal: 'Perfect for professionals who brief regularly' },
             ].map(pricing => (
               <Card key={pricing.plan} className="shadow-lg relative">
                 <CardHeader>
                   <CardTitle className="text-xl">{pricing.plan}</CardTitle>
                   <div className="text-3xl font-bold text-indigo-600">
-                    {pricing.price}<span className="text-base font-normal text-slate-600">{pricing.type === 'subscription' ? '/month' : ' one-time'}</span>
+                    {pricing.price}<span className="text-base font-normal text-slate-600">/month</span>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-center">
                     <div className="text-2xl font-semibold text-slate-900">{pricing.credits}</div>
-                    <div className="text-sm text-slate-600">{pricing.type === 'subscription' ? 'credits per month' : 'additional credits'}</div>
+                    <div className="text-sm text-slate-600">credits per month</div>
                   </div>
                   <p className="text-sm text-slate-600">{pricing.ideal}</p>
                   <Button className="w-full" asChild>
