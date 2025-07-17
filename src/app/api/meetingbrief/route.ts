@@ -8,6 +8,7 @@ import { buildMeetingBriefGemini } from "@/lib/MeetingBriefGeminiPipeline";
 import { auth } from "@/lib/auth-server";
 import { headers } from "next/headers";
 import { Pool } from "pg";
+import { CreditSystem } from "@/lib/credit-system";
 import { 
   checkRateLimit, 
   validateStringInput, 
@@ -22,12 +23,6 @@ import {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
-
-// Plan limits mapping
-const PLAN_LIMITS = {
-  free: 5,
-  starter: 50,
-} as const;
 
 /*──────────────────────────  superscript helper  */
 
@@ -142,11 +137,6 @@ export async function POST(request: NextRequest) {
     
     try {
       let userId: string;
-      let planName: keyof typeof PLAN_LIMITS;
-      let monthlyLimit: number;
-      let subscriptionPeriodStart: Date | null = null;
-      let subscriptionPeriodEnd: Date | null = null;
-      let userCreatedAt: Date | null = null;
 
       if (session?.user?.id) {
         // Authenticated user - check their plan
@@ -167,49 +157,11 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Check subscription plan
-        planName = "free";
-        monthlyLimit = PLAN_LIMITS.free;
-
-        try {
-          const subscriptionResult = await client.query(
-            `SELECT plan, status, "periodStart", "periodEnd" 
-             FROM subscription 
-             WHERE "referenceId" = $1 
-             ORDER BY "createdAt" DESC
-             LIMIT 1`,
-            [userId]
-          );
-
-          // Also get user's registration date
-          const userResult = await client.query(
-            `SELECT "createdAt" FROM "user" WHERE id = $1`,
-            [userId]
-          );
-
-          if (userResult.rows.length > 0) {
-            userCreatedAt = new Date(userResult.rows[0].createdAt);
-          }
-
-          if (subscriptionResult.rows.length > 0) {
-            const subscription = subscriptionResult.rows[0];
-            const plan = subscription.plan || "free";
-            if (plan in PLAN_LIMITS) {
-              planName = plan as keyof typeof PLAN_LIMITS;
-              monthlyLimit = PLAN_LIMITS[planName];
-              subscriptionPeriodStart = subscription.periodStart ? new Date(subscription.periodStart) : null;
-              subscriptionPeriodEnd = subscription.periodEnd ? new Date(subscription.periodEnd) : null;
-            }
-          }
-        } catch (error) {
-          console.error("Subscription query error:", error);
-        }
+        // Authenticated user - subscription info handled by credit system
       } else {
         // Anonymous user - use enhanced fingerprinting and stricter limits
         const fingerprint = requestValidation.fingerprint || generateFingerprint(request);
         userId = fingerprint;
-        planName = "free";
-        monthlyLimit = 2; // Only 2 briefs per month for anonymous users
         
         // Create anonymous user record if it doesn't exist
         try {
@@ -246,112 +198,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Get current usage
-      const usageResult = await client.query(
-        `SELECT current_month_count, current_month_start
-         FROM user_brief_counts 
-         WHERE user_id = $1`,
-        [userId]
-      );
-
-      let currentMonthCount = 0;
-      let currentPeriodStart: Date;
-      
-      if (usageResult.rows.length > 0) {
-        const usage = usageResult.rows[0];
-        const currentMonthStart = new Date(usage.current_month_start);
-        const now = new Date();
-        
-        // Use subscription billing period if available, otherwise use registration-based period
-        if (subscriptionPeriodStart && subscriptionPeriodEnd) {
-          // For subscription users, determine the current billing period
-          // If we're within the current subscription period, use that
-          if (now >= subscriptionPeriodStart && now <= subscriptionPeriodEnd) {
-            currentPeriodStart = subscriptionPeriodStart;
-          } else {
-            // Calculate the current billing period based on subscription cycle
-            const subscriptionDurationMs = subscriptionPeriodEnd.getTime() - subscriptionPeriodStart.getTime();
-            const timeSinceOriginalStart = now.getTime() - subscriptionPeriodStart.getTime();
-            const periodsSinceStart = Math.floor(timeSinceOriginalStart / subscriptionDurationMs);
-            currentPeriodStart = new Date(subscriptionPeriodStart.getTime() + (periodsSinceStart * subscriptionDurationMs));
-          }
-        } else if (userCreatedAt) {
-          // For free users: use registration date to determine monthly reset
-          const registrationDay = userCreatedAt.getDate();
-          const currentYear = now.getFullYear();
-          const currentMonth = now.getMonth();
-          
-          // Calculate the reset day for this month
-          const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-          const resetDay = Math.min(registrationDay, daysInCurrentMonth);
-          
-          // Determine current period start
-          const thisMonthReset = new Date(currentYear, currentMonth, resetDay);
-          
-          if (now >= thisMonthReset) {
-            // We're past this month's reset date
-            currentPeriodStart = thisMonthReset;
-          } else {
-            // We're before this month's reset date, so current period started last month
-            const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-            const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-            const daysInLastMonth = new Date(lastMonthYear, lastMonth + 1, 0).getDate();
-            const lastMonthResetDay = Math.min(registrationDay, daysInLastMonth);
-            currentPeriodStart = new Date(lastMonthYear, lastMonth, lastMonthResetDay);
-          }
-        } else {
-          // Free users and anonymous: use calendar month
-          currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        }
-        
-        if (currentMonthStart.getTime() === currentPeriodStart.getTime()) {
-          currentMonthCount = usage.current_month_count;
-        }
-      } else {
-        const now = new Date();
-        // Calculate current period start for new users
-        if (subscriptionPeriodStart && subscriptionPeriodEnd) {
-          if (now >= subscriptionPeriodStart && now <= subscriptionPeriodEnd) {
-            currentPeriodStart = subscriptionPeriodStart;
-          } else {
-            const subscriptionDurationMs = subscriptionPeriodEnd.getTime() - subscriptionPeriodStart.getTime();
-            const timeSinceOriginalStart = now.getTime() - subscriptionPeriodStart.getTime();
-            const periodsSinceStart = Math.floor(timeSinceOriginalStart / subscriptionDurationMs);
-            currentPeriodStart = new Date(subscriptionPeriodStart.getTime() + (periodsSinceStart * subscriptionDurationMs));
-          }
-        } else if (userCreatedAt) {
-          // For free users: use registration date to determine monthly reset
-          const registrationDay = userCreatedAt.getDate();
-          const currentYear = now.getFullYear();
-          const currentMonth = now.getMonth();
-          
-          // Calculate the reset day for this month
-          const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-          const resetDay = Math.min(registrationDay, daysInCurrentMonth);
-          
-          // Determine current period start
-          const thisMonthReset = new Date(currentYear, currentMonth, resetDay);
-          
-          if (now >= thisMonthReset) {
-            // We're past this month's reset date
-            currentPeriodStart = thisMonthReset;
-          } else {
-            // We're before this month's reset date, so current period started last month
-            const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-            const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-            const daysInLastMonth = new Date(lastMonthYear, lastMonth + 1, 0).getDate();
-            const lastMonthResetDay = Math.min(registrationDay, daysInLastMonth);
-            currentPeriodStart = new Date(lastMonthYear, lastMonth, lastMonthResetDay);
-          }
-        } else {
-          currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        }
-      }
-
-      // Check if user has exceeded their limit
-      if (currentMonthCount >= monthlyLimit) {
+      // Check if user can generate using new credit system
+      const canGenerate = await CreditSystem.canUserGenerate(userId);
+      if (!canGenerate) {
         const errorMessage = session?.user?.id 
-          ? "Monthly brief limit exceeded. Please upgrade your plan."
+          ? "No credits remaining. Please purchase more credits or wait for your monthly reset."
           : "You've used your 2 free briefs this month. Please sign in for more or wait until next month.";
         return NextResponse.json(
           { error: errorMessage },
@@ -373,19 +224,34 @@ export async function POST(request: NextRequest) {
 
       const briefId = insertResult.rows[0].id;
 
-      // Note: user_brief_counts is automatically updated by database trigger
+      // Deduct credit with new system
+      const creditUsage = await CreditSystem.deductCredit(userId, briefId);
+      if (!creditUsage.success) {
+        throw new Error('Failed to deduct credit');
+      }
 
       // Log successful request for monitoring
       console.log("Brief generated:", {
         userId: userId.startsWith('fp_') ? 'anonymous' : userId,
-        remainingBriefs: monthlyLimit - currentMonthCount - 1,
+        subscriptionUsed: creditUsage.subscriptionUsed,
+        addonUsed: creditUsage.addonUsed,
+        remainingSubscription: creditUsage.remainingSubscription,
+        remainingAddon: creditUsage.remainingAddon,
         isAnonymous: !session?.user?.id
       });
 
       return NextResponse.json({ 
         brief: normalizedBrief,
         briefId,
-        remainingBriefs: monthlyLimit - currentMonthCount - 1,
+        subscriptionCredits: creditUsage.remainingSubscription,
+        addonCredits: creditUsage.remainingAddon,
+        totalCredits: creditUsage.remainingSubscription + creditUsage.remainingAddon,
+        creditUsed: {
+          subscription: creditUsage.subscriptionUsed,
+          addon: creditUsage.addonUsed
+        },
+        // Legacy format for compatibility
+        remainingBriefs: creditUsage.remainingSubscription + creditUsage.remainingAddon,
         isAnonymous: !session?.user?.id
       });
 

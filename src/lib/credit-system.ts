@@ -59,9 +59,9 @@ export class CreditSystem {
   }
   
   /**
-   * Use one credit (deducts from subscription first, then addon)
+   * Deduct one credit (deducts from subscription first, then addon)
    */
-  static async useCredit(userId: string, briefId: number): Promise<CreditUsage> {
+  static async deductCredit(userId: string, briefId: number): Promise<CreditUsage> {
     const client = await pool.connect();
     
     try {

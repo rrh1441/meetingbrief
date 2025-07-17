@@ -7,16 +7,6 @@ import {
   validateUserId
 } from "@/lib/api-security";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Plan limits mapping
-const PLAN_LIMITS = {
-  free: 5,
-  starter: 50,
-} as const;
-
 export async function GET() {
   try {
     const headersList = await headers();
