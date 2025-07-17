@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { authClient } from "@/lib/auth-client";
 
 interface CreditBalance {
   subscriptionCredits: number;
@@ -44,17 +43,27 @@ export function CreditCounter() {
         ? "https://meetingbrief.com" 
         : window.location.origin;
         
-      const result = await authClient.subscription.upgrade({
-        plan: "credits_addon",
-        successUrl: `${baseUrl}/dashboard?success=true`,
-        cancelUrl: `${baseUrl}/dashboard?canceled=true`,
+      const response = await fetch('/api/purchase-credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          successUrl: `${baseUrl}/dashboard?success=true`,
+          cancelUrl: `${baseUrl}/dashboard?canceled=true`,
+        }),
       });
 
-      if (result.error) {
-        console.error("Add-on purchase failed:", result.error);
-        alert(`Purchase failed: ${result.error.message}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
       }
-      // If successful, the user will be redirected to Stripe Checkout
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      }
     } catch (error) {
       console.error("Add-on purchase error:", error);
       alert("An error occurred during purchase");
@@ -79,24 +88,26 @@ export function CreditCounter() {
   const subscriptionUsed = originalLimit - credits.subscriptionCredits;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-900">
-            You&apos;ve used {subscriptionUsed} of {originalLimit} monthly briefs
-          </p>
-          {credits.addonCredits > 0 && (
-            <p className="text-sm text-gray-600">
-              Plus {credits.addonCredits} add-on credits available
+    <div className="w-full max-w-2xl mx-auto">
+      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">
+              You&apos;ve used {subscriptionUsed} of {originalLimit} monthly briefs
             </p>
-          )}
+            {credits.addonCredits > 0 && (
+              <p className="text-sm text-gray-600">
+                Plus {credits.addonCredits} add-on credits available
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleGetMoreBriefs}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap"
+          >
+            Get More Briefs
+          </button>
         </div>
-        <button
-          onClick={handleGetMoreBriefs}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-        >
-          Get More Briefs
-        </button>
       </div>
     </div>
   );

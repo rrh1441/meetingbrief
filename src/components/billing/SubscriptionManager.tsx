@@ -106,7 +106,34 @@ export function SubscriptionManager() {
   const handleGetMoreBriefs = async () => {
     setActionLoading("credits_addon");
     try {
-      await handleUpgrade("credits_addon");
+      const baseUrl = process.env.NODE_ENV === "production" 
+        ? "https://meetingbrief.com" 
+        : window.location.origin;
+        
+      const response = await fetch('/api/purchase-credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          successUrl: `${baseUrl}/dashboard?success=true`,
+          cancelUrl: `${baseUrl}/dashboard?canceled=true`,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error("Add-on purchase error:", error);
+      alert("An error occurred during purchase");
     } finally {
       setActionLoading(null);
     }
