@@ -174,26 +174,19 @@ export const auth = betterAuth({
             },
             {
               name: "starter",
-              priceId: process.env.STRIPE_STARTER_PRICE_ID!,
+              priceId: "price_1Rls0QLAwHJFmbPEVdKusne7",
               limits: {
                 briefsPerMonth: 50,
                 storage: 5, // GB
               },
             },
             {
-              name: "growth",
-              priceId: process.env.STRIPE_GROWTH_PRICE_ID!,
+              name: "credits_addon",
+              priceId: "price_1Rls2RLAwHJFmbPEHIWlzIWO",
               limits: {
-                briefsPerMonth: 150,
-                storage: 50, // GB
-              },
-            },
-            {
-              name: "scale",
-              priceId: process.env.STRIPE_SCALE_PRICE_ID!,
-              limits: {
-                briefsPerMonth: 500,
-                storage: 500, // GB
+                briefsPerMonth: -1, // One-time purchase, no monthly limit
+                storage: 0, // No additional storage
+                creditsToAdd: 50, // Add 50 credits
               },
             },
           ],

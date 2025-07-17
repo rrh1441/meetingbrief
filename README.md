@@ -24,7 +24,6 @@ Chrome extension that automatically extracts LinkedIn profile data and creates A
 │   │   ├── auth.ts           # Better Auth integration
 │   │   ├── api-client.ts     # MeetingBrief API client
 │   │   ├── linkedin-extractor.ts # Profile extraction
-│   │   └── proxycurl.ts      # Proxycurl fallback
 │   └── types/
 │       └── profile.ts        # TypeScript interfaces
 ├── public/
@@ -67,14 +66,6 @@ npm install
 }
 ```
 
-#### Proxycurl API (Optional)
-1. Sign up at [Proxycurl](https://nubela.co/proxycurl/)
-2. Get your API key
-3. Update `src/utils/proxycurl.ts`:
-
-```typescript
-const PROXYCURL_API_KEY = 'YOUR_PROXYCURL_API_KEY_HERE';
-```
 
 ### 3. Build the Extension
 
@@ -194,7 +185,6 @@ The extension integrates with these endpoints:
 ```env
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
-PROXYCURL_API_KEY=your_proxycurl_key  # Optional
 ```
 
 ### Extension Permissions

@@ -21,31 +21,24 @@ const PLANS = [
   {
     name: "starter",
     displayName: "Starter",
-    price: "$29/month",
+    price: "$10/month",
     features: [
       "50 meeting briefs per month",
       "LinkedIn Chrome Extension (Coming Soon)",
       "Calendar Integration (Coming Soon)"
     ],
   },
+];
+
+const ADDONS = [
   {
-    name: "growth",
-    displayName: "Growth",
-    price: "$59/month",
+    name: "credits_addon",
+    displayName: "Credit Add-on",
+    price: "$10",
     features: [
-      "150 meeting briefs per month",
-      "LinkedIn Chrome Extension (Coming Soon)",
-      "Calendar Integration (Coming Soon)"
-    ],
-  },
-  {
-    name: "scale",
-    displayName: "Scale",
-    price: "$149/month",
-    features: [
-      "500 meeting briefs per month",
-      "LinkedIn Chrome Extension (Coming Soon)",
-      "Calendar Integration (Coming Soon)"
+      "50 additional meeting briefs",
+      "One-time purchase",
+      "No expiration"
     ],
   },
 ];
@@ -256,6 +249,36 @@ export function SubscriptionManager() {
             </button>
           </div>
         ))}
+      </div>
+
+      {/* Add-on Credits Section */}
+      <div className="mt-12">
+        <h3 className="text-xl font-semibold mb-6 text-center">Need More Credits?</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {ADDONS.map((addon) => (
+            <div key={addon.name} className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-xl font-semibold mb-2">{addon.displayName}</h3>
+              <p className="text-2xl font-bold text-green-600 mb-4">{addon.price}</p>
+              <ul className="space-y-2 mb-6">
+                {addon.features.map((feature, index) => (
+                  <li key={index} className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => handleUpgrade(addon.name)}
+                disabled={actionLoading === addon.name}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium disabled:opacity-50"
+              >
+                {actionLoading === addon.name ? "Processing..." : "Purchase Credits"}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

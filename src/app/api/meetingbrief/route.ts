@@ -26,9 +26,7 @@ const pool = new Pool({
 // Plan limits mapping
 const PLAN_LIMITS = {
   free: 5,
-  starter: 50,
-  growth: 150,
-  scale: 500,
+  starter: 100,
 } as const;
 
 /*──────────────────────────  superscript helper  */

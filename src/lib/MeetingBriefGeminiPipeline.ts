@@ -10,7 +10,6 @@
 
 import OpenAI from "openai";
 import fetch, { Response as FetchResponse, RequestInit } from "node-fetch"; // Ensure 'node-fetch' and '@types/node-fetch' are installed
-import { proxyCurlBackupPipeline } from "./ProxyCurlBackup";
 
 export const runtime = "nodejs";
 
@@ -172,15 +171,6 @@ export interface MeetingBriefPayload {
   serperSearchesMade: number; 
   // Harvest credits
   harvestCreditsUsed: number;
-  // Legacy Proxycurl counters (deprecated but kept for compatibility)
-  proxycurlCompanyLookupCalls: number;
-  proxycurlPersonLookupCalls: number;
-  proxycurlProfileFreshCalls: number;
-  proxycurlProfileDirectCalls: number;
-  proxycurlCreditsUsed: number;
-  proxycurlCallsMade: number;
-  proxycurlLookupCallsMade: number; 
-  proxycurlFreshProfileCallsMade: number;
   firecrawlAttempts: number; firecrawlSuccesses: number;
   finalSourcesConsidered: { url: string; title: string; processed_snippet: string }[];
   possibleSocialLinks: string[];
@@ -415,7 +405,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   
   // Initialize counters
   let serperCallsMade = 0;
-  let proxycurlCreditsUsed = 0; // Track ProxyCurl credits
 
   const startTime = Date.now();
   let collectedSerpResults: SerpResult[] = [];
@@ -497,49 +486,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       harvestErrored = true;
       console.warn(`[Harvest] Main Pipeline catcher failed: ${error.message}`);
       
-      // Check if error suggests credit exhaustion and trigger ProxyCurl backup
-      const errorMessage = error.message.toLowerCase();
-      const isCreditsExhausted = errorMessage.includes('credit') || 
-                                 errorMessage.includes('quota') || 
-                                 errorMessage.includes('limit') ||
-                                 errorMessage.includes('403');
-      
-      if (isCreditsExhausted) {
-        console.log(`[MB] Harvest appears to be out of credits, attempting ProxyCurl backup...`);
-        try {
-          const proxycurlResult = await proxyCurlBackupPipeline(name, org);
-          proxycurlCreditsUsed = proxycurlResult.creditsUsed;
-          
-          if (proxycurlResult.success && proxycurlResult.profile) {
-            console.log(`[MB] ProxyCurl backup successful! Found profile via ProxyCurl.`);
-            
-            // Convert ProxyCurl profile to Harvest-compatible format for timeline display
-            jobHistoryTimeline = proxycurlResult.jobTimeline;
-            educationTimeline = proxycurlResult.educationTimeline;
-            (globalThis as { hasResumeData?: boolean }).hasResumeData = true;
-            
-            linkedInProfileResult = {
-              title: `${name} | LinkedIn Profile (via ProxyCurl)`,
-              link: proxycurlResult.linkedinUrl!,
-              snippet: proxycurlResult.profile.headline ?? `LinkedIn profile for ${name} at ${org} (via ProxyCurl backup)`
-            };
-            
-            if (linkedInProfileResult.link) {
-              collectedSerpResults.push(linkedInProfileResult);
-            }
-            
-            // Clear error state since backup succeeded
-            harvestErrored = false;
-            
-            console.log(`[MB] ProxyCurl backup evidence: ${proxycurlResult.companyEvidence?.join('; ') || 'None provided'}`);
-          } else {
-            console.log(`[MB] ProxyCurl backup failed: ${proxycurlResult.reason}`);
-          }
-        } catch (backupError: unknown) {
-          const backupErr = backupError instanceof Error ? backupError : new Error(String(backupError));
-          console.warn(`[MB] ProxyCurl backup also failed: ${backupErr.message}`);
-        }
-      }
     }
   } else {
     console.log("[Harvest] Skipped – no API key.");
@@ -598,15 +544,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       serperSearchesMade: serperCallsMade,
       // Harvest credits
       harvestCreditsUsed: 0,
-      // Legacy counters (deprecated but kept for compatibility)
-      proxycurlCompanyLookupCalls: 0,
-      proxycurlPersonLookupCalls: 0,
-      proxycurlProfileFreshCalls: 0,
-      proxycurlProfileDirectCalls: 0,
-      proxycurlCreditsUsed: proxycurlCreditsUsed,
-      proxycurlCallsMade: 0,
-      proxycurlLookupCallsMade: 0,
-      proxycurlFreshProfileCallsMade: 0,
       firecrawlAttempts: firecrawlGlobalAttempts,
       firecrawlSuccesses: firecrawlGlobalSuccesses,
       finalSourcesConsidered: [],
@@ -642,7 +579,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   if (hasResumeData && (jobHistoryTimeline.length > 0)) {
     console.log(`[MB Step 5] Running additional Serper queries for prior organizations of "${name}".`);
     
-    // Get prior companies from either ProxyCurl format or Harvest-derived job timeline
+    // Get prior companies from Harvest-derived job timeline
     let priorCompanies: string[] = [];
     
     if (jobHistoryTimeline.length > 0) {
@@ -843,14 +780,6 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       tokensUsed: 0,
       serperSearchesMade: serperCallsMade,
       harvestCreditsUsed: 0,
-      proxycurlCompanyLookupCalls: 0,
-      proxycurlPersonLookupCalls: 0,
-      proxycurlProfileFreshCalls: 0,
-      proxycurlProfileDirectCalls: 0,
-      proxycurlCreditsUsed: proxycurlCreditsUsed,
-      proxycurlCallsMade: 0,
-      proxycurlLookupCallsMade: 0,
-      proxycurlFreshProfileCallsMade: 0,
       firecrawlAttempts: firecrawlGlobalAttempts, 
       firecrawlSuccesses: firecrawlGlobalSuccesses,
       finalSourcesConsidered: [],
@@ -1110,15 +1039,6 @@ ${llmSourceBlock}
     serperSearchesMade: serperCallsMade, 
     // Harvest credits
     harvestCreditsUsed: 0,
-    // Legacy counters (deprecated but kept for compatibility)
-    proxycurlCompanyLookupCalls: 0,
-    proxycurlPersonLookupCalls: 0,
-    proxycurlProfileFreshCalls: 0,
-    proxycurlProfileDirectCalls: 0,
-    proxycurlCreditsUsed: proxycurlCreditsUsed,
-    proxycurlCallsMade: 0,
-    proxycurlLookupCallsMade: 0,
-    proxycurlFreshProfileCallsMade: 0,
     firecrawlAttempts: firecrawlGlobalAttempts, 
     firecrawlSuccesses: firecrawlGlobalSuccesses,
     finalSourcesConsidered: sourcesToProcessForLLM.map((s, idx) => ({
