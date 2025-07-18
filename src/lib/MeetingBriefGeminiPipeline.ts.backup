@@ -36,9 +36,8 @@ const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
 const MAX_SOURCES_TO_LLM = 25;
-const FIRECRAWL_BATCH_SIZE = 25; // Increased from 10 for speed
-const FIRECRAWL_GLOBAL_BUDGET_MS = 25_000; // Reduced from 35s to force faster execution
-const MAX_CONCURRENT_FIRECRAWL = 30; // Maximum concurrent Firecrawl calls
+const FIRECRAWL_BATCH_SIZE = 10;
+const FIRECRAWL_GLOBAL_BUDGET_MS = 35_000;
 
 // Credit-aware LinkedIn resolution URLs
 
@@ -149,31 +148,6 @@ interface JsonBriefFromLLM {
   funFacts: BriefRow[]; researchNotes: BriefRow[];
 }
 
-// Speed optimization interfaces
-interface JobChangeInfo {
-  detected: boolean;
-  newCompany?: string;
-  newRole?: string;
-  announcement?: string;
-  date?: string;
-  source?: string;
-}
-
-interface SpeedOptimizedAnalysis {
-  url: string;
-  canSkipScrape: boolean;
-  scrapePriority: number;
-  extractedFacts: string[];
-  expectedValue: 'high' | 'medium' | 'low';
-}
-
-interface ScrapePriority {
-  url: string;
-  timeoutMs: number;
-  maxRetries: number;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-}
-
 interface CompanySearch { 
   elements: { id: string }[] 
 }
@@ -248,171 +222,6 @@ const normalizeCompanyName = (companyName: string): string =>
     .replace(/[.,']/g, "")
     .trim();
 
-/* ── Job Change Detection ─────────────────────────────────────────────── */
-async function detectJobChange(
-  serpResults: SerpResult[],
-  targetName: string,
-  currentOrg: string,
-  openAiClient: OpenAI
-): Promise<JobChangeInfo> {
-  // Filter results that might indicate job change
-  const jobChangeIndicators = serpResults.filter(result => {
-    const text = `${result.title} ${result.snippet || ''}`.toLowerCase();
-    const hasJobChangeKeywords = 
-      (text.includes('joins') || 
-       text.includes('appointed') || 
-       text.includes('new role') || 
-       text.includes('moves to') ||
-       text.includes('named as') ||
-       text.includes('promoted')) &&
-      text.includes(targetName.toLowerCase());
-    
-    // Check if it mentions a different company
-    const mentionsCurrentOrg = text.includes(currentOrg.toLowerCase());
-    const possiblyDifferentCompany = hasJobChangeKeywords && !mentionsCurrentOrg;
-    
-    return hasJobChangeKeywords || possiblyDifferentCompany;
-  });
-
-  if (jobChangeIndicators.length === 0) {
-    return { detected: false };
-  }
-
-  // Use AI to analyze potential job changes
-  const systemPrompt = `Analyze search results to detect if ${targetName} has recently changed jobs from ${currentOrg}. 
-  
-Return JSON:
-{
-  "detected": boolean,
-  "newCompany": "company name or null",
-  "newRole": "role title or null", 
-  "announcement": "brief summary of the change",
-  "date": "when this happened or null",
-  "source": "most authoritative source URL"
-}
-
-Only mark detected=true if there's clear evidence of a job change AWAY from ${currentOrg}.
-Internal promotions at ${currentOrg} should return detected=false.`;
-
-  const userPrompt = `Analyze these search results for job changes:
-
-${jobChangeIndicators.map((r, i) => `
-[${i}] ${r.title}
-${r.snippet || ''}
-URL: ${r.link}
-`).join('\n')}`;
-
-  try {
-    const response = await openAiClient.chat.completions.create({
-      model: MODEL_ID,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    });
-
-    const content = response.choices[0].message.content;
-    if (!content) throw new Error('Empty response from OpenAI');
-    
-    const result = JSON.parse(content);
-    return result;
-  } catch (error) {
-    console.error('[Job Change Detection] AI analysis failed:', error);
-    return { detected: false };
-  }
-}
-
-/* ── AI-Powered Snippet Analysis ──────────────────────────────────────── */
-async function analyzeSnippetsWithAI(
-  sources: SerpResult[],
-  targetName: string,
-  targetOrg: string,
-  openAiClient: OpenAI
-): Promise<Map<string, SpeedOptimizedAnalysis>> {
-  const systemPrompt = `You are an expert at analyzing search result snippets to determine if they contain valuable information about a person and whether the full article needs to be scraped.
-
-For each search result, analyze and return:
-{
-  "results": [
-    {
-      "url": "the URL",
-      "canSkipScrape": boolean,
-      "scrapePriority": 1-10,
-      "extractedFacts": ["extracted facts from snippet"],
-      "expectedValue": "high|medium|low"
-    }
-  ]
-}
-
-Criteria:
-- scrapePriority 9-10: Awards, major appointments, interviews with quotes, research/publications
-- scrapePriority 6-8: News mentions, conference speaking, professional updates  
-- scrapePriority 3-5: Basic directory listings, brief mentions
-- scrapePriority 1-2: Search results pages, old content (pre-2018), social media posts, paywalled content
-
-Mark canSkipScrape=true when the snippet contains:
-- Complete award/recognition details
-- Full quotes from the person
-- Key appointment information with title and date
-- Specific achievements with context
-
-Focus on ${targetName} at ${targetOrg} and their professional achievements.`;
-
-  // Process all sources in one API call for maximum speed
-  const userPrompt = `Analyze these search results for ${targetName} at ${targetOrg}:
-
-${sources.map((s, idx) => `
-Result ${idx}:
-URL: ${s.link}
-Title: ${s.title}
-Snippet: ${s.snippet || 'No snippet available'}
-`).join('\n')}
-
-Return a JSON object with a "results" array containing analysis for each result.`;
-
-  const results = new Map<string, SpeedOptimizedAnalysis>();
-  
-  try {
-    const response = await openAiClient.chat.completions.create({
-      model: MODEL_ID,
-      temperature: 0.1,
-      max_tokens: 2000,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    });
-
-    const content = response.choices[0].message.content;
-    if (content) {
-      const parsed = JSON.parse(content);
-      const analyses = parsed.results || [];
-      analyses.forEach((analysis: SpeedOptimizedAnalysis, idx: number) => {
-        if (idx < sources.length) {
-          results.set(sources[idx].link, analysis);
-        }
-      });
-    }
-  } catch (error) {
-    console.error('[AI Snippet Analysis] Failed:', error);
-    // Fallback: mark all as medium priority
-    sources.forEach(source => {
-      results.set(source.link, {
-        url: source.link,
-        canSkipScrape: false,
-        scrapePriority: 5,
-        extractedFacts: [],
-        expectedValue: 'medium'
-      });
-    });
-  }
-  
-  return results;
-}
-
 /* ── Credit-Aware LinkedIn Resolution Helpers ──────────────────────────── */
 const slugifyCompanyName = (org: string): string => {
   return org.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -432,104 +241,6 @@ const splitFullName = (fullName: string): { first: string; last: string } => {
   return { first, last };
 };
 
-
-/* ── Priority-based Scraping Helpers ────────────────────────────────────── */
-function determineScrapePriority(
-  source: SerpResult,
-  isJobChangeRelated: boolean,
-  snippetAnalysis?: SpeedOptimizedAnalysis
-): ScrapePriority {
-  const url = source.link;
-  const snippet = source.snippet || '';
-  const title = source.title;
-  
-  // Critical priority - most generous timeouts
-  if (isJobChangeRelated || 
-      title.toLowerCase().includes('joins') ||
-      title.toLowerCase().includes('appointed')) {
-    return {
-      url,
-      timeoutMs: 15000,  // 15s for critical content
-      maxRetries: 2,
-      priority: 'critical'
-    };
-  }
-  
-  // High priority - awards, major announcements
-  if (snippet.includes('award') || 
-      snippet.includes('recognition') ||
-      snippet.includes('patent') ||
-      snippet.includes('publication')) {
-    return {
-      url,
-      timeoutMs: 12000,  // 12s for high-value content
-      maxRetries: 1,
-      priority: 'high'
-    };
-  }
-  
-  // Medium priority - standard news and profiles
-  if (snippetAnalysis?.scrapePriority && snippetAnalysis.scrapePriority >= 7) {
-    return {
-      url,
-      timeoutMs: 8000,   // 8s for medium priority
-      maxRetries: 1,
-      priority: 'medium'
-    };
-  }
-  
-  // Low priority - quick attempt only
-  return {
-    url,
-    timeoutMs: 5000,    // 5s for low priority
-    maxRetries: 0,
-    priority: 'low'
-  };
-}
-
-// Enhanced Firecrawl with smart retries
-async function smartFirecrawl(
-  priority: ScrapePriority,
-  attemptInfo: string
-): Promise<string | null> {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt <= priority.maxRetries; attempt++) {
-    try {
-      console.log(`[Firecrawl] ${priority.priority} priority: ${priority.url} (attempt ${attempt + 1}/${priority.maxRetries + 1}, timeout: ${priority.timeoutMs}ms)`);
-      
-      const response = await Promise.race([
-        postJSON<FirecrawlScrapeV1Result>(
-          FIRECRAWL_API_URL,
-          { url: priority.url },
-          { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
-        ),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout after ${priority.timeoutMs}ms`)), priority.timeoutMs)
-        )
-      ]);
-      
-      // Success - extract content
-      if (response && response.success && response.data) {
-        const content = response.data.article?.text_content || 
-                       response.data.text_content || 
-                       response.data.markdown;
-        if (content && typeof content === 'string') {
-          console.log(`[Firecrawl] Success for ${priority.priority} priority: ${priority.url}`);
-          return content;
-        }
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < priority.maxRetries) {
-        console.log(`[Firecrawl] Retry for ${priority.url} after error: ${lastError.message}`);
-      }
-    }
-  }
-  
-  console.error(`[Firecrawl] Failed all attempts for ${priority.url}: ${lastError?.message}`);
-  return null;
-}
 
 /* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
 let firecrawlGlobalAttempts = 0;
@@ -842,93 +553,24 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   // ------------------------------------------------------------------------
 
   // ── Continue with existing pipeline for general research ─────────────────
-  console.log(`[MB Step 4] Running enhanced parallel Serper queries for "${name}" and "${org}"`);
-  
-  // Enhanced initial queries with job change detection
-  const enhancedInitialQueries = [
-    // NEW: Primary search for recent updates
-    { 
-      q: `"${name}" "${org}"`, 
-      num: 15,
-      label: "primary_name_company" 
-    },
-    // Existing queries
-    { 
-      q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, 
-      num: 10,
-      label: "name_company_linkedin" 
-    },
-    { 
-      q: `"${name}" "${org}" (interview OR profile OR news OR "press release" OR biography)`, 
-      num: 10,
-      label: "name_company_content" 
-    },
-    { 
-      q: `"${name}" "${org}" (award OR recognition OR keynote OR webinar OR conference OR patent OR publication OR podcast OR interview OR article OR blog OR whitepaper OR research OR paper OR study OR report OR testimony OR speaking OR panel OR book OR chapter OR quoted OR expert OR commentary OR analysis OR guest OR featured OR winner OR recipient OR achievement OR honor OR fellowship OR grant OR advisory OR board OR presentation OR workshop OR seminar OR briefing)`, 
-      num: 10,
-      label: "name_company_achievements" 
-    },
-    // NEW: Job change detection query
-    { 
-      q: `"${name}" (joins OR "has joined" OR appointed OR "new role" OR "moves to" OR "named as" OR "promoted to") -"${org}"`, 
-      num: 5,
-      label: "job_changes" 
-    }
+  console.log(`[MB Step 4] Running initial Serper queries for "${name}" and "${org}"`);
+  const initialQueries = [
+    { q: `"${name}" "${org}" OR "${name}" "linkedin.com/in/"`, num: 10 },
+    { q: `"${name}" "${org}" (interview OR profile OR news OR "press release" OR biography)`, num: 10 },
+    { q: `"${name}" "${org}" (award OR recognition OR keynote OR webinar OR conference OR patent OR publication OR podcast OR interview OR article OR blog OR whitepaper OR research OR paper OR study OR report OR testimony OR speaking OR panel OR book OR chapter OR quoted OR expert OR commentary OR analysis OR guest OR featured OR winner OR recipient OR achievement OR honor OR fellowship OR grant OR advisory OR board OR presentation OR workshop OR seminar OR briefing)`, num: 10 },
   ];
-  
-  // Run all queries in parallel for speed
-  const serperStartTime = Date.now();
-  const allSerperPromises = enhancedInitialQueries.map(query => 
-    postJSON<{ organic?: SerpResult[] }>(
-      SERPER_API_URL, 
-      { q: query.q, num: query.num, gl: "us", hl: "en" }, 
-      { "X-API-KEY": SERPER_KEY! }
-    ).then(response => ({
-      results: response.organic || [],
-      label: query.label
-    })).catch(err => ({
-      results: [] as SerpResult[],
-      label: query.label,
-      error: err
-    }))
-  );
-  
-  const serperResponses = await Promise.all(allSerperPromises);
-  serperCallsMade += enhancedInitialQueries.length;
-  
-  console.log(`[MB Step 4] Parallel Serper queries completed in ${Date.now() - serperStartTime}ms`);
-  
-  // Separate job change results (declare at function scope for later use)
-  let jobChangeResults = serperResponses
-    .find(r => r.label === 'job_changes')?.results || [];
-    
-  const mainResults = serperResponses
-    .filter(r => r.label !== 'job_changes')
-    .flatMap(r => r.results);
-  
-  // Collect main results
-  collectedSerpResults.push(...mainResults);
-  
-  // Check for job changes using AI
-  const openAiClient = getOpenAIClient();
-  const jobChangeInfo = await detectJobChange(
-    [...mainResults, ...jobChangeResults],
-    name,
-    org,
-    openAiClient
-  );
-  
-  if (jobChangeInfo.detected) {
-    console.log(`[MB Alert] Job change detected for ${name}!`);
-    console.log(`[MB Alert] New company: ${jobChangeInfo.newCompany}, Role: ${jobChangeInfo.newRole}`);
-    
-    // Add a special note to the brief
-    if (jobHistoryTimeline.length === 0) {
-      jobHistoryTimeline = [];
+
+  for (const query of initialQueries) {
+    try {
+      const response = await postJSON<{ organic?: SerpResult[] }>(
+        SERPER_API_URL, { q: query.q, num: query.num, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! },
+      );
+      serperCallsMade++;
+      if (response.organic) collectedSerpResults.push(...response.organic);
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.warn(`[MB Step 4] Serper query failed for "${query.q}". Error: ${err.message}`);
     }
-    jobHistoryTimeline.unshift(
-      `⚠️ RECENT JOB CHANGE: ${jobChangeInfo.announcement || `${name} has moved from ${org} to ${jobChangeInfo.newCompany}`}`
-    );
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
@@ -978,49 +620,29 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       { keywords: "(award OR recognition OR keynote OR webinar OR conference OR patent OR publication OR podcast OR interview OR article OR blog OR whitepaper OR research OR paper OR study OR report OR testimony OR speaking OR panel OR book OR chapter OR quoted OR expert OR commentary OR analysis OR guest OR featured OR winner OR recipient OR achievement OR honor OR fellowship OR grant OR advisory OR board OR presentation OR workshop OR seminar OR briefing)", label: "awards/content" }
     ];
     
-    // Run all query types for all institutions in parallel
-    const priorCompanyQueries = allInstitutions.flatMap(institution =>
-      queryTypes.map(queryType => ({
-        institution,
-        queryType,
-        query: queryType.keywords 
-          ? `"${name}" "${institution}" ${queryType.keywords}`
-          : `"${name}" "${institution}"`
-      }))
-    );
-    
-    console.log(`[MB Step 5] Running ${priorCompanyQueries.length} prior company queries in parallel`);
-    const priorCompanyStartTime = Date.now();
-    
-    const priorCompanyPromises = priorCompanyQueries.map(({ query, institution, queryType }) =>
-      postJSON<{ organic?: SerpResult[] }>(
-        SERPER_API_URL, 
-        { q: query, num: 5, gl: "us", hl: "en" }, 
-        { "X-API-KEY": SERPER_KEY! }
-      ).then(response => ({
-        results: response.organic || [],
-        institution,
-        queryType: queryType.label
-      })).catch(err => ({
-        results: [] as SerpResult[],
-        institution,
-        queryType: queryType.label,
-        error: err
-      }))
-    );
-    
-    const priorCompanyResponses = await Promise.all(priorCompanyPromises);
-    serperCallsMade += priorCompanyQueries.length;
-    
-    console.log(`[MB Step 5] Prior company queries completed in ${Date.now() - priorCompanyStartTime}ms`);
-    
-    // Process results
-    priorCompanyResponses.forEach(({ results, institution, queryType }) => {
-      if (results.length > 0) {
-        console.log(`[MB Step 5] Found ${results.length} ${queryType} results for "${institution}"`);
-        collectedSerpResults.push(...results);
+    // Run all query types for each institution
+    for (const institution of allInstitutions) {
+      for (const queryType of queryTypes) {
+        try {
+          const query = queryType.keywords 
+            ? `"${name}" "${institution}" ${queryType.keywords}`
+            : `"${name}" "${institution}"`;
+          
+          const response = await postJSON<{ organic?: SerpResult[] }>(
+            SERPER_API_URL, { q: query, num: 5, gl: "us", hl: "en" }, { "X-API-KEY": SERPER_KEY! }
+          );
+          serperCallsMade++;
+          
+          if (response.organic) {
+            console.log(`[MB Step 5] Found ${response.organic.length} ${queryType.label} results for "${institution}"`);
+            collectedSerpResults.push(...response.organic);
+          }
+        } catch (e: unknown) {
+          const err = e instanceof Error ? e : new Error(String(e));
+          console.warn(`[MB Step 5] ${queryType.label} query failed for "${institution}". Error: ${err.message}`);
+        }
       }
-    });
+    }
   } else {
     console.log(`[MB Step 5] Skipped - insufficient data for prior company searches`);
   }
@@ -1192,143 +814,66 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     .flatMap(domain => uniqueSerpResults.filter(r => r.link.includes(domain)).map(r => r.link))
     .filter((link, i, arr) => arr.indexOf(link) === i);
 
-  console.log(`[MB Step 7] Starting intelligent snippet analysis and scraping for ${sourcesToProcessForLLM.length} sources.`);
-  
-  const scrapingStartTime = Date.now();
-  
-  // Step 1: Analyze all snippets with AI for smart scraping decisions
-  console.log(`[MB Step 7.1] Analyzing snippets with AI...`);
-  const snippetAnalysisStart = Date.now();
-  const snippetAnalysisMap = await analyzeSnippetsWithAI(
-    sourcesToProcessForLLM,
-    name,
-    org,
-    openAiClient
-  );
-  console.log(`[MB Step 7.1] Snippet analysis completed in ${Date.now() - snippetAnalysisStart}ms`);
-  
-  // Step 2: Categorize sources based on analysis and priorities
-  const sourcesWithPriorities = sourcesToProcessForLLM.map(source => {
-    const isJobChangeRelated = jobChangeResults.some(r => r.link === source.link);
-    const snippetAnalysis = snippetAnalysisMap.get(source.link);
-    return {
-      source,
-      priority: determineScrapePriority(source, isJobChangeRelated, snippetAnalysis),
-      snippetAnalysis
-    };
-  });
-  
-  // Step 3: Separate into categories
-  const skipWithSnippet = sourcesWithPriorities.filter(s => 
-    s.snippetAnalysis?.canSkipScrape === true
-  );
-  const toScrape = sourcesWithPriorities.filter(s => 
-    !s.snippetAnalysis?.canSkipScrape
-  ).sort((a, b) => {
-    const priorityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-    return priorityOrder[b.priority.priority] - priorityOrder[a.priority.priority];
-  });
-  
-  console.log(`[MB Step 7.2] Source categorization:
-    - Complete info in snippet (skip scrape): ${skipWithSnippet.length}
-    - To scrape: ${toScrape.length} (critical: ${toScrape.filter(s => s.priority.priority === 'critical').length}, high: ${toScrape.filter(s => s.priority.priority === 'high').length}, medium: ${toScrape.filter(s => s.priority.priority === 'medium').length}, low: ${toScrape.filter(s => s.priority.priority === 'low').length})`);
-  
+  console.log(`[MB Step 7] Starting Firecrawl for ${sourcesToProcessForLLM.length} sources.`);
   const extractedTextsForLLM = new Array(sourcesToProcessForLLM.length).fill("");
-  
-  // Step 4: Process snippet-only sources (no scraping needed)
-  skipWithSnippet.forEach(({ source, snippetAnalysis }) => {
-    const idx = sourcesToProcessForLLM.indexOf(source);
-    if (idx !== -1 && snippetAnalysis) {
-      const enrichedContent = `${source.title}
-Key Information (extracted from snippet):
-${snippetAnalysis.extractedFacts.map(fact => `• ${fact}`).join('\n')}
+  let firecrawlTimeSpentMs = 0;
 
-Original snippet: ${source.snippet || 'No snippet available'}`;
-      extractedTextsForLLM[idx] = enrichedContent;
+  for (let i = 0; i < sourcesToProcessForLLM.length; i += FIRECRAWL_BATCH_SIZE) {
+    const remainingTimeBudget = FIRECRAWL_GLOBAL_BUDGET_MS - firecrawlTimeSpentMs;
+    if (remainingTimeBudget <= 0) {
+      console.warn(`[MB Step 7] Firecrawl global time budget exhausted. Remaining sources use snippets.`);
+      for (let j = i; j < sourcesToProcessForLLM.length; j++) {
+        const source = sourcesToProcessForLLM[j];
+        extractedTextsForLLM[j] = source.link === linkedInProfileResult?.link 
+          ? `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`
+          : `${source.title}. ${source.snippet ?? ""}`;
+      }
+      break;
     }
-  });
-  
-  // Step 5: Process sources that need scraping in priority waves
-  const critical = toScrape.filter(s => s.priority.priority === 'critical');
-  const high = toScrape.filter(s => s.priority.priority === 'high');
-  const medium = toScrape.filter(s => s.priority.priority === 'medium');
-  const low = toScrape.filter(s => s.priority.priority === 'low');
-  
-  // Wave 1: Critical content (job changes, major announcements)
-  if (critical.length > 0) {
-    console.log(`[MB Step 7.3] Wave 1: Scraping ${critical.length} critical priority sources...`);
-    const wave1Start = Date.now();
-    const criticalPromises = critical.map(({ source, priority }) => 
-      smartFirecrawl(priority, 'Critical wave')
-        .then(content => ({ source, content }))
+    const currentBatch = sourcesToProcessForLLM.slice(i, i + FIRECRAWL_BATCH_SIZE)
+      .map((source, indexInBatch) => ({ sourceItem: source, globalIndex: i + indexInBatch, indexInBatch }));
+    const batchStartTime = Date.now();
+    await Promise.allSettled(
+      currentBatch.map(async (batchItem) => {
+        const { sourceItem: source, globalIndex, indexInBatch: itemIdxInBatch } = batchItem;
+        const attemptInfoForLogs = `Batch ${Math.floor(i / FIRECRAWL_BATCH_SIZE) + 1}, ItemInBatch ${itemIdxInBatch + 1}/${currentBatch.length}, GlobalIdx ${globalIndex + 1}`;
+        if (source.link === linkedInProfileResult?.link ) {
+          extractedTextsForLLM[globalIndex] = `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`; return;
+        }
+        if (NO_SCRAPE_URL_SUBSTRINGS.some(skip => source.link.includes(skip))) {
+          extractedTextsForLLM[globalIndex] = `${source.title}. ${source.snippet ?? ""}`; return;
+        }
+        const scrapedText = await firecrawlWithLogging(source.link, attemptInfoForLogs);
+        if (scrapedText) {
+          const snippetText = source.snippet || "";
+          const snippetIsLikelyRedundant = snippetText && scrapedText.toLowerCase().includes(snippetText.toLowerCase().slice(0, Math.min(50, snippetText.length > 0 ? snippetText.length -1 : 0)));
+          extractedTextsForLLM[globalIndex] = (snippetIsLikelyRedundant ? scrapedText : `${scrapedText}\n\nSnippet for context: ${source.title}. ${snippetText}`).slice(0, 3500);
+        } else {
+          // Firecrawl failed - enhance snippet fallback especially for award content
+          const snippetText = source.snippet || "";
+          const titleLower = source.title.toLowerCase();
+          const snippetLower = snippetText.toLowerCase();
+          
+          // Detect if this appears to be award/publication content
+          const awardKeywords = ['award', 'recognition', 'winner', 'recipient', 'achievement', 'honor', 'fellowship', 'grant', 'publication', 'research', 'paper', 'study', 'forbes', 'keynote', 'speaker', 'conference', 'patent', 'cited', 'published', 'authored'];
+          const isLikelyAwardContent = awardKeywords.some(keyword => 
+            titleLower.includes(keyword) || snippetLower.includes(keyword)
+          );
+          
+          if (isLikelyAwardContent && snippetText) {
+            // Enhanced presentation for award content
+            extractedTextsForLLM[globalIndex] = `IMPORTANT ACHIEVEMENT/RECOGNITION CONTENT:\nTitle: ${source.title}\nDetails: ${snippetText}\n\nNote: This appears to contain information about awards, recognition, or publications that may be highly relevant for professional context.`;
+          } else {
+            // Standard fallback
+            extractedTextsForLLM[globalIndex] = `${source.title}. ${snippetText}`;
+          }
+        }
+      }),
     );
-    
-    const criticalResults = await Promise.all(criticalPromises);
-    criticalResults.forEach(({ source, content }) => {
-      const idx = sourcesToProcessForLLM.indexOf(source);
-      if (idx !== -1) {
-        extractedTextsForLLM[idx] = content 
-          ? content.slice(0, 3500)
-          : `${source.title}. ${source.snippet || ''}`;
-      }
-    });
-    console.log(`[MB Step 7.3] Wave 1 completed in ${Date.now() - wave1Start}ms`);
+    firecrawlTimeSpentMs += Date.now() - batchStartTime;
+    console.log(`[MB Step 7] Batch ${Math.floor(i / FIRECRAWL_BATCH_SIZE) + 1} processed. Total Firecrawl time: ${firecrawlTimeSpentMs}ms`);
   }
-  
-  // Wave 2: High priority (awards, recognitions) - higher concurrency
-  if (high.length > 0) {
-    console.log(`[MB Step 7.4] Wave 2: Scraping ${Math.min(20, high.length)} high priority sources...`);
-    const wave2Start = Date.now();
-    const highPromises = high.slice(0, 20).map(({ source, priority }) =>
-      smartFirecrawl(priority, 'High wave')
-        .then(content => ({ source, content }))
-    );
-    
-    const highResults = await Promise.all(highPromises);
-    highResults.forEach(({ source, content }) => {
-      const idx = sourcesToProcessForLLM.indexOf(source);
-      if (idx !== -1) {
-        extractedTextsForLLM[idx] = content 
-          ? content.slice(0, 3500)
-          : `${source.title}. ${source.snippet || ''}`;
-      }
-    });
-    console.log(`[MB Step 7.4] Wave 2 completed in ${Date.now() - wave2Start}ms`);
-  }
-  
-  // Wave 3: Medium priority - only if we need more content
-  const hasEnoughContent = extractedTextsForLLM.filter(text => text && text.length > 100).length >= 10;
-  if (!hasEnoughContent && medium.length > 0) {
-    console.log(`[MB Step 7.5] Wave 3: Scraping ${Math.min(10, medium.length)} medium priority sources...`);
-    const wave3Start = Date.now();
-    const mediumPromises = medium.slice(0, 10).map(({ source, priority }) =>
-      smartFirecrawl(priority, 'Medium wave')
-        .then(content => ({ source, content }))
-    );
-    
-    const mediumResults = await Promise.all(mediumPromises);
-    mediumResults.forEach(({ source, content }) => {
-      const idx = sourcesToProcessForLLM.indexOf(source);
-      if (idx !== -1) {
-        extractedTextsForLLM[idx] = content 
-          ? content.slice(0, 3500)
-          : `${source.title}. ${source.snippet || ''}`;
-      }
-    });
-    console.log(`[MB Step 7.5] Wave 3 completed in ${Date.now() - wave3Start}ms`);
-  }
-  
-  // Fill in any remaining empty slots with snippet text
-  sourcesToProcessForLLM.forEach((source, idx) => {
-    if (!extractedTextsForLLM[idx]) {
-      extractedTextsForLLM[idx] = source.link === linkedInProfileResult?.link 
-        ? `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`
-        : `${source.title}. ${source.snippet || ''}`;
-    }
-  });
-  
-  const totalScrapingTime = Date.now() - scrapingStartTime;
-  console.log(`[MB Step 7] Intelligent scraping completed in ${totalScrapingTime}ms. Sources with full content: ${extractedTextsForLLM.filter(t => t.length > 500).length}/${sourcesToProcessForLLM.length}`);
+  console.log(`[MB Step 7] Firecrawl processing finished. Global attempts: ${firecrawlGlobalAttempts}, Successes: ${firecrawlGlobalSuccesses}`);
 
   const llmSourceBlock = sourcesToProcessForLLM
     .map((source, index) => `SOURCE_${index + 1} URL: ${source.link}\nCONTENT:\n${extractedTextsForLLM[index] || "No content extracted or snippet used."}`)
