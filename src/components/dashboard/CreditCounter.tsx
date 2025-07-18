@@ -84,9 +84,6 @@ export function CreditCounter() {
     return null;
   }
 
-  const originalLimit = credits.subscriptionCredits > 5 ? 50 : 5; // Determine if starter or free
-  const subscriptionUsed = originalLimit - credits.subscriptionCredits;
-
   const totalAvailable = credits.subscriptionCredits + credits.addonCredits;
 
   return (
