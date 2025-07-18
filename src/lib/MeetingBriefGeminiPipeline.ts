@@ -36,9 +36,6 @@ const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
 const MAX_SOURCES_TO_LLM = 25;
-const FIRECRAWL_BATCH_SIZE = 25; // Increased from 10 for speed
-const FIRECRAWL_GLOBAL_BUDGET_MS = 25_000; // Reduced from 35s to force faster execution
-const MAX_CONCURRENT_FIRECRAWL = 30; // Maximum concurrent Firecrawl calls
 
 // Credit-aware LinkedIn resolution URLs
 
@@ -489,8 +486,7 @@ function determineScrapePriority(
 
 // Enhanced Firecrawl with smart retries
 async function smartFirecrawl(
-  priority: ScrapePriority,
-  attemptInfo: string
+  priority: ScrapePriority
 ): Promise<string | null> {
   let lastError: Error | null = null;
   
@@ -531,86 +527,6 @@ async function smartFirecrawl(
   return null;
 }
 
-/* ── Firecrawl with Logging and Retry ───────────────────────────────────── */
-let firecrawlGlobalAttempts = 0;
-let firecrawlGlobalSuccesses = 0;
-
-const firecrawlWithLogging = async (url: string, attemptInfoForLogs: string): Promise<string | null> => {
-  firecrawlGlobalAttempts++;
-  
-  // Detect if this might contain award/publication content
-  const awardKeywords = ['award', 'recognition', 'winner', 'recipient', 'achievement', 'honor', 'fellowship', 'grant', 'publication', 'research', 'paper', 'study', 'forbes', 'keynote', 'speaker', 'conference', 'patent'];
-  const urlLower = url.toLowerCase();
-  const isLikelyAwardContent = awardKeywords.some(keyword => urlLower.includes(keyword));
-  
-  // Skip PDFs - use shorter timeout unless it's award content
-  const isPdf = url.includes('.pdf');
-  
-  const tryScrapeOnce = async (timeoutMs: number): Promise<string | null> => {
-    try {
-      console.log(`[Firecrawl Attempt] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms${isLikelyAwardContent ? ' (Award content detected)' : ''}`);
-      const response = await Promise.race([
-        postJSON<FirecrawlScrapeV1Result>(
-          FIRECRAWL_API_URL, { url }, { Authorization: `Bearer ${FIRECRAWL_KEY!}` }
-        ),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
-        ),
-      ]);
-
-      if (response && response.success && response.data?.article && typeof response.data.article.text_content === 'string') {
-        console.log(`[Firecrawl Success] ${attemptInfoForLogs} - URL: ${url}. Got article.text_content (length: ${response.data.article.text_content.length})`);
-        firecrawlGlobalSuccesses++;
-        return response.data.article.text_content;
-      } else if (response && response.success && response.data) {
-         const fallbackText = response.data.text_content || response.data.markdown;
-         if (fallbackText && typeof fallbackText === 'string') {
-            console.log(`[Firecrawl PartialSuccess] ${attemptInfoForLogs} - URL: ${url}. No article.text_content, but found other text (length: ${fallbackText.length}).`);
-            firecrawlGlobalSuccesses++;
-            return fallbackText;
-         }
-        console.warn(`[Firecrawl NoContent] ${attemptInfoForLogs} - URL: ${url}. Response success=true but no usable text_content/markdown. Full Response: ${JSON.stringify(response).slice(0,300)}...`);
-        return null;
-      } else if (response && !response.success) {
-        console.error(`[Firecrawl API Error] ${attemptInfoForLogs} - URL: ${url}. Error: ${response.error || 'Unknown Firecrawl error'}. Status: ${response.status || 'N/A'}`);
-        return null;
-      } else {
-        console.warn(`[Firecrawl OddResponse] ${attemptInfoForLogs} - URL: ${url}. Unexpected response structure: ${JSON.stringify(response).slice(0,300)}...`);
-        return null;
-      }
-    } catch (error: unknown) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      console.error(`[Firecrawl Exception] ${attemptInfoForLogs} - URL: ${url}, Timeout: ${timeoutMs}ms. Error: ${err.message}`, err.stack ? `\nStack: ${err.stack.slice(0,300)}` : '');
-      return null;
-    }
-  };
-
-  // First attempt - longer timeout for award content, reasonable timeout for PDFs
-  const firstTimeout = isLikelyAwardContent ? 15000 : (isPdf ? 10000 : 7000);
-  let content = await tryScrapeOnce(firstTimeout);
-  
-  // Retry with even longer timeout for award content, or standard retry for others including PDFs
-  if (content === null && !isPdf) {
-    const retryTimeout = isLikelyAwardContent ? 30000 : 15000;
-    console.warn(`[Firecrawl Retry] First attempt failed for ${url} (${attemptInfoForLogs}). Retrying with ${retryTimeout}ms timeout.`);
-    content = await tryScrapeOnce(retryTimeout);
-    if (content === null) {
-      if (isLikelyAwardContent) {
-        console.error(`[Firecrawl FailedAwardContent] Award/publication content failed both attempts: ${url} (${attemptInfoForLogs}). Will rely on snippet.`);
-      } else {
-        console.error(`[Firecrawl FailedAllAttempts] URL: ${url} (${attemptInfoForLogs}).`);
-      }
-    }
-  } else if (content === null && isPdf) {
-    // Give PDFs one retry since they might contain valuable research/publications
-    console.warn(`[Firecrawl Retry] PDF failed first attempt: ${url} (${attemptInfoForLogs}). Retrying once.`);
-    content = await tryScrapeOnce(15000);
-    if (content === null) {
-      console.warn(`[Firecrawl FailedPDF] PDF failed both attempts: ${url} (${attemptInfoForLogs}). Will rely on snippet.`);
-    }
-  }
-  return content;
-};
 
 /* ── HTML Rendering Helpers ─────────────────────────────────────────────── */
 const renderParagraphsWithCitations = (rows: BriefRow[], citations: Citation[]): string =>
@@ -686,11 +602,8 @@ ${linkedInSection}
 
 /* ── MAIN FUNCTION ──────────────────────────────────────────────────────── */
 export async function buildMeetingBriefGemini(name: string, org: string): Promise<MeetingBriefPayload> {
-  firecrawlGlobalAttempts = 0;
-
   /* Track whether Harvest threw a quota/auth error */
   let harvestErrored = false;
-  firecrawlGlobalSuccesses = 0;
   
   // Initialize counters
   let serperCallsMade = 0;
@@ -833,8 +746,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       serperSearchesMade: serperCallsMade,
       // Harvest credits
       harvestCreditsUsed: 0,
-      firecrawlAttempts: firecrawlGlobalAttempts,
-      firecrawlSuccesses: firecrawlGlobalSuccesses,
+      firecrawlAttempts: 0,
+      firecrawlSuccesses: 0,
       finalSourcesConsidered: [],
       possibleSocialLinks: [],
     };
@@ -899,7 +812,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   console.log(`[MB Step 4] Parallel Serper queries completed in ${Date.now() - serperStartTime}ms`);
   
   // Separate job change results (declare at function scope for later use)
-  let jobChangeResults = serperResponses
+  const jobChangeResults = serperResponses
     .find(r => r.label === 'job_changes')?.results || [];
     
   const mainResults = serperResponses
@@ -1158,8 +1071,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       tokensUsed: 0,
       serperSearchesMade: serperCallsMade,
       harvestCreditsUsed: 0,
-      firecrawlAttempts: firecrawlGlobalAttempts, 
-      firecrawlSuccesses: firecrawlGlobalSuccesses,
+      firecrawlAttempts: 0, 
+      firecrawlSuccesses: 0,
       finalSourcesConsidered: [],
       possibleSocialLinks: [],
     };
@@ -1252,14 +1165,13 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
   const critical = toScrape.filter(s => s.priority.priority === 'critical');
   const high = toScrape.filter(s => s.priority.priority === 'high');
   const medium = toScrape.filter(s => s.priority.priority === 'medium');
-  const low = toScrape.filter(s => s.priority.priority === 'low');
   
   // Wave 1: Critical content (job changes, major announcements)
   if (critical.length > 0) {
     console.log(`[MB Step 7.3] Wave 1: Scraping ${critical.length} critical priority sources...`);
     const wave1Start = Date.now();
     const criticalPromises = critical.map(({ source, priority }) => 
-      smartFirecrawl(priority, 'Critical wave')
+      smartFirecrawl(priority)
         .then(content => ({ source, content }))
     );
     
@@ -1280,7 +1192,7 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
     console.log(`[MB Step 7.4] Wave 2: Scraping ${Math.min(20, high.length)} high priority sources...`);
     const wave2Start = Date.now();
     const highPromises = high.slice(0, 20).map(({ source, priority }) =>
-      smartFirecrawl(priority, 'High wave')
+      smartFirecrawl(priority)
         .then(content => ({ source, content }))
     );
     
@@ -1302,7 +1214,7 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
     console.log(`[MB Step 7.5] Wave 3: Scraping ${Math.min(10, medium.length)} medium priority sources...`);
     const wave3Start = Date.now();
     const mediumPromises = medium.slice(0, 10).map(({ source, priority }) =>
-      smartFirecrawl(priority, 'Medium wave')
+      smartFirecrawl(priority)
         .then(content => ({ source, content }))
     );
     
@@ -1466,7 +1378,7 @@ ${llmSourceBlock}
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
   const wallTimeSeconds = (Date.now() - startTime) / 1000;
 
-  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. HarvestErrored=${harvestErrored}. Firecrawl attempts: ${firecrawlGlobalAttempts}, successes: ${firecrawlGlobalSuccesses}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
+  console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. HarvestErrored=${harvestErrored}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
 
   // Refined jobHistoryTimeline default fallback
   if (jobHistoryTimeline.length === 0) {
@@ -1494,8 +1406,8 @@ ${llmSourceBlock}
     serperSearchesMade: serperCallsMade, 
     // Harvest credits
     harvestCreditsUsed: 0,
-    firecrawlAttempts: firecrawlGlobalAttempts, 
-    firecrawlSuccesses: firecrawlGlobalSuccesses,
+    firecrawlAttempts: 0, 
+    firecrawlSuccesses: 0,
     finalSourcesConsidered: sourcesToProcessForLLM.map((s, idx) => ({
       url: s.link, title: s.title,
       processed_snippet: (extractedTextsForLLM[idx] || "Snippet/Error").slice(0, 300) + ((extractedTextsForLLM[idx]?.length || 0) > 300 ? "..." : ""),
