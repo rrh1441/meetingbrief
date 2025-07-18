@@ -87,25 +87,22 @@ export function CreditCounter() {
   const originalLimit = credits.subscriptionCredits > 5 ? 50 : 5; // Determine if starter or free
   const subscriptionUsed = originalLimit - credits.subscriptionCredits;
 
+  const totalAvailable = credits.subscriptionCredits + credits.addonCredits;
+
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full max-w-lg mx-auto">
       <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">
-              You&apos;ve used {subscriptionUsed} of {originalLimit} monthly briefs
+            <p className="text-base font-medium text-gray-900">
+              You have {totalAvailable} Briefs Available
             </p>
-            {credits.addonCredits > 0 && (
-              <p className="text-sm text-gray-600">
-                Plus {credits.addonCredits} add-on credits available
-              </p>
-            )}
           </div>
           <button
             onClick={handleGetMoreBriefs}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap"
           >
-            Get More Briefs
+            Get More
           </button>
         </div>
       </div>
