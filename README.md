@@ -1,11 +1,11 @@
 # MeetingBrief LinkedIn Extension
 
-Chrome extension that automatically extracts LinkedIn profile data and creates AI-powered meeting briefs using the MeetingBrief platform.
+Chrome extension that automatically extracts LinkedIn profile data and creates AI-powered MeetingBriefs using the MeetingBrief platform.
 
 ## Features
 
 - 🔍 **Automatic Profile Extraction**: Extracts profile data from LinkedIn pages using multiple methods (JSON-LD, DOM parsing)
-- 🤖 **AI Brief Generation**: Creates meeting briefs using MeetingBrief's AI backend
+- 🤖 **AI Brief Generation**: Creates MeetingBriefs using MeetingBrief's AI backend
 - 🔐 **Google OAuth Integration**: Secure authentication via Google using Better Auth
 - 📊 **Usage Tracking**: Monitors brief creation limits and subscription status
 - 🚀 **Proxycurl Fallback**: Uses Proxycurl API when LinkedIn extraction fails
@@ -163,7 +163,7 @@ Test fixtures include sample LinkedIn profile HTML files to test extraction logi
 1. **Install & Authenticate**: Install extension and sign in with Google
 2. **Navigate to LinkedIn**: Go to any LinkedIn profile page (linkedin.com/in/*)
 3. **Extract Profile**: Extension automatically extracts profile data
-4. **Create Brief**: Click extension icon or floating button to create meeting brief
+4. **Create Brief**: Click extension icon or floating button to create MeetingBrief
 5. **View Results**: Brief opens in new tab, linked to your MeetingBrief dashboard
 
 ## API Integration

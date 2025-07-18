@@ -49,7 +49,7 @@ const supabase: SupabaseClient | null = (supabaseUrl && supabaseAnon)
 /* -------------------------------------------------------------------------- */
 const sampleBriefHtmlContent = `
 <div>
-  <h2><strong>Meeting Brief: Jensen Huang – NVIDIA</strong></h2>
+  <h2><strong>MeetingBrief: Jensen Huang – NVIDIA</strong></h2>
   <br>
   <h3><strong>Executive Summary</strong></h3>
   <p>Jensen Huang is the co-founder, president, and CEO of NVIDIA, leading the company since 1993. <sup><a href="https://nvidianews.nvidia.com/bios/jensen-huang" target="_blank" rel="noopener noreferrer" title="NVIDIA Official Bio" style="color: #0066cc; text-decoration: none;">1</a></sup> Under his leadership, NVIDIA pioneered the GPU, transforming gaming, AI, and accelerated computing industries. <sup><a href="https://blogs.nvidia.com/blog/nvidia-dennys-trillion/" target="_blank" rel="noopener noreferrer" title="From Denny's to Trillion" style="color: #0066cc; text-decoration: none;">2</a></sup> He is recognized as one of TIME's 100 most influential people and has received numerous prestigious awards including the IEEE Founder's Medal. <sup><a href="https://www.carnegie.org/awards/honoree/jensen-huang/" target="_blank" rel="noopener noreferrer" title="Carnegie Corporation Award" style="color: #0066cc; text-decoration: none;">3</a></sup></p>

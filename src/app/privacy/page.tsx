@@ -30,14 +30,14 @@ export default function PrivacyPolicy() {
               <li>Meeting topics</li>
               <li>Email addresses</li>
             </ul>
-            <p className="mt-2">This data is used solely to generate meeting briefs and improve the service.</p>
+            <p className="mt-2">This data is used solely to generate MeetingBriefs and improve the service.</p>
           </div>
 
           <div>
             <h2 className="text-xl font-semibold mt-8 mb-4">2. Data Usage</h2>
             <p>We do not sell or share your personal data with third parties for marketing purposes. Your data is used to:</p>
             <ul className="list-disc ml-6 mt-2 space-y-1">
-              <li>Generate meeting briefs</li>
+              <li>Generate MeetingBriefs</li>
               <li>Operate and improve MeetingBrief</li>
               <li>Support your user experience</li>
             </ul>

@@ -382,7 +382,7 @@ ${renderJobHistoryList(education)}`
   
   return `
 <div>
-  <h2><strong>Meeting Brief: ${targetName} – ${targetOrg}</strong></h2>
+  <h2><strong>MeetingBrief: ${targetName} – ${targetOrg}</strong></h2>
 ${sectionSpacer}<h3><strong>Executive Summary</strong></h3>
 ${renderParagraphsWithCitations(llmJsonBrief.executive || [], citationsList)}
 ${sectionSpacer}<h3><strong>Job History</strong></h3>
@@ -879,7 +879,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     .map((source, index) => `SOURCE_${index + 1} URL: ${source.link}\nCONTENT:\n${extractedTextsForLLM[index] || "No content extracted or snippet used."}`)
     .join("\n\n---\n\n");
   const llmJsonTemplate = JSON.stringify({ executive: [{text:"",source:1}], highlights: [{text:"",source:1}], funFacts: [{text:"",source:1}], researchNotes: [{text:"",source:1}] }, null, 2);
-  const systemPromptForLLM = `You are an AI assistant creating a concise meeting brief about a person for a professional meeting.
+  const systemPromptForLLM = `You are an AI assistant creating a concise MeetingBrief about a person for a professional meeting.
 The user will provide context about the person, their current organization, their job history from LinkedIn, and a list of numbered sources with URLs and extracted content.
 Your task is to populate a JSON object strictly adhering to the TEMPLATE provided.
 - Each item in the arrays ("executive", "highlights", "funFacts", "researchNotes") must be an object with "text" (a string) and "source" (the 1-based number of the source it came from, accurately referencing the provided SOURCES_FOR_ANALYSIS).

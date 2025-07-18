@@ -19,19 +19,19 @@ interface Subscription {
 
 const PLAN_FEATURES = {
   free: [
-    "5 meeting briefs per month",
+    "5 MeetingBriefs per month",
     "Basic research and insights",
     "Standard support"
   ],
   starter: [
-    "50 meeting briefs per month",
+    "50 MeetingBriefs per month",
     "Advanced research and insights",
     "Priority support",
     "LinkedIn Chrome Extension (Coming Soon)",
     "Calendar Integration (Coming Soon)"
   ],
   scale: [
-    "50 meeting briefs per month", // Migrated to starter equivalent
+    "50 MeetingBriefs per month", // Migrated to starter equivalent
     "Advanced research and insights",
     "Priority support",
     "LinkedIn Chrome Extension (Coming Soon)",
