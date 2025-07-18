@@ -198,6 +198,10 @@ export const auth = betterAuth({
                 tax_id_collection: {
                   enabled: true
                 },
+                customer_update: {
+                  name: 'auto',
+                  address: 'auto'
+                },
                 custom_text: {
                   submit: {
                     message: "We'll start your subscription right away"

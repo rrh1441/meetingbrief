@@ -72,6 +72,10 @@ export async function POST(request: NextRequest) {
       tax_id_collection: {
         enabled: true,
       },
+      customer_update: {
+        name: 'auto', // Allow Stripe to automatically update the customer's name
+        address: 'auto', // Also allow address updates
+      },
       metadata: {
         userId: session.user.id,
         type: 'credits_addon',

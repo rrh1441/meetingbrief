@@ -284,12 +284,14 @@ Return JSON:
   "newCompany": "company name or null",
   "newRole": "role title or null", 
   "announcement": "brief summary of the change",
-  "date": "when this happened or null",
+  "date": "when this happened or null - be very careful to extract the ACTUAL job change date, not promotion dates or article publication dates",
   "source": "most authoritative source URL"
 }
 
 Only mark detected=true if there's clear evidence of a job change AWAY from ${currentOrg}.
-Internal promotions at ${currentOrg} should return detected=false.`;
+Internal promotions at ${currentOrg} should return detected=false.
+
+IMPORTANT: For the date field, look for phrases like "joins", "joined", "appointed", "moves to", "has moved" and extract the date associated with THAT action, not other dates mentioned in the context.`;
 
   const userPrompt = `Analyze these search results for job changes:
 
@@ -354,6 +356,8 @@ Mark canSkipScrape=true when the snippet contains:
 - Full quotes from the person
 - Key appointment information with title and date
 - Specific achievements with context
+
+IMPORTANT: When extracting facts, be very careful about dates. If a snippet mentions multiple dates (e.g., "promoted in 2023" and "joins new company"), make sure to associate the correct date with the correct event.
 
 Focus on ${targetName} at ${targetOrg} and their professional achievements.`;
 
@@ -839,9 +843,10 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     if (jobHistoryTimeline.length === 0) {
       jobHistoryTimeline = [];
     }
-    jobHistoryTimeline.unshift(
-      `⚠️ RECENT JOB CHANGE: ${jobChangeInfo.announcement || `${name} has moved from ${org} to ${jobChangeInfo.newCompany}`}`
-    );
+    const jobChangeNote = jobChangeInfo.date 
+      ? `⚠️ RECENT JOB CHANGE: ${jobChangeInfo.announcement || `${name} has moved from ${org} to ${jobChangeInfo.newCompany}`} (${jobChangeInfo.date})`
+      : `⚠️ RECENT JOB CHANGE: ${jobChangeInfo.announcement || `${name} has moved from ${org} to ${jobChangeInfo.newCompany}`}`;
+    jobHistoryTimeline.unshift(jobChangeNote);
   }
 
   // ── STEP 5: Prior-Company Searches (when hasResumeData is true) ──────────
