@@ -1223,6 +1223,7 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
   const critical = toScrape.filter(s => s.priority.priority === 'critical');
   const high = toScrape.filter(s => s.priority.priority === 'high');
   const medium = toScrape.filter(s => s.priority.priority === 'medium');
+  const low = toScrape.filter(s => s.priority.priority === 'low');
   
   // Wave 1: Critical content (job changes, major announcements)
   if (critical.length > 0) {

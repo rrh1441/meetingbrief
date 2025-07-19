@@ -96,7 +96,7 @@ Experience includes performance analysis for the Special Inspector General for A
 Participated as a speaker on executive risk mitigation and threat actor mindset at Flashpoint webinars. 2
 
 Detailed Research Notes
-Ryan Heger has been involved in roles spanning sales leadership strategic advising and government advisory capacities. 1
+Ryan Heger has been involved in roles spanning 7sales leadership strategic advising and government advisory capacities. 1
 He has a background in international relations which supports his advisory roles in security and intelligence contexts. 1
 Flashpoint focuses on threat intelligence and executive risk mitigation aligning with Heger's expertise. 2
 His LinkedIn profile confirms his current and past roles but provides limited personal or extracurricular information. 1
