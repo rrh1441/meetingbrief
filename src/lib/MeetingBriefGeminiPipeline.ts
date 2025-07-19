@@ -197,6 +197,17 @@ export interface MeetingBriefPayload {
   firecrawlAttempts: number; firecrawlSuccesses: number;
   finalSourcesConsidered: { url: string; title: string; processed_snippet: string }[];
   possibleSocialLinks: string[];
+  // Timing data
+  timings?: {
+    total: number;
+    harvest: number;
+    serper: number;
+    jobChangeDetection: number;
+    snippetAnalysis: number;
+    firecrawl: number;
+    llmGeneration: number;
+    breakdown: string;
+  };
 }
 
 /* ── HELPERS ────────────────────────────────────────────────────────────── */
@@ -613,6 +624,14 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   let serperCallsMade = 0;
 
   const startTime = Date.now();
+  const timings = {
+    harvest: 0,
+    serper: 0,
+    jobChangeDetection: 0,
+    snippetAnalysis: 0,
+    firecrawl: 0,
+    llmGeneration: 0,
+  };
   let collectedSerpResults: SerpResult[] = [];
   let linkedInProfileResult: SerpResult | null = null;
   let jobHistoryTimeline: string[] = [];
@@ -625,7 +644,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   /* ─────────────  H A R V E S T   P I P E L I N E  ───────────── */
   if (canUseHarvest) {
     try {
+      const harvestStart = Date.now();
       const harvestResult = await llmEnhancedHarvestPipeline(name, org);
+      timings.harvest = Date.now() - harvestStart;
       
       if (harvestResult.success) {
         harvestProfileData = harvestResult.profile.element || null;
@@ -754,6 +775,16 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       firecrawlSuccesses: 0,
       finalSourcesConsidered: [],
       possibleSocialLinks: [],
+      timings: {
+        total: Date.now() - startTime,
+        harvest: timings.harvest,
+        serper: timings.serper,
+        jobChangeDetection: timings.jobChangeDetection,
+        snippetAnalysis: 0,
+        firecrawl: 0,
+        llmGeneration: 0,
+        breakdown: `Early return - Total: ${Date.now() - startTime}ms`
+      }
     };
   }
   // ------------------------------------------------------------------------
@@ -813,7 +844,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const serperResponses = await Promise.all(allSerperPromises);
   serperCallsMade += enhancedInitialQueries.length;
   
-  console.log(`[MB Step 4] Parallel Serper queries completed in ${Date.now() - serperStartTime}ms`);
+  const serperTime = Date.now() - serperStartTime;
+  timings.serper += serperTime;
+  console.log(`[MB Step 4] Parallel Serper queries completed in ${serperTime}ms`);
   
   // Separate job change results (declare at function scope for later use)
   const jobChangeResults = serperResponses
@@ -828,12 +861,14 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   
   // Check for job changes using AI
   const openAiClient = getOpenAIClient();
+  const jobChangeStart = Date.now();
   const jobChangeInfo = await detectJobChange(
     [...mainResults, ...jobChangeResults],
     name,
     org,
     openAiClient
   );
+  timings.jobChangeDetection = Date.now() - jobChangeStart;
   
   if (jobChangeInfo.detected) {
     console.log(`[MB Alert] Job change detected for ${name}!`);
@@ -930,7 +965,9 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const priorCompanyResponses = await Promise.all(priorCompanyPromises);
     serperCallsMade += priorCompanyQueries.length;
     
-    console.log(`[MB Step 5] Prior company queries completed in ${Date.now() - priorCompanyStartTime}ms`);
+    const priorTime = Date.now() - priorCompanyStartTime;
+    timings.serper += priorTime;
+    console.log(`[MB Step 5] Prior company queries completed in ${priorTime}ms`);
     
     // Process results
     priorCompanyResponses.forEach(({ results, institution, queryType }) => {
@@ -1080,6 +1117,16 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
       firecrawlSuccesses: 0,
       finalSourcesConsidered: [],
       possibleSocialLinks: [],
+      timings: {
+        total: Date.now() - startTime,
+        harvest: timings.harvest,
+        serper: timings.serper,
+        jobChangeDetection: timings.jobChangeDetection,
+        snippetAnalysis: 0,
+        firecrawl: 0,
+        llmGeneration: 0,
+        breakdown: `Early return - Total: ${Date.now() - startTime}ms`
+      }
     };
   }
 
@@ -1123,7 +1170,8 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     org,
     openAiClient
   );
-  console.log(`[MB Step 7.1] Snippet analysis completed in ${Date.now() - snippetAnalysisStart}ms`);
+  timings.snippetAnalysis = Date.now() - snippetAnalysisStart;
+  console.log(`[MB Step 7.1] Snippet analysis completed in ${timings.snippetAnalysis}ms`);
   
   // Step 2: Categorize sources based on analysis and priorities
   const sourcesWithPriorities = sourcesToProcessForLLM.map(source => {
@@ -1245,7 +1293,8 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
   });
   
   const totalScrapingTime = Date.now() - scrapingStartTime;
-  console.log(`[MB Step 7] Intelligent scraping completed in ${totalScrapingTime}ms. Sources with full content: ${extractedTextsForLLM.filter(t => t.length > 500).length}/${sourcesToProcessForLLM.length}`);
+  timings.firecrawl = totalScrapingTime - timings.snippetAnalysis; // Subtract snippet analysis time
+  console.log(`[MB Step 7] Intelligent scraping completed in ${totalScrapingTime}ms (Snippet analysis: ${timings.snippetAnalysis}ms, Firecrawl: ${timings.firecrawl}ms). Sources with full content: ${extractedTextsForLLM.filter(t => t.length > 500).length}/${sourcesToProcessForLLM.length}`);
 
   const llmSourceBlock = sourcesToProcessForLLM
     .map((source, index) => `SOURCE_${index + 1} URL: ${source.link}\nCONTENT:\n${extractedTextsForLLM[index] || "No content extracted or snippet used."}`)
@@ -1292,10 +1341,12 @@ ${llmSourceBlock}
   if (OPENAI_API_KEY) {
     try {
       const ai = getOpenAIClient();
+      const llmStart = Date.now();
       const llmResponse = await ai.chat.completions.create({
         model: MODEL_ID, temperature: 0.0, response_format: { type: "json_object" },
         messages: [{ role: "system", content: systemPromptForLLM }, { role: "user", content: userPromptForLLM }],
       });
+      timings.llmGeneration = Date.now() - llmStart;
       llmOutputTokens = llmResponse.usage?.completion_tokens ?? 0;
       const content = llmResponse.choices[0].message.content;
       if (content) {
@@ -1381,9 +1432,14 @@ ${llmSourceBlock}
   const htmlBriefOutput = renderFullHtmlBrief(name, org, llmJsonBrief, finalCitations, jobHistoryTimeline, educationTimeline, linkedInProfileResult?.link);
   const totalInputTokensForLLM = estimateTokens(systemPromptForLLM + userPromptForLLM);
   const totalTokensUsed = totalInputTokensForLLM + llmOutputTokens;
-  const wallTimeSeconds = (Date.now() - startTime) / 1000;
+  const totalTime = Date.now() - startTime;
+  const wallTimeSeconds = totalTime / 1000;
 
+  // Create timing breakdown
+  const timingBreakdown = `Total: ${totalTime}ms | Harvest: ${timings.harvest}ms | Serper: ${timings.serper}ms | Job Change: ${timings.jobChangeDetection}ms | Snippet Analysis: ${timings.snippetAnalysis}ms | Firecrawl: ${timings.firecrawl}ms | LLM: ${timings.llmGeneration}ms`;
+  
   console.log(`[MB Finished] Processed for "${name}". Total tokens: ${totalTokensUsed}. Serper: ${serperCallsMade}. HarvestErrored=${harvestErrored}. Wall time: ${wallTimeSeconds.toFixed(1)}s`);
+  console.log(`[MB Timing] ${timingBreakdown}`);
 
   // Refined jobHistoryTimeline default fallback
   if (jobHistoryTimeline.length === 0) {
@@ -1418,6 +1474,16 @@ ${llmSourceBlock}
       processed_snippet: (extractedTextsForLLM[idx] || "Snippet/Error").slice(0, 300) + ((extractedTextsForLLM[idx]?.length || 0) > 300 ? "..." : ""),
     })),
     possibleSocialLinks,
+    timings: {
+      total: totalTime,
+      harvest: timings.harvest,
+      serper: timings.serper,
+      jobChangeDetection: timings.jobChangeDetection,
+      snippetAnalysis: timings.snippetAnalysis,
+      firecrawl: timings.firecrawl,
+      llmGeneration: timings.llmGeneration,
+      breakdown: timingBreakdown
+    }
   };
 }
 

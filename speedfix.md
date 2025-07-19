@@ -36,8 +36,15 @@ Reduce scan time from 60s to 30s while maintaining quality and catching job chan
 ### Phase 5: Integration & Testing
 - [x] Update main pipeline to use new functions
 - [x] Add comprehensive logging for performance monitoring
+- [x] Add timing instrumentation to track actual performance
 - [ ] Test with various name/company combinations
 - [ ] Verify job change detection works correctly
+
+### Phase 6: Performance Measurement ✅
+- [x] Add timing tracking for each major step
+- [x] Include timing data in API response payload
+- [x] Log timing breakdown to console
+- [x] Ensure early returns also include timing data
 
 ## Performance Targets
 - Current: ~60 seconds
@@ -108,3 +115,39 @@ const enhancedInitialQueries = [
 - Reduces unnecessary Firecrawl calls by 40-50%
 - Critical content gets priority with longer timeouts
 - Graceful degradation when scraping fails
+
+## Timing Instrumentation Implementation
+
+The pipeline now includes comprehensive timing data in the response payload:
+
+```typescript
+timings: {
+  total: number,          // Total pipeline execution time
+  harvest: number,        // LinkedIn resolution time
+  serper: number,         // All Serper API calls  
+  jobChangeDetection: number,  // AI job change analysis
+  snippetAnalysis: number,     // AI snippet analysis
+  firecrawl: number,           // All Firecrawl operations
+  llmGeneration: number,       // Final LLM brief generation
+  breakdown: string            // Human-readable summary
+}
+```
+
+### How to Use Timing Data
+
+1. **Monitor in console logs**: Look for `[MB Timing]` messages showing the breakdown
+2. **Access in API response**: The `timings` object is included in the MeetingBriefPayload
+3. **Identify bottlenecks**: Compare actual times to expected:
+   - Harvest: Should be <2s
+   - Serper: Should be <1s (parallel)
+   - Job Change Detection: Should be <1s
+   - Snippet Analysis: Should be <2s
+   - Firecrawl: Should be <20s (target)
+   - LLM Generation: Should be <3s
+
+### Next Steps for Performance Analysis
+
+1. Run multiple test searches and collect timing data
+2. Create a simple dashboard or log analyzer to visualize bottlenecks
+3. Focus optimization efforts on the slowest components
+4. Consider caching strategies for frequently searched individuals

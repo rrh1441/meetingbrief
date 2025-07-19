@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "db:push": "npx better-auth db push",
-    "db:migrate": "npx better-auth db migrate"
+    "db:migrate": "npx better-auth db migrate",
+    "analyze-performance": "tsx scripts/analyze-performance.ts"
   },
   "dependencies": {
     "@better-auth/stripe": "^1.2.8",
