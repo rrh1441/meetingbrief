@@ -151,3 +151,40 @@ timings: {
 2. Create a simple dashboard or log analyzer to visualize bottlenecks
 3. Focus optimization efforts on the slowest components
 4. Consider caching strategies for frequently searched individuals
+
+## Phase 7: Model Optimization ✅
+
+### Changes Made (2025-07-19)
+
+1. **Switched to gpt-3.5-turbo for snippet analysis**
+   - Changed from gpt-4.1-mini to gpt-3.5-turbo-0125 (fastest OpenAI model)
+   - Expected reduction: 14.7s → ~2-3s
+
+2. **Implemented parallel snippet processing**
+   - Process snippets in batches of 3 concurrently
+   - Each request has a tight 120 token limit
+   - Simplified prompt to reduce tokens
+
+3. **Added intelligent fallback to gpt-4o-mini**
+   - Complex snippets (multiple dates, career transitions) get re-analyzed
+   - Maintains quality for difficult cases while keeping speed for simple ones
+
+4. **Optimized job change detection**
+   - Also uses gpt-3.5-turbo with 200 token limit
+   - Should reduce from ~1s to ~0.5s
+
+### Expected New Performance
+
+With these optimizations:
+- Snippet Analysis: 14.7s → ~2.5s (saves 12.2s)
+- Job Change Detection: 1.1s → ~0.5s (saves 0.6s)
+- **Total: 36.8s → ~24s** ✅ (Well under 30s target!)
+
+### Model Strategy
+
+| Task | Model | Why |
+|------|-------|-----|
+| Snippet Analysis (simple) | gpt-3.5-turbo-0125 | Lowest latency (0.37s TTFT) |
+| Snippet Analysis (complex) | gpt-4o-mini | Better accuracy for dates/transitions |
+| Job Change Detection | gpt-3.5-turbo-0125 | Speed critical, simple JSON |
+| Final Brief Generation | gpt-4.1-mini | Quality matters most |

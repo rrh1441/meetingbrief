@@ -32,6 +32,8 @@ if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY) {
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
 const MODEL_ID = "gpt-4.1-mini-2025-04-14";
+const FAST_MODEL_ID = "gpt-3.5-turbo-0125"; // Fast model for snippet analysis
+const FALLBACK_MODEL_ID = "gpt-4o-mini"; // Fallback for complex snippets
 const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
@@ -314,8 +316,9 @@ URL: ${r.link}
 
   try {
     const response = await openAiClient.chat.completions.create({
-      model: MODEL_ID,
+      model: FAST_MODEL_ID, // Use fast model for job change detection too
       temperature: 0,
+      max_tokens: 200, // Limit output for speed
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -341,84 +344,86 @@ async function analyzeSnippetsWithAI(
   targetOrg: string,
   openAiClient: OpenAI
 ): Promise<Map<string, SpeedOptimizedAnalysis>> {
-  const systemPrompt = `You are an expert at analyzing search result snippets to determine if they contain valuable information about a person and whether the full article needs to be scraped.
+  // Simplified, focused system prompt for speed
+  const systemPrompt = `Triage search snippets for ${targetName} at ${targetOrg}. Return JSON only.
+Priority 9-10: Awards, major appointments, interviews with quotes, research/publications
+Priority 6-8: News mentions, conference speaking, professional updates  
+Priority 3-5: Basic directory listings, brief mentions
+Priority 1-2: Search results pages, old content (pre-2018), social media, paywalled
+Mark canSkipScrape=true when snippet has complete info (full quotes, specific achievements with dates).`;
 
-For each search result, analyze and return:
-{
-  "results": [
-    {
-      "url": "the URL",
-      "canSkipScrape": boolean,
-      "scrapePriority": 1-10,
-      "extractedFacts": ["extracted facts from snippet"],
-      "expectedValue": "high|medium|low"
-    }
-  ]
-}
+  // Function to analyze a single snippet
+  async function analyzeSingleSnippet(
+    source: SerpResult,
+    idx: number,
+    useModel: string = FAST_MODEL_ID
+  ): Promise<SpeedOptimizedAnalysis> {
+    const userPrompt = `URL: ${source.link}
+Title: ${source.title}
+Snippet: ${source.snippet || 'No snippet available'}
 
-Criteria:
-- scrapePriority 9-10: Awards, major appointments, interviews with quotes, research/publications
-- scrapePriority 6-8: News mentions, conference speaking, professional updates  
-- scrapePriority 3-5: Basic directory listings, brief mentions
-- scrapePriority 1-2: Search results pages, old content (pre-2018), social media posts, paywalled content
+Return: {"url":"${source.link}","canSkipScrape":bool,"scrapePriority":1-10,"extractedFacts":["facts"],"expectedValue":"high|medium|low"}`;
 
-Mark canSkipScrape=true when the snippet contains:
-- Complete award/recognition details
-- Full quotes from the person
-- Key appointment information with title and date
-- Specific achievements with context
+    try {
+      const response = await openAiClient.chat.completions.create({
+        model: useModel,
+        temperature: 0,
+        max_tokens: 120, // Tight limit for speed
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ]
+      });
 
-IMPORTANT: When extracting facts, be very careful about dates. If a snippet mentions multiple dates (e.g., "promoted in 2023" and "joins new company"), make sure to associate the correct date with the correct event.
-
-Focus on ${targetName} at ${targetOrg} and their professional achievements.`;
-
-  // Process all sources in one API call for maximum speed
-  const userPrompt = `Analyze these search results for ${targetName} at ${targetOrg}:
-
-${sources.map((s, idx) => `
-Result ${idx}:
-URL: ${s.link}
-Title: ${s.title}
-Snippet: ${s.snippet || 'No snippet available'}
-`).join('\n')}
-
-Return a JSON object with a "results" array containing analysis for each result.`;
-
-  const results = new Map<string, SpeedOptimizedAnalysis>();
-  
-  try {
-    const response = await openAiClient.chat.completions.create({
-      model: MODEL_ID,
-      temperature: 0.1,
-      max_tokens: 2000,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    });
-
-    const content = response.choices[0].message.content;
-    if (content) {
-      const parsed = JSON.parse(content);
-      const analyses = parsed.results || [];
-      analyses.forEach((analysis: SpeedOptimizedAnalysis, idx: number) => {
-        if (idx < sources.length) {
-          results.set(sources[idx].link, analysis);
+      const content = response.choices[0].message.content;
+      if (content) {
+        const parsed = JSON.parse(content);
+        
+        // Quick confidence check for complex snippets
+        const needsFallback = useModel === FAST_MODEL_ID && (
+          (source.snippet?.length || 0) > 300 || // Long, complex snippets
+          (source.snippet?.match(/\d{4}/g)?.length || 0) > 2 || // Multiple dates
+          source.snippet?.toLowerCase().includes('formerly') || // Career transitions
+          source.snippet?.toLowerCase().includes('previously')
+        );
+        
+        if (needsFallback && parsed.extractedFacts?.length === 0) {
+          console.log(`[Snippet Analysis] Complex snippet detected, using fallback model for: ${source.link}`);
+          return analyzeSingleSnippet(source, idx, FALLBACK_MODEL_ID);
         }
-      });
+        
+        return parsed;
+      }
+    } catch (error) {
+      console.error(`[Snippet Analysis] Failed for ${source.link}:`, error);
     }
-  } catch (error) {
-    console.error('[AI Snippet Analysis] Failed:', error);
-    // Fallback: mark all as medium priority
-    sources.forEach(source => {
-      results.set(source.link, {
-        url: source.link,
-        canSkipScrape: false,
-        scrapePriority: 5,
-        extractedFacts: [],
-        expectedValue: 'medium'
-      });
+    
+    // Fallback response
+    return {
+      url: source.link,
+      canSkipScrape: false,
+      scrapePriority: 5,
+      extractedFacts: [],
+      expectedValue: 'medium'
+    };
+  }
+
+  // Process snippets in parallel batches of 3 for optimal speed
+  const results = new Map<string, SpeedOptimizedAnalysis>();
+  const batchSize = 3;
+  
+  for (let i = 0; i < sources.length; i += batchSize) {
+    const batch = sources.slice(i, i + batchSize);
+    const batchPromises = batch.map((source, batchIdx) => 
+      analyzeSingleSnippet(source, i + batchIdx)
+    );
+    
+    const batchResults = await Promise.all(batchPromises);
+    
+    batchResults.forEach((analysis, batchIdx) => {
+      const source = batch[batchIdx];
+      results.set(source.link, analysis);
     });
   }
   
