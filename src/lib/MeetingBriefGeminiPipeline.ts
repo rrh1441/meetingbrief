@@ -1210,11 +1210,14 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   skipWithSnippet.forEach(({ source, snippetAnalysis }) => {
     const idx = sourcesToProcessForLLM.indexOf(source);
     if (idx !== -1 && snippetAnalysis) {
-      const enrichedContent = `${source.title}
+      const facts = snippetAnalysis.extractedFacts || [];
+      const enrichedContent = facts.length > 0
+        ? `${source.title}
 Key Information (extracted from snippet):
-${snippetAnalysis.extractedFacts.map(fact => `• ${fact}`).join('\n')}
+${facts.map(fact => `• ${fact}`).join('\n')}
 
-Original snippet: ${source.snippet || 'No snippet available'}`;
+Original snippet: ${source.snippet || 'No snippet available'}`
+        : `${source.title}. ${source.snippet || 'No snippet available'}`;
       extractedTextsForLLM[idx] = enrichedContent;
     }
   });
@@ -1288,12 +1291,23 @@ Original snippet: ${source.snippet || 'No snippet available'}`;
     console.log(`[MB Step 7.5] Wave 3 completed in ${Date.now() - wave3Start}ms`);
   }
   
-  // Fill in any remaining empty slots with snippet text
+  // Process any remaining sources (including low priority) with just snippets
+  // This ensures all sources have content, even if they weren't scraped
   sourcesToProcessForLLM.forEach((source, idx) => {
     if (!extractedTextsForLLM[idx]) {
-      extractedTextsForLLM[idx] = source.link === linkedInProfileResult?.link 
-        ? `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`
-        : `${source.title}. ${source.snippet || ''}`;
+      // Check if this source has snippet analysis data
+      const snippetAnalysis = snippetAnalysisMap.get(source.link);
+      const facts = snippetAnalysis?.extractedFacts || [];
+      if (snippetAnalysis && facts.length > 0) {
+        extractedTextsForLLM[idx] = `${source.title}
+Key Information (extracted from snippet):
+${facts.map(fact => `• ${fact}`).join('\n')}
+Original snippet: ${source.snippet || 'No snippet available'}`;
+      } else {
+        extractedTextsForLLM[idx] = source.link === linkedInProfileResult?.link 
+          ? `LinkedIn profile for ${name}. LinkedIn profile for ${name}. URL: ${source.link}`
+          : `${source.title}. ${source.snippet || ''}`;
+      }
     }
   });
   
