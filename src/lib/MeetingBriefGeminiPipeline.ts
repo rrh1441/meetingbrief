@@ -1024,7 +1024,7 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const openAiClient = getOpenAIClient();
   const jobChangeStart = Date.now();
   const jobChangeInfo = await detectJobChange(
-    [...mainResults, ...jobChangeResults],
+    [...processedResults, ...jobChangeResults],
     name,
     org,
     openAiClient
