@@ -639,7 +639,7 @@ export default function Page() {
           
           <div className="mt-16">
             <h3 className="text-2xl font-semibold text-center text-slate-900 mb-8">
-              What's included in every AI-powered meeting brief
+              What&apos;s included in every AI-powered meeting brief
             </h3>
             <div className="grid gap-6 md:grid-cols-2">
               <div>

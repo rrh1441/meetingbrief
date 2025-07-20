@@ -602,10 +602,14 @@ function determineScrapePriority(
   title.toLowerCase().includes('moves to') ||
   title.toLowerCase().includes('appointed');
   
-  // Critical priority - news articles in top 10 results, job changes, or top 5 non-news results
+  // Check if this is a site we can't/shouldn't scrape
+  const isUnscrapable = NO_SCRAPE_URL_SUBSTRINGS.some(pattern => url.includes(pattern)) ||
+                        url.includes('linkedin.com');
+  
+  // Critical priority - news articles in top 10 results, job changes, or top 5 results (excluding unscrapable sites)
   if (isJobChangeNews || 
       (isNewsArticle && isTopRankedPrimary) || 
-      (source.position && source.position <= 5 && source.query === 'primary_name_company')) {
+      (source.position && source.position <= 5 && source.query === 'primary_name_company' && !isUnscrapable)) {
     return {
       url,
       timeoutMs: 15000,  // 15s for critical content
@@ -1373,16 +1377,21 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
     const priority = determineScrapePriority(source, isJobChangeRelated, snippetAnalysis);
     
     // Log when we're prioritizing top-ranked results or news
-    if (priority.priority === 'critical') {
-      const isNews = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) || 
-                     source.title.toLowerCase().includes(' news') ||
-                     source.link.includes('/news/') ||
-                     source.link.includes('/article/');
+    if (source.query === 'primary_name_company' && source.position && source.position <= 5) {
+      const isUnscrapable = NO_SCRAPE_URL_SUBSTRINGS.some(pattern => source.link.includes(pattern)) ||
+                           source.link.includes('linkedin.com');
       
-      if (source.query === 'primary_name_company' && source.position) {
+      if (isUnscrapable) {
+        console.log(`[MB] Top-${source.position} result is unscrapable (${source.link.includes('linkedin.com') ? 'LinkedIn' : 'filtered site'}): ${source.title.slice(0, 60)}...`);
+      } else if (priority.priority === 'critical') {
+        const isNews = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) || 
+                       source.title.toLowerCase().includes(' news') ||
+                       source.link.includes('/news/') ||
+                       source.link.includes('/article/');
+        
         if (isNews) {
           console.log(`[MB] Top-ranked news article (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
-        } else if (source.position <= 5) {
+        } else {
           console.log(`[MB] Top-ranked result (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
         }
       }
