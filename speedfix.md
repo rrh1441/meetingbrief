@@ -218,3 +218,19 @@ Key changes:
 - Priority 6+ sources are always scraped even if snippet seems complete
 - More conservative about marking sources as "skip scrape"
 - This ensures webinars, presentations, and news articles get full content
+
+### Data Quality Fix (2025-07-19)
+
+Fixed hallucinations from unreliable data broker sites:
+1. Added extensive blocklist of data broker and people search domains
+2. These sites are automatically given lowest priority (1) and marked as skip
+3. Added explicit instructions to final LLM to:
+   - Ignore incorrect executive titles from data brokers
+   - Never include personal information (age, address) from public records
+4. Blocked domains include:
+   - SignalHire, CrustData (often have wrong data)
+   - USPhoneBook, Spokeo, WhitePages (personal info aggregators)
+   - ZoomInfo, Lusha, ContactOut (B2B data brokers)
+   - Various email finder services
+
+This ensures only reliable, professional sources are used for the brief.

@@ -49,6 +49,33 @@ const GENERIC_NO_SCRAPE_DOMAINS = [
   "reddit.com/", 
   "linkedin.com/pulse/", "linkedin.com/posts/", "linkedin.com/in/", "linkedin.com/pub/",
   "rocketreach.co", "rocketreach.com", // Removed from pipeline due to inaccurate data
+  "signalhire.com", // Data broker with inaccurate info
+  "crustdata.com", // Unreliable data broker
+  "usphonebook.com", // Personal info aggregator
+  "spokeo.com", // Personal info aggregator
+  "whitepages.com", // Personal info aggregator
+  "beenverified.com", // Personal info aggregator
+  "truthfinder.com", // Personal info aggregator
+  "peoplefinders.com", // Personal info aggregator
+  "intelius.com", // Personal info aggregator
+  "checkpeople.com", // Personal info aggregator
+  "anywho.com", // Personal info aggregator
+  "zabasearch.com", // Personal info aggregator
+  "peoplesearch.com", // Personal info aggregator
+  "publicrecords.com", // Personal info aggregator
+  "peekyou.com", // Personal info aggregator
+  "pipl.com", // Personal info aggregator
+  "zoominfo.com", // Already in LOW_TRUST_DOMAINS
+  "lusha.com", // Data broker
+  "contactout.com", // Data broker
+  "hunter.io", // Email finder
+  "voilanorbert.com", // Email finder
+  "findthatlead.com", // Email finder
+  "anymail.io", // Email finder
+  "clearbit.com", // Data enrichment
+  "fullcontact.com", // Data enrichment
+  "peopledatalabs.com", // Data broker
+  "cience.com", // B2B contact data
 ];
 const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAINS];
 
@@ -364,6 +391,20 @@ CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in t
   ): Promise<SpeedOptimizedAnalysis> {
     // Check if this is an official company website that should always be scraped
     const isOfficialCompanyWebsite = source.link.toLowerCase().includes(targetOrg.toLowerCase().replace(/\s+/g, ''));
+    
+    // Check if this is a data broker or people search site
+    const isDataBrokerSite = GENERIC_NO_SCRAPE_DOMAINS.some(domain => source.link.includes(domain));
+    
+    // If it's a data broker, return lowest priority without even asking the AI
+    if (isDataBrokerSite) {
+      return {
+        url: source.link,
+        canSkipScrape: true,
+        scrapePriority: 1,
+        extractedFacts: [],
+        expectedValue: 'low'
+      };
+    }
     
     const userPrompt = `URL: ${source.link}
 Title: ${source.title}
@@ -1331,6 +1372,8 @@ Your task is to populate a JSON object strictly adhering to the TEMPLATE provide
 - Do NOT include phrases like "Source X says...", "According to Source Y...", or any citation markers like "[1]" or "(source 1)" directly within the "text" fields. The "source" number property provides all attribution.
 - Ensure all "source" numbers are accurate integers corresponding to the provided source list (1 to N, where N is the number of sources in SOURCES_FOR_ANALYSIS).
 - Validate that all "text" fields are strings, and all "source" fields are integers.
+- CRITICAL: Ignore any claims about being "CEO", "President", or other executive titles unless from official company sources. Data broker sites often have incorrect information.
+- CRITICAL: Do NOT include personal information like age, home address, or other private details from public records sites.
 - Return ONLY the JSON object. No other text, no explanations, no apologies, no markdown formatting around the JSON.`;
 
   const userPromptForLLM = `
