@@ -87,8 +87,30 @@ const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAIN
 const LOW_TRUST_DOMAINS: string[] = ["zoominfo.com"]; // People-finder sites with high false positive rates
 const MIN_RELIABLE_SOURCES = 3; // Lowered to ensure we get more sources
 
+// Common news domains that indicate timely, relevant content
+const NEWS_PATTERNS = [
+  'bloomberg.com', 'reuters.com', 'wsj.com', 'ft.com', 'cnbc.com',
+  'techcrunch.com', 'theverge.com', 'businessinsider.com', 'fortune.com',
+  'forbes.com', 'economist.com', 'nytimes.com', 'washingtonpost.com',
+  'theinformation.com', 'axios.com', 'politico.com', 'thehill.com',
+  'venturebeat.com', 'wired.com', 'arstechnica.com', 'zdnet.com',
+  '.substack.com', 'medium.com/@', 'investing.com/news',
+  'seekingalpha.com', 'marketwatch.com', 'barrons.com',
+  'prnewswire.com', 'businesswire.com', 'globenewswire.com',
+  'thedeal.com', 'dealbook.nytimes.com', 'mergermarket.com',
+  'pitchbook.com', 'crunchbase.com/organization/', 'yahoo.com/finance',
+  'fool.com', 'benzinga.com', 'streetinsider.com',
+  'bloomberglaw.com', 'law360.com', 'law.com'
+];
+
 /* ── TYPES ──────────────────────────────────────────────────────────────── */
-interface SerpResult { title: string; link: string; snippet?: string }
+interface SerpResult { 
+  title: string; 
+  link: string; 
+  snippet?: string;
+  position?: number; // Track search result position
+  query?: string; // Track which query produced this result
+}
 interface FirecrawlScrapeV1Result {
     success: boolean;
     data?: {
@@ -396,7 +418,7 @@ async function analyzeSnippetsWithAI(
 ): Promise<Map<string, SpeedOptimizedAnalysis>> {
   // Simplified, focused system prompt for speed
   const systemPrompt = `Triage search snippets for ${targetName} at ${targetOrg}. Return JSON only.
-Priority 9-10: Awards, major appointments, interviews with quotes, research/publications, official company content
+Priority 9-10: Awards, major appointments, interviews with quotes, research/publications, official company content, job change announcements, recent news articles
 Priority 6-8: News mentions, conference speaking, professional updates, webinars/presentations  
 Priority 3-5: Basic directory listings, brief mentions
 Priority 1-2: Search results pages, old content (pre-2018), social media, paywalled
@@ -405,7 +427,24 @@ IMPORTANT: Be conservative with canSkipScrape. Only mark true for:
 - Search result pages
 - Content behind paywalls
 Mark canSkipScrape=false for ALL content that could have valuable details (webinars, news, interviews, speaking engagements).
-CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in the snippet text. Do NOT infer, assume, or create information.`;
+CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in the snippet text. Do NOT infer, assume, or create information.
+NEWS ARTICLE HANDLING:
+- ANY article from major news outlets (Bloomberg, Reuters, WSJ, etc.) should have canSkipScrape=false
+- If it's a news article, add "NEWS_ARTICLE" as an extracted fact
+JOB CHANGE HANDLING: 
+- If snippet mentions ${targetName} "joining", "moving to", "hired by", or similar job change language, add "JOB_CHANGE_NEWS" as the first extracted fact
+- ALWAYS set canSkipScrape=false for any job change articles to ensure full content is scraped`;
+
+  // Enhanced system prompt for top-ranked results
+  const enhancedSystemPrompt = (source: SerpResult) => {
+    const isTopRanked = source.query === 'primary_name_company' && source.position && source.position <= 5;
+    const basePrompt = systemPrompt;
+    
+    if (isTopRanked) {
+      return basePrompt + `\nIMPORTANT: This is a top-${source.position} result from primary search. NEVER mark canSkipScrape=true for top-5 primary search results.`;
+    }
+    return basePrompt;
+  };
 
   // Function to analyze a single snippet
   async function analyzeSingleSnippet(
@@ -445,7 +484,7 @@ ${isLikelyCompanyWebsite ? 'NOTE: This appears to be an official company website
         max_tokens: 120, // Back to max_tokens for gpt-4o-mini
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: enhancedSystemPrompt(source) },
           { role: "user", content: userPrompt }
         ]
       });
@@ -457,6 +496,22 @@ ${isLikelyCompanyWebsite ? 'NOTE: This appears to be an official company website
         // Force scraping for high priority sources
         if (parsed.scrapePriority >= 6 && parsed.canSkipScrape === true) {
           parsed.canSkipScrape = false; // Always scrape priority 6+ content
+        }
+        
+        // Force scraping for top-ranked primary search results
+        const isTopRanked = source.query === 'primary_name_company' && source.position && source.position <= 5;
+        if (isTopRanked && parsed.canSkipScrape === true) {
+          parsed.canSkipScrape = false; // Always scrape top-5 primary search results
+          parsed.scrapePriority = Math.max(parsed.scrapePriority || 5, 8); // Ensure high priority
+        }
+        
+        // Force scraping for news articles
+        const isNewsUrl = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) ||
+                         source.link.includes('/news/') ||
+                         source.link.includes('/article/');
+        if (isNewsUrl && parsed.canSkipScrape === true) {
+          parsed.canSkipScrape = false; // Always scrape news articles
+          parsed.scrapePriority = Math.max(parsed.scrapePriority || 5, 8); // Ensure high priority
         }
         
         return parsed;
@@ -526,10 +581,31 @@ function determineScrapePriority(
   const snippet = source.snippet || '';
   const title = source.title;
   
-  // Critical priority - most generous timeouts
-  if (isJobChangeRelated || 
-      title.toLowerCase().includes('joins') ||
-      title.toLowerCase().includes('appointed')) {
+  const isNewsArticle = NEWS_PATTERNS.some(pattern => url.includes(pattern)) ||
+                       title.toLowerCase().includes(' news') ||
+                       title.includes(' - ') || // Common news title pattern
+                       url.includes('/news/') ||
+                       url.includes('/article/') ||
+                       url.includes('/story/');
+  
+  // Check if this is a top-ranked result from primary search
+  const isTopRankedPrimary = source.query === 'primary_name_company' && 
+                             source.position && 
+                             source.position <= 10; // Expanded to top 10 for news
+  
+  // Check if this is a job change article (any job change news should be scraped)
+  const isJobChangeNews = snippetAnalysis?.extractedFacts?.some(
+    fact => fact === 'JOB_CHANGE_NEWS'
+  ) || isJobChangeRelated || 
+  title.toLowerCase().includes('joins') ||
+  title.toLowerCase().includes('hired') ||
+  title.toLowerCase().includes('moves to') ||
+  title.toLowerCase().includes('appointed');
+  
+  // Critical priority - news articles in top 10 results, job changes, or top 5 non-news results
+  if (isJobChangeNews || 
+      (isNewsArticle && isTopRankedPrimary) || 
+      (source.position && source.position <= 5 && source.query === 'primary_name_company')) {
     return {
       url,
       timeoutMs: 15000,  // 15s for critical content
@@ -922,13 +998,23 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   // Separate job change results (declare at function scope for later use)
   const jobChangeResults = serperResponses
     .find(r => r.label === 'job_changes')?.results || [];
-    
-  const mainResults = serperResponses
+  
+  // Process main results with position tracking
+  const processedResults: SerpResult[] = [];
+  serperResponses
     .filter(r => r.label !== 'job_changes')
-    .flatMap(r => r.results);
+    .forEach(response => {
+      response.results.forEach((result, index) => {
+        processedResults.push({
+          ...result,
+          position: index + 1, // 1-based position
+          query: response.label
+        });
+      });
+    });
   
   // Collect main results
-  collectedSerpResults.push(...mainResults);
+  collectedSerpResults.push(...processedResults);
   
   // Check for job changes using AI
   const openAiClient = getOpenAIClient();
@@ -1284,9 +1370,27 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const sourcesWithPriorities = sourcesToProcessForLLM.map(source => {
     const isJobChangeRelated = jobChangeResults.some(r => r.link === source.link);
     const snippetAnalysis = snippetAnalysisMap.get(source.link);
+    const priority = determineScrapePriority(source, isJobChangeRelated, snippetAnalysis);
+    
+    // Log when we're prioritizing top-ranked results or news
+    if (priority.priority === 'critical') {
+      const isNews = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) || 
+                     source.title.toLowerCase().includes(' news') ||
+                     source.link.includes('/news/') ||
+                     source.link.includes('/article/');
+      
+      if (source.query === 'primary_name_company' && source.position) {
+        if (isNews) {
+          console.log(`[MB] Top-ranked news article (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+        } else if (source.position <= 5) {
+          console.log(`[MB] Top-ranked result (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+        }
+      }
+    }
+    
     return {
       source,
-      priority: determineScrapePriority(source, isJobChangeRelated, snippetAnalysis),
+      priority,
       snippetAnalysis
     };
   });
@@ -1435,6 +1539,11 @@ Your task is to populate a JSON object strictly adhering to the TEMPLATE provide
 - Validate that all "text" fields are strings, and all "source" fields are integers.
 - CRITICAL: Ignore any claims about being "CEO", "President", or other executive titles unless from official company sources. Data broker sites often have incorrect information.
 - CRITICAL: Do NOT include personal information like age, home address, or other private details from public records sites.
+- CRITICAL JOB CHANGE HANDLING: When you see news about someone "joining", "being hired by", or "moving to" a new company, treat this information carefully:
+  * If the LinkedIn profile shows them at the CURRENT_ORGANIZATION, prioritize that as their current role
+  * Include job change news in researchNotes section ONLY, not in executive summary or highlights
+  * Always clarify the timing (e.g., "Recently announced move to..." or "Joining [company] in [timeframe]")
+  * Never present uncertain employment status as fact in the executive summary
 - Return ONLY the JSON object. No other text, no explanations, no apologies, no markdown formatting around the JSON.`;
 
   const userPromptForLLM = `

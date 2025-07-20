@@ -134,7 +134,7 @@ export default function Page() {
   const [pdfBusy, setPdfBusy] = useState(false)
 
   const [stepIdx, setStepIdx] = useState(0)
-  const [remaining, setRemaining] = useState(60)
+  const [remaining, setRemaining] = useState(30)
 
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -154,15 +154,17 @@ export default function Page() {
 
   /* stepper effect --------------------------------------------------------- */
   useEffect(() => {
-    if (!loading) { setStepIdx(0); setRemaining(60); return; }
+    if (!loading) { setStepIdx(0); setRemaining(30); return; }
     const t0 = Date.now();
     const id = setInterval(() => {
       const elapsed = Math.floor((Date.now() - t0) / 1000);
-      setRemaining(Math.max(5, 60 - elapsed));
-      if (elapsed < 60 && elapsed % 12 === 0) {
+      setRemaining(Math.max(5, 30 - elapsed));
+      // Advance step every 5 seconds for first 5 steps (0-4)
+      if (elapsed < 25 && elapsed % 5 === 0) {
         setStepIdx(i => Math.min(i + 1, STEPS.length - 1));
       }
-      if (elapsed >= 60) clearInterval(id);
+      // Last step stays for final 5 seconds
+      if (elapsed >= 30) clearInterval(id);
     }, 1000);
     return () => clearInterval(id);
   }, [loading])
@@ -355,10 +357,10 @@ export default function Page() {
           {/* Hero */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
-              Instant&nbsp;intel for every meeting
+              AI-Powered Meeting Research Briefs in 30 Seconds
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Save hours on research and come prepared for every conversation
+              Arrive at every sales call, interview, or board meeting armed with source-linked intel
             </p>
           </div>
 
@@ -396,7 +398,11 @@ export default function Page() {
             </div>
 
             <Button type="submit" disabled={loading} className="text-lg font-bold py-3">
-              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Try it Now'}
+              {loading ? (
+                <Loader2 className="animate-spin h-4 w-4" />
+              ) : (
+                usage && usage.count > 0 ? 'Generate Brief' : 'Generate My First Brief'
+              )}
             </Button>
 
             {/* Usage Display */}
@@ -483,16 +489,16 @@ export default function Page() {
       <section id="how-it-works" className="py-24 bg-white">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <h2 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-            Three clicks from blank page to board-room ready
+            From name to game plan in under 30 seconds
           </h2>
           <p className="mt-4 text-lg text-slate-600">
-            MeetingBrief automates the entire research stack so you never scramble for context.
+            Get comprehensive background intel on any professional—instantly sourced, verified, and formatted.
           </p>
           <div className="mt-12 grid gap-8 sm:grid-cols-3">
             {[
-              { title: 'Paste a name & company', desc: 'Our parser cleans and normalizes the query.' },
-              { title: 'AI scouts the web', desc: 'Search, scrape, and rank thousands of records in seconds.' },
-              { title: 'Footnoted briefing appears', desc: 'Action-ready insights—export or share instantly.' },
+              { title: 'Paste a name & company', desc: 'Our AI-powered research brief generator cleans and normalizes your query for accurate results.' },
+              { title: 'AI scouts the web', desc: 'Automated meeting prep searches and verifies thousands of sources in seconds.' },
+              { title: 'Footnoted briefing appears', desc: 'Get your AI meeting research brief—export as PDF or share instantly.' },
             ].map(step => (
               <div key={step.title} className="flex flex-col items-center">
                 <CheckCircle2 className="h-10 w-10 text-indigo-600 mb-4" />
@@ -508,14 +514,14 @@ export default function Page() {
       <section id="why-meetingbrief" className="py-24 bg-slate-50">
         <div className="max-w-6xl mx-auto px-4">
           <h2 className="text-3xl font-semibold text-center text-slate-900 mb-12">
-            Research that moves as fast as your calendar
+            Never walk into a meeting unprepared again
           </h2>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { title: 'Credible by default', desc: 'Every claim is source-linked for auditability.' },
-              { title: 'Privacy first', desc: 'Data is encrypted at rest and in transit; never shared.' },
-              { title: 'Built for teams', desc: 'Per-seat credits, SSO, and role-based access on all plans.' },
-              { title: 'Zero busywork', desc: 'Browser extension and Calendar sync file requests for you.' },
+              { title: 'Every fact verified', desc: 'Each research brief includes source links for complete transparency and auditability.' },
+              { title: 'Privacy first', desc: 'Your meeting prep data is encrypted at rest and in transit; never shared or used for training.' },
+              { title: 'Built for teams', desc: 'Per-seat research brief credits, SSO, and role-based access on all plans.' },
+              { title: 'Works with your workflow', desc: 'Browser extension and Calendar sync automate your meeting research requests.' },
             ].map(feature => (
               <Card key={feature.title} className="text-center shadow-sm">
                 <CardHeader>
@@ -534,15 +540,15 @@ export default function Page() {
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <h2 className="text-3xl font-semibold text-slate-900 mb-4">
-            Simple, predictable pricing
+            Simple, predictable pricing for AI meeting prep
           </h2>
           <p className="text-lg text-slate-600 mb-12">
-            Credits refresh every month—use them when you need them.
+            No contracts. No surprises. Just the meeting research briefs you need, when you need them.
           </p>
           
           <div className="grid gap-8 sm:grid-cols-1 max-w-md mx-auto">
             {[
-              { plan: 'Starter', price: '$10', credits: '50', ideal: 'Perfect for professionals who brief regularly' },
+              { plan: 'Starter', price: '$10', credits: '50 research briefs', ideal: 'Perfect for sales professionals and executives who need automated meeting prep' },
             ].map(pricing => (
               <Card key={pricing.plan} className="shadow-lg relative">
                 <CardHeader>
@@ -554,7 +560,7 @@ export default function Page() {
                 <CardContent className="space-y-4">
                   <div className="text-center">
                     <div className="text-2xl font-semibold text-slate-900">{pricing.credits}</div>
-                    <div className="text-sm text-slate-600">credits per month</div>
+                    <div className="text-sm text-slate-600">per month</div>
                   </div>
                   <p className="text-sm text-slate-600">{pricing.ideal}</p>
                   <Button className="w-full" asChild>
@@ -566,8 +572,96 @@ export default function Page() {
           </div>
           
           <p className="mt-8 text-sm text-slate-500">
-            30-day money-back guarantee • Secure Stripe checkout • Per-seat licensing
+            30-day money-back guarantee • Secure checkout • Per research brief pricing
           </p>
+        </div>
+      </section>
+
+      {/* USE CASES ----------------------------------------------------------- */}
+      <section className="py-24 bg-white">
+        <div className="max-w-5xl mx-auto px-4">
+          <h2 className="text-3xl font-semibold text-center text-slate-900 mb-4">
+            Automated meeting prep for every professional scenario
+          </h2>
+          <p className="text-lg text-slate-600 text-center mb-12">
+            From sales discovery to executive recruiting, arrive prepared with AI-generated research briefs
+          </p>
+          
+          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Sales & Business Development</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-slate-600 mb-4">
+                  Transform cold outreach into warm conversations. Our AI meeting prep tool uncovers shared connections, recent company news, and conversation starters that matter.
+                </p>
+                <ul className="space-y-2 text-sm text-slate-600">
+                  <li>• Prospect background research</li>
+                  <li>• Deal flow intelligence</li>
+                  <li>• Partnership due diligence</li>
+                </ul>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Executive Recruiting</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-slate-600 mb-4">
+                  Make every candidate interview count. Generate comprehensive research briefs that reveal career trajectories, achievements, and cultural fit indicators.
+                </p>
+                <ul className="space-y-2 text-sm text-slate-600">
+                  <li>• Candidate background checks</li>
+                  <li>• Reference verification prep</li>
+                  <li>• Executive assessment briefs</li>
+                </ul>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Investor Relations</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-slate-600 mb-4">
+                  Know your audience before they know you. Our automated research brief generator compiles investor portfolios, preferences, and past exits.
+                </p>
+                <ul className="space-y-2 text-sm text-slate-600">
+                  <li>• VC partner profiles</li>
+                  <li>• Board meeting preparation</li>
+                  <li>• Fundraising intelligence</li>
+                </ul>
+              </CardContent>
+            </Card>
+          </div>
+          
+          <div className="mt-16">
+            <h3 className="text-2xl font-semibold text-center text-slate-900 mb-8">
+              What's included in every AI-powered meeting brief
+            </h3>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div>
+                <h4 className="font-semibold text-lg mb-3">Professional Background</h4>
+                <ul className="space-y-2 text-slate-600">
+                  <li>✓ Complete employment history with dates</li>
+                  <li>✓ Educational credentials and institutions</li>
+                  <li>✓ Board positions and advisory roles</li>
+                  <li>✓ Published articles and thought leadership</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-lg mb-3">Strategic Intelligence</h4>
+                <ul className="space-y-2 text-slate-600">
+                  <li>✓ Recent news mentions and press coverage</li>
+                  <li>✓ Speaking engagements and conference appearances</li>
+                  <li>✓ Investment history and portfolio companies</li>
+                  <li>✓ Potential conversation topics and shared interests</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -610,10 +704,12 @@ export default function Page() {
         <div className="max-w-4xl mx-auto px-4 space-y-8">
           <h2 className="text-3xl font-semibold text-center">FAQ</h2>
           {[
-            { q: 'How fast is a brief generated?', a: 'Under 45 seconds for most searches; complex entities may take up to 2 minutes.' },
-            { q: 'Where do your sources come from?', a: 'Web search, dynamic scraping, and verified databases—each line footnoted.' },
-            { q: 'Is my query private?', a: 'Yes. Queries and briefs are stored encrypted and never shared or used to train models.' },
-            { q: 'How accurate are the insights?', a: 'Very. The searches are designed to avoid hallucinations and only return accurate hits. We show our work so that you can validate anything you need.' },
+            { q: 'How fast is an AI meeting research brief generated?', a: 'Under 30 seconds for most automated meeting prep requests; complex profiles may take up to 1 minute.' },
+            { q: 'Where do your sources come from?', a: 'Our AI-powered research brief generator searches public web sources, professional databases, and news archives—each fact is footnoted with its source.' },
+            { q: 'Is my meeting prep data private?', a: 'Yes. Your research brief queries and results are stored encrypted and never shared or used to train AI models.' },
+            { q: 'Can I trust the information in my research briefs?', a: 'Every fact is linked to its original source. We prioritize accuracy over speed—if we can\'t verify it, we don\'t include it in your meeting brief.' },
+            { q: 'What types of meetings is this for?', a: 'MeetingBrief is perfect for sales calls, candidate interviews, investor meetings, partnership discussions, and any professional interaction where background research matters.' },
+            { q: 'How is this different from LinkedIn or Google searches?', a: 'Instead of spending 30+ minutes piecing together information from multiple sources, our automated meeting prep tool delivers a comprehensive, formatted brief with verified facts in seconds.' },
           ].map(f => (
             <div key={f.q} className="border-b border-slate-200 pb-4">
               <h3 className="font-medium">{f.q}</h3>
