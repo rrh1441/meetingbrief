@@ -32,8 +32,7 @@ if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY) {
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
 const MODEL_ID = "gpt-4.1-mini-2025-04-14";
-const FAST_MODEL_ID = "gpt-3.5-turbo-0125"; // Fast model for snippet analysis
-const FALLBACK_MODEL_ID = "gpt-4o-mini"; // Fallback for complex snippets
+const FAST_MODEL_ID = "o4-mini-2025-04-16"; // o4-mini for snippet analysis - good balance of speed and accuracy
 const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
@@ -316,7 +315,7 @@ URL: ${r.link}
 
   try {
     const response = await openAiClient.chat.completions.create({
-      model: FAST_MODEL_ID, // Use fast model for job change detection too
+      model: FAST_MODEL_ID, // Use o4-mini for job change detection
       temperature: 0,
       max_tokens: 200, // Limit output for speed
       response_format: { type: "json_object" },
@@ -346,11 +345,16 @@ async function analyzeSnippetsWithAI(
 ): Promise<Map<string, SpeedOptimizedAnalysis>> {
   // Simplified, focused system prompt for speed
   const systemPrompt = `Triage search snippets for ${targetName} at ${targetOrg}. Return JSON only.
-Priority 9-10: Awards, major appointments, interviews with quotes, research/publications
-Priority 6-8: News mentions, conference speaking, professional updates  
+Priority 9-10: Awards, major appointments, interviews with quotes, research/publications, official company content mentioning the person
+Priority 6-8: News mentions, conference speaking, professional updates, webinars/presentations  
 Priority 3-5: Basic directory listings, brief mentions
 Priority 1-2: Search results pages, old content (pre-2018), social media, paywalled
-Mark canSkipScrape=true when snippet has complete info (full quotes, specific achievements with dates).`;
+IMPORTANT: Be conservative with canSkipScrape. Only mark true for:
+- Directory listings with just name/title
+- Search result pages
+- Content behind paywalls
+Mark canSkipScrape=false for ALL content that could have valuable details (webinars, news, interviews, etc).
+CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in the snippet text. Do NOT infer, assume, or create information.`;
 
   // Function to analyze a single snippet
   async function analyzeSingleSnippet(
@@ -358,11 +362,15 @@ Mark canSkipScrape=true when snippet has complete info (full quotes, specific ac
     idx: number,
     useModel: string = FAST_MODEL_ID
   ): Promise<SpeedOptimizedAnalysis> {
+    // Check if this is an official company website that should always be scraped
+    const isOfficialCompanyWebsite = source.link.toLowerCase().includes(targetOrg.toLowerCase().replace(/\s+/g, ''));
+    
     const userPrompt = `URL: ${source.link}
 Title: ${source.title}
 Snippet: ${source.snippet || 'No snippet available'}
 
-Return: {"url":"${source.link}","canSkipScrape":bool,"scrapePriority":1-10,"extractedFacts":["facts"],"expectedValue":"high|medium|low"}`;
+Return: {"url":"${source.link}","canSkipScrape":${isOfficialCompanyWebsite ? 'false' : 'bool'},"scrapePriority":${isOfficialCompanyWebsite ? '9' : '1-10'},"extractedFacts":["only facts explicitly stated in snippet"],"expectedValue":"high|medium|low"}
+${isOfficialCompanyWebsite ? `NOTE: This is an official ${targetOrg} website - MUST scrape for full content.` : ''}`;
 
     try {
       const response = await openAiClient.chat.completions.create({
@@ -380,17 +388,9 @@ Return: {"url":"${source.link}","canSkipScrape":bool,"scrapePriority":1-10,"extr
       if (content) {
         const parsed = JSON.parse(content);
         
-        // Quick confidence check for complex snippets
-        const needsFallback = useModel === FAST_MODEL_ID && (
-          (source.snippet?.length || 0) > 300 || // Long, complex snippets
-          (source.snippet?.match(/\d{4}/g)?.length || 0) > 2 || // Multiple dates
-          source.snippet?.toLowerCase().includes('formerly') || // Career transitions
-          source.snippet?.toLowerCase().includes('previously')
-        );
-        
-        if (needsFallback && parsed.extractedFacts?.length === 0) {
-          console.log(`[Snippet Analysis] Complex snippet detected, using fallback model for: ${source.link}`);
-          return analyzeSingleSnippet(source, idx, FALLBACK_MODEL_ID);
+        // Force scraping for high priority sources
+        if (parsed.scrapePriority >= 6 && parsed.canSkipScrape === true) {
+          parsed.canSkipScrape = false; // Always scrape priority 6+ content
         }
         
         return parsed;

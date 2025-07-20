@@ -184,7 +184,37 @@ With these optimizations:
 
 | Task | Model | Why |
 |------|-------|-----|
-| Snippet Analysis (simple) | gpt-3.5-turbo-0125 | Lowest latency (0.37s TTFT) |
-| Snippet Analysis (complex) | gpt-4o-mini | Better accuracy for dates/transitions |
-| Job Change Detection | gpt-3.5-turbo-0125 | Speed critical, simple JSON |
+| Snippet Analysis | o4-mini-2025-04-16 | Good balance: 6-8s latency, accurate facts |
+| Job Change Detection | o4-mini-2025-04-16 | Consistent model, accurate date extraction |
 | Final Brief Generation | gpt-4.1-mini | Quality matters most |
+
+### Hallucination Fix (2025-07-19)
+
+Discovered that gpt-3.5-turbo was hallucinating facts during snippet analysis. Fixed by:
+1. Disabling fact extraction for gpt-3.5-turbo (only used for prioritization)
+2. Only gpt-4o-mini extracts facts when used as fallback for complex snippets
+3. Removed enriched content formatting - just use raw snippets
+
+This ensures speed while preventing the AI from inventing information that doesn't exist in the sources.
+
+### Updated to o4-mini (2025-07-19)
+
+After discovering important content (like official company webinars) was being skipped:
+1. Switched to o4-mini-2025-04-16 for all snippet analysis
+   - Faster than gpt-4o-full (6-8s vs 14.7s)
+   - More accurate than gpt-3.5-turbo (no hallucinations)
+   - Good balance of speed and quality
+2. Re-enabled fact extraction since o4-mini is accurate
+3. Added logic to always scrape official company content
+4. Updated priorities to emphasize webinars and presentations
+
+Expected performance:
+- Snippet analysis: ~6-8s (still faster than original 14.7s)
+- Total time: ~28-30s (meeting the target)
+- Better content coverage (won't miss important sources)
+
+Key changes:
+- Official company websites are always scraped (priority 9)
+- Priority 6+ sources are always scraped even if snippet seems complete
+- More conservative about marking sources as "skip scrape"
+- This ensures webinars, presentations, and news articles get full content
