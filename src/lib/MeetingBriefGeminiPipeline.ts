@@ -346,19 +346,26 @@ async function detectJobChange(
        text.includes('new role') || 
        text.includes('moves to') ||
        text.includes('named as') ||
+       text.includes('hired') ||
+       text.includes('hires') ||
        text.includes('promoted')) &&
       text.includes(targetName.toLowerCase());
     
-    // Check if it mentions a different company
-    const mentionsCurrentOrg = text.includes(currentOrg.toLowerCase());
-    const possiblyDifferentCompany = hasJobChangeKeywords && !mentionsCurrentOrg;
+    // Must mention current org to be relevant (avoid different people with same name)
+    const mentionsCurrentOrg = text.includes(currentOrg.toLowerCase()) || 
+                             text.includes('bofa') || // Common abbreviations
+                             text.includes('baml') ||
+                             (currentOrg.toLowerCase().includes('bank of america') && text.includes('bank of america'));
     
-    return hasJobChangeKeywords || possiblyDifferentCompany;
+    return hasJobChangeKeywords && mentionsCurrentOrg;
   });
 
   if (jobChangeIndicators.length === 0) {
     return { detected: false };
   }
+  
+  console.log(`[Job Change Detection] Found ${jobChangeIndicators.length} potential job change indicators for ${targetName} from ${currentOrg}:`, 
+    jobChangeIndicators.map(r => `"${r.title}"`).join(', '));
 
   // Use AI to analyze potential job changes
   const systemPrompt = `Analyze search results to detect if ${targetName} has recently changed jobs from ${currentOrg}. 
@@ -376,15 +383,25 @@ Return JSON:
 Only mark detected=true if there's clear evidence of a job change AWAY from ${currentOrg}.
 Internal promotions at ${currentOrg} should return detected=false.
 
+CRITICAL: If you see multiple people with the same name at different companies, be VERY careful to identify which one actually worked at ${currentOrg}. Look for:
+- Mentions of "${currentOrg}" in the same article/snippet as the job change
+- Headlines like "${targetName} leaves ${currentOrg}" or "hires ${targetName} from ${currentOrg}"
+- Do NOT confuse different people with the same name
+
 IMPORTANT: For the date field, look for phrases like "joins", "joined", "appointed", "moves to", "has moved" and extract the date associated with THAT action, not other dates mentioned in the context.`;
 
-  const userPrompt = `Analyze these search results for job changes:
+  const userPrompt = `Person: ${targetName}
+Current Company: ${currentOrg}
+
+Analyze these search results for job changes:
 
 ${jobChangeIndicators.map((r, i) => `
 [${i}] ${r.title}
 ${r.snippet || ''}
 URL: ${r.link}
-`).join('\n')}`;
+`).join('\n')}
+
+REMEMBER: Only detect a job change if the SAME ${targetName} who worked at ${currentOrg} is moving to a new company. Look for explicit connections like "hires ${targetName} from ${currentOrg}" or "${targetName} leaves ${currentOrg} for [new company]".`;
 
   try {
     const response = await openAiClient.chat.completions.create({
@@ -402,6 +419,24 @@ URL: ${r.link}
     if (!content) throw new Error('Empty response from OpenAI');
     
     const result = JSON.parse(content);
+    
+    // Final validation: if detected, the source must explicitly connect currentOrg to newCompany
+    if (result.detected && result.source) {
+      const validatingResult = jobChangeIndicators.find(r => r.link === result.source);
+      if (validatingResult) {
+        const validationText = `${validatingResult.title} ${validatingResult.snippet || ''}`.toLowerCase();
+        const mentionsBothCompanies = 
+          validationText.includes(currentOrg.toLowerCase()) && 
+          result.newCompany && 
+          validationText.includes(result.newCompany.toLowerCase());
+        
+        if (!mentionsBothCompanies) {
+          console.log(`[Job Change Detection] Rejected potential false positive - source doesn't mention both ${currentOrg} and ${result.newCompany}`);
+          return { detected: false };
+        }
+      }
+    }
+    
     return result;
   } catch (error) {
     console.error('[Job Change Detection] AI analysis failed:', error);
@@ -575,11 +610,31 @@ const splitFullName = (fullName: string): { first: string; last: string } => {
 function determineScrapePriority(
   source: SerpResult,
   isJobChangeRelated: boolean,
-  snippetAnalysis?: SpeedOptimizedAnalysis
+  snippetAnalysis?: SpeedOptimizedAnalysis,
+  targetName?: string,
+  targetOrg?: string,
+  knownOrganizations?: Set<string>
 ): ScrapePriority {
   const url = source.link;
   const snippet = source.snippet || '';
   const title = source.title;
+  const fullText = `${title} ${snippet}`.toLowerCase();
+  
+  // MOST IMPORTANT: Does this result mention both the person AND any known organization?
+  const mentionsName = targetName && fullText.includes(targetName.toLowerCase());
+  let mentionsKnownOrg = false;
+  
+  if (mentionsName && knownOrganizations) {
+    // Check if any known organization is mentioned
+    for (const org of knownOrganizations) {
+      if (fullText.includes(org.toLowerCase())) {
+        mentionsKnownOrg = true;
+        break;
+      }
+    }
+  }
+  
+  const mentionsBothNameAndOrg = mentionsName && mentionsKnownOrg;
   
   const isNewsArticle = NEWS_PATTERNS.some(pattern => url.includes(pattern)) ||
                        title.toLowerCase().includes(' news') ||
@@ -605,6 +660,16 @@ function determineScrapePriority(
   // Check if this is a site we can't/shouldn't scrape
   const isUnscrapable = NO_SCRAPE_URL_SUBSTRINGS.some(pattern => url.includes(pattern)) ||
                         url.includes('linkedin.com');
+  
+  // HIGHEST PRIORITY: Results that mention both name and org (unless unscrapable)
+  if (mentionsBothNameAndOrg && !isUnscrapable) {
+    return {
+      url,
+      timeoutMs: 15000,  // 15s for critical content
+      maxRetries: 2,
+      priority: 'critical'
+    };
+  }
   
   // Critical priority - news articles in top 10 results, job changes, or top 5 results (excluding unscrapable sites)
   if (isJobChangeNews || 
@@ -1356,6 +1421,26 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
 
   console.log(`[MB Step 7] Starting intelligent snippet analysis and scraping for ${sourcesToProcessForLLM.length} sources.`);
   
+  // Build set of known organizations from LinkedIn data
+  const knownOrganizations = new Set<string>();
+  knownOrganizations.add(normalizeCompanyName(org));
+  
+  // Add all known companies from LinkedIn profile
+  if (harvestProfileData?.experience && Array.isArray(harvestProfileData.experience)) {
+    harvestProfileData.experience.forEach(exp => {
+      if (exp.companyName) {
+        const normalizedCompany = normalizeCompanyName(exp.companyName);
+        knownOrganizations.add(normalizedCompany);
+        
+        // Also add potential acronyms
+        const acronyms = extractPotentialAcronyms(exp.companyName);
+        acronyms.forEach(acronym => knownOrganizations.add(acronym));
+      }
+    });
+  }
+  
+  console.log(`[MB] Known organizations for ${name}: ${Array.from(knownOrganizations).join(', ')}`);
+  
   const scrapingStartTime = Date.now();
   
   // Step 1: Analyze all snippets with AI for smart scraping decisions
@@ -1374,25 +1459,42 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const sourcesWithPriorities = sourcesToProcessForLLM.map(source => {
     const isJobChangeRelated = jobChangeResults.some(r => r.link === source.link);
     const snippetAnalysis = snippetAnalysisMap.get(source.link);
-    const priority = determineScrapePriority(source, isJobChangeRelated, snippetAnalysis);
+    const priority = determineScrapePriority(source, isJobChangeRelated, snippetAnalysis, name, org, knownOrganizations);
     
-    // Log when we're prioritizing top-ranked results or news
-    if (source.query === 'primary_name_company' && source.position && source.position <= 5) {
-      const isUnscrapable = NO_SCRAPE_URL_SUBSTRINGS.some(pattern => source.link.includes(pattern)) ||
-                           source.link.includes('linkedin.com');
+    // Log when we're prioritizing results
+    if (priority.priority === 'critical') {
+      const fullText = `${source.title} ${source.snippet || ''}`.toLowerCase();
+      const mentionsName = fullText.includes(name.toLowerCase());
+      let mentionedOrg = null;
       
-      if (isUnscrapable) {
-        console.log(`[MB] Top-${source.position} result is unscrapable (${source.link.includes('linkedin.com') ? 'LinkedIn' : 'filtered site'}): ${source.title.slice(0, 60)}...`);
-      } else if (priority.priority === 'critical') {
-        const isNews = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) || 
-                       source.title.toLowerCase().includes(' news') ||
-                       source.link.includes('/news/') ||
-                       source.link.includes('/article/');
+      if (mentionsName) {
+        for (const knownOrg of knownOrganizations) {
+          if (fullText.includes(knownOrg.toLowerCase())) {
+            mentionedOrg = knownOrg;
+            break;
+          }
+        }
+      }
+      
+      if (mentionsName && mentionedOrg) {
+        console.log(`[MB] HIGH PRIORITY - Result mentions "${name}" + known org "${mentionedOrg}": ${source.title.slice(0, 60)}...`);
+      } else if (source.query === 'primary_name_company' && source.position && source.position <= 5) {
+        const isUnscrapable = NO_SCRAPE_URL_SUBSTRINGS.some(pattern => source.link.includes(pattern)) ||
+                             source.link.includes('linkedin.com');
         
-        if (isNews) {
-          console.log(`[MB] Top-ranked news article (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+        if (isUnscrapable) {
+          console.log(`[MB] Top-${source.position} result is unscrapable (${source.link.includes('linkedin.com') ? 'LinkedIn' : 'filtered site'}): ${source.title.slice(0, 60)}...`);
         } else {
-          console.log(`[MB] Top-ranked result (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+          const isNews = NEWS_PATTERNS.some(pattern => source.link.includes(pattern)) || 
+                         source.title.toLowerCase().includes(' news') ||
+                         source.link.includes('/news/') ||
+                         source.link.includes('/article/');
+          
+          if (isNews) {
+            console.log(`[MB] Top-ranked news article (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+          } else {
+            console.log(`[MB] Top-ranked result (position ${source.position}) marked as critical: ${source.title.slice(0, 60)}...`);
+          }
         }
       }
     }
