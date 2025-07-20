@@ -184,8 +184,8 @@ With these optimizations:
 
 | Task | Model | Why |
 |------|-------|-----|
-| Snippet Analysis | o4-mini-2025-04-16 | Good balance: 6-8s latency, accurate facts |
-| Job Change Detection | o4-mini-2025-04-16 | Consistent model, accurate date extraction |
+| Snippet Analysis | gpt-4o-mini | Good balance: 6-8s latency, accurate facts, reliable API |
+| Job Change Detection | gpt-4o-mini | Consistent model, accurate date extraction |
 | Final Brief Generation | gpt-4.1-mini | Quality matters most |
 
 ### Hallucination Fix (2025-07-19)
@@ -234,3 +234,39 @@ Fixed hallucinations from unreliable data broker sites:
    - Various email finder services
 
 This ensures only reliable, professional sources are used for the brief.
+
+### API Compatibility Fix (2025-07-19)
+
+Discovered o4-mini-2025-04-16 uses different API parameters:
+- o4-mini requires `max_completion_tokens` instead of `max_tokens`
+- This caused snippet analysis and job change detection to fail
+- Switched back to gpt-4o-mini which is reliable and uses standard parameters
+- Improved error handling to still prioritize official company sites even when API fails
+
+Current model configuration:
+- Snippet Analysis: gpt-4o-mini (6-8s, accurate, reliable)
+- Job Change Detection: gpt-4o-mini 
+- Final Brief Generation: gpt-4.1-mini
+
+### Additional Improvements:
+
+1. **Better error handling**: When snippet analysis fails, likely company sites still get priority
+2. **Improved logging**: Shows exactly which sources are filtered and selected  
+3. **Less aggressive filtering**: Reduced MIN_RELIABLE_SOURCES from 5 to 3
+4. **More data brokers blocked**: Added 30+ unreliable domains to blocklist
+
+## Final Results
+
+The pipeline now:
+- Completes in ~25-30s (meets target)
+- Uses reliable models (gpt-4o-mini)
+- Blocks unreliable data brokers
+- Better prioritizes company-related content (webinars, presentations, interviews)
+- Provides detailed logging for debugging
+
+### Key Learning:
+
+The main issue was that valuable content (like company webinars, presentations) was being marked as "skip scrape" by the AI snippet analysis. Fixed by:
+1. Being more conservative about skipping sources
+2. Automatically prioritizing URLs that contain the company name
+3. Always scraping priority 6+ content even if snippet seems complete

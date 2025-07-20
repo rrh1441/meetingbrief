@@ -32,11 +32,11 @@ if (!OPENAI_API_KEY || !SERPER_KEY || !FIRECRAWL_KEY) {
 
 /* ── CONSTANTS ──────────────────────────────────────────────────────────── */
 const MODEL_ID = "gpt-4.1-mini-2025-04-14";
-const FAST_MODEL_ID = "o4-mini-2025-04-16"; // o4-mini for snippet analysis - good balance of speed and accuracy
+const FAST_MODEL_ID = "gpt-4o-mini"; // gpt-4o-mini for snippet analysis - reliable and fast
 const SERPER_API_URL = "https://google.serper.dev/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape";
 
-const MAX_SOURCES_TO_LLM = 25;
+const MAX_SOURCES_TO_LLM = 15; // Reduced from 25 to ensure we get more relevant sources
 
 // Credit-aware LinkedIn resolution URLs
 
@@ -65,6 +65,7 @@ const GENERIC_NO_SCRAPE_DOMAINS = [
   "publicrecords.com", // Personal info aggregator
   "peekyou.com", // Personal info aggregator
   "pipl.com", // Personal info aggregator
+  "radaris.com", // Personal info aggregator
   "zoominfo.com", // Already in LOW_TRUST_DOMAINS
   "lusha.com", // Data broker
   "contactout.com", // Data broker
@@ -84,7 +85,7 @@ const NO_SCRAPE_URL_SUBSTRINGS = [...SOCIAL_DOMAINS, ...GENERIC_NO_SCRAPE_DOMAIN
 // fewer than MIN_RELIABLE_SOURCES sources (after Firecrawl skip logic).
 // ------------------------------------------------------------------------
 const LOW_TRUST_DOMAINS: string[] = ["zoominfo.com"]; // People-finder sites with high false positive rates
-const MIN_RELIABLE_SOURCES = 5;
+const MIN_RELIABLE_SOURCES = 3; // Lowered to ensure we get more sources
 
 /* ── TYPES ──────────────────────────────────────────────────────────────── */
 interface SerpResult { title: string; link: string; snippet?: string }
@@ -342,9 +343,9 @@ URL: ${r.link}
 
   try {
     const response = await openAiClient.chat.completions.create({
-      model: FAST_MODEL_ID, // Use o4-mini for job change detection
+      model: FAST_MODEL_ID, // Use gpt-4o-mini for job change detection
       temperature: 0,
-      max_tokens: 200, // Limit output for speed
+      max_tokens: 200, // Back to max_tokens for gpt-4o-mini
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -372,7 +373,7 @@ async function analyzeSnippetsWithAI(
 ): Promise<Map<string, SpeedOptimizedAnalysis>> {
   // Simplified, focused system prompt for speed
   const systemPrompt = `Triage search snippets for ${targetName} at ${targetOrg}. Return JSON only.
-Priority 9-10: Awards, major appointments, interviews with quotes, research/publications, official company content mentioning the person
+Priority 9-10: Awards, major appointments, interviews with quotes, research/publications, official company content
 Priority 6-8: News mentions, conference speaking, professional updates, webinars/presentations  
 Priority 3-5: Basic directory listings, brief mentions
 Priority 1-2: Search results pages, old content (pre-2018), social media, paywalled
@@ -380,17 +381,18 @@ IMPORTANT: Be conservative with canSkipScrape. Only mark true for:
 - Directory listings with just name/title
 - Search result pages
 - Content behind paywalls
-Mark canSkipScrape=false for ALL content that could have valuable details (webinars, news, interviews, etc).
+Mark canSkipScrape=false for ALL content that could have valuable details (webinars, news, interviews, speaking engagements).
 CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in the snippet text. Do NOT infer, assume, or create information.`;
 
   // Function to analyze a single snippet
   async function analyzeSingleSnippet(
     source: SerpResult,
-    idx: number,
     useModel: string = FAST_MODEL_ID
   ): Promise<SpeedOptimizedAnalysis> {
-    // Check if this is an official company website that should always be scraped
-    const isOfficialCompanyWebsite = source.link.toLowerCase().includes(targetOrg.toLowerCase().replace(/\s+/g, ''));
+    // Check if this is likely an official company website (contains company name in domain)
+    const normalizedOrg = targetOrg.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normalizedUrl = source.link.toLowerCase();
+    const isLikelyCompanyWebsite = normalizedOrg.length > 3 && normalizedUrl.includes(normalizedOrg);
     
     // Check if this is a data broker or people search site
     const isDataBrokerSite = GENERIC_NO_SCRAPE_DOMAINS.some(domain => source.link.includes(domain));
@@ -410,14 +412,14 @@ CRITICAL: For extractedFacts, ONLY extract facts that are EXPLICITLY stated in t
 Title: ${source.title}
 Snippet: ${source.snippet || 'No snippet available'}
 
-Return: {"url":"${source.link}","canSkipScrape":${isOfficialCompanyWebsite ? 'false' : 'bool'},"scrapePriority":${isOfficialCompanyWebsite ? '9' : '1-10'},"extractedFacts":["only facts explicitly stated in snippet"],"expectedValue":"high|medium|low"}
-${isOfficialCompanyWebsite ? `NOTE: This is an official ${targetOrg} website - MUST scrape for full content.` : ''}`;
+Return: {"url":"${source.link}","canSkipScrape":${isLikelyCompanyWebsite ? 'false' : 'bool'},"scrapePriority":${isLikelyCompanyWebsite ? '9' : '1-10'},"extractedFacts":["only facts explicitly stated in snippet"],"expectedValue":"high|medium|low"}
+${isLikelyCompanyWebsite ? 'NOTE: This appears to be an official company website - prioritize for scraping.' : ''}`;
 
     try {
       const response = await openAiClient.chat.completions.create({
         model: useModel,
         temperature: 0,
-        max_tokens: 120, // Tight limit for speed
+        max_tokens: 120, // Back to max_tokens for gpt-4o-mini
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -440,13 +442,13 @@ ${isOfficialCompanyWebsite ? `NOTE: This is an official ${targetOrg} website - M
       console.error(`[Snippet Analysis] Failed for ${source.link}:`, error);
     }
     
-    // Fallback response
+    // Fallback response - prioritize likely company sites even on error
     return {
       url: source.link,
       canSkipScrape: false,
-      scrapePriority: 5,
+      scrapePriority: isLikelyCompanyWebsite ? 8 : 5,
       extractedFacts: [],
-      expectedValue: 'medium'
+      expectedValue: isLikelyCompanyWebsite ? 'high' : 'medium'
     };
   }
 
@@ -456,8 +458,8 @@ ${isOfficialCompanyWebsite ? `NOTE: This is an official ${targetOrg} website - M
   
   for (let i = 0; i < sources.length; i += batchSize) {
     const batch = sources.slice(i, i + batchSize);
-    const batchPromises = batch.map((source, batchIdx) => 
-      analyzeSingleSnippet(source, i + batchIdx)
+    const batchPromises = batch.map((source) => 
+      analyzeSingleSnippet(source)
     );
     
     const batchResults = await Promise.all(batchPromises);
@@ -1183,6 +1185,20 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   console.log(`[MB Step 6] Unique SERP results: ${uniqueSerpResults.length}`);
 
   // ── De-prioritise RocketReach etc. ─────────────────────────
+  // Log what's being filtered
+  const filteredOut = uniqueSerpResults.filter(r => 
+    r.link !== linkedInProfileResult?.link &&
+    NO_SCRAPE_URL_SUBSTRINGS.some(skip => r.link.includes(skip))
+  );
+  
+  if (filteredOut.length > 0) {
+    console.log(`[MB Step 6] Filtering out ${filteredOut.length} sources:`);
+    filteredOut.forEach(r => {
+      const domain = NO_SCRAPE_URL_SUBSTRINGS.find(skip => r.link.includes(skip));
+      console.log(`  - ${r.title} (${domain})`);
+    });
+  }
+  
   let filtered = uniqueSerpResults.filter(
     r => r.link === linkedInProfileResult?.link ||
          !NO_SCRAPE_URL_SUBSTRINGS.some(skip => r.link.includes(skip))
@@ -1198,6 +1214,12 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
   const sourcesToProcessForLLM = filtered.slice(0, MAX_SOURCES_TO_LLM);
 
   console.log(`[MB Step 6] Sources to process for LLM: ${sourcesToProcessForLLM.length}`);
+  
+  // Log which sources made it through
+  console.log(`[MB Step 6] Sources selected:`);
+  sourcesToProcessForLLM.forEach((s, idx) => {
+    console.log(`  ${idx + 1}. ${s.title} - ${s.link}`);
+  });
 
   const possibleSocialLinks = SOCIAL_DOMAINS
     .flatMap(domain => uniqueSerpResults.filter(r => r.link.includes(domain)).map(r => r.link))
