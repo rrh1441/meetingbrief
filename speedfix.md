@@ -270,3 +270,17 @@ The main issue was that valuable content (like company webinars, presentations) 
 1. Being more conservative about skipping sources
 2. Automatically prioritizing URLs that contain the company name
 3. Always scraping priority 6+ content even if snippet seems complete
+
+### Enhanced Filtering Fix (2025-07-20)
+
+Fixed overly aggressive filtering that was removing valuable content like SIGAR awards:
+
+1. **Added acronym extraction**: Organizations like "Special Inspector General for Afghanistan Reconstruction (SIGAR)" now also match "SIGAR" in search results
+2. **Smart acronym detection**: Automatically extracts acronyms from government agencies and organizations
+3. **Less strict award filtering**: Award/recognition content now passes filter if it mentions any known company/school (without requiring additional professional keywords)
+
+Changes made:
+- Added `extractPotentialAcronyms()` helper function
+- Enhanced company matching to include common acronyms
+- Special handling for awards, honors, and recognition content
+- Better support for government agencies (Inspector, Department, Agency, Commission, etc.)

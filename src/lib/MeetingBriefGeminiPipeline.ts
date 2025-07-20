@@ -285,6 +285,29 @@ const normalizeCompanyName = (companyName: string): string =>
     .replace(/[.,']/g, "")
     .trim();
 
+// Helper to extract potential acronyms from organization names
+const extractPotentialAcronyms = (companyName: string): string[] => {
+  const acronyms: string[] = [];
+  
+  // Check for acronym in parentheses
+  const parenMatch = companyName.match(/\(([A-Z]{2,})\)/);
+  if (parenMatch) {
+    acronyms.push(parenMatch[1].toLowerCase());
+  }
+  
+  // For government agencies, extract capital letters (e.g., "Special Inspector General for Afghanistan Reconstruction" -> "SIGAR")
+  const words = companyName.split(/\s+/);
+  if (words.length >= 3 && companyName.includes('Inspector') || companyName.includes('Department') || 
+      companyName.includes('Administration') || companyName.includes('Agency') || companyName.includes('Commission')) {
+    const capitalLetters = companyName.match(/\b[A-Z]/g);
+    if (capitalLetters && capitalLetters.length >= 3) {
+      acronyms.push(capitalLetters.join('').toLowerCase());
+    }
+  }
+  
+  return acronyms;
+};
+
 /* ── Job Change Detection ─────────────────────────────────────────────── */
 async function detectJobChange(
   serpResults: SerpResult[],
@@ -1067,6 +1090,13 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
           const normalizedCompany = normalizeCompanyName(exp.companyName);
           knownCompanies.add(normalizedCompany);
           console.log(`[MB] Added company ${idx + 1}: "${exp.companyName}" -> "${normalizedCompany}"`);
+          
+          // Also add potential acronyms
+          const acronyms = extractPotentialAcronyms(exp.companyName);
+          acronyms.forEach(acronym => {
+            knownCompanies.add(acronym);
+            console.log(`[MB] Added company acronym: "${acronym}"`);
+          });
         }
       });
     }
@@ -1130,10 +1160,19 @@ export async function buildMeetingBriefGemini(name: string, org: string): Promis
         return false;
       }
       
-      // Keep if: company domain OR (name + known company/school + professional context)
+      // Check if this is award/recognition content (should be less strict)
+      const isAwardOrRecognition = txt.includes('award') || txt.includes('recognition') || 
+        txt.includes('honor') || txt.includes('winner') || txt.includes('recipient') ||
+        txt.includes('achievement') || txt.includes('fellowship') || txt.includes('grant');
+      
+      // Keep if: 
+      // 1. URL contains org domain, OR
+      // 2. Mentions known company/school AND has professional keywords, OR
+      // 3. Is award/recognition content AND mentions known company (even without other keywords)
       const isRelevant = urlContainsOrg || 
         (mentionsKnownCompany && hasProfessionalKeywords) ||
-        (mentionsKnownSchool && hasProfessionalKeywords);
+        (mentionsKnownSchool && hasProfessionalKeywords) ||
+        (isAwardOrRecognition && (mentionsKnownCompany || mentionsKnownSchool));
       
       if (!isRelevant) {
         console.log(`[MB] Filtered out unrelated result: ${r.title}`);
