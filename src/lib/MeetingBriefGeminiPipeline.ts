@@ -2275,30 +2275,52 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       return { success: false, reason: 'Company not found' };
     }
 
-    // 2. Profile search - Try broader search first, fallback to company filter for common names
+    // 2. Profile search with pagination - Try broader search first, fallback to company filter for common names
     console.log(`[Harvest] Starting with broader search for "${name}" to avoid company filtering bugs`);
-    let prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
-      search: name, 
-      limit: "30" 
-    });
+    
+    // Helper function to get paginated results
+    const getPaginatedProfiles = async (searchParams: Record<string, string>, maxPages: number = 3): Promise<ProfSearch['elements']> => {
+      let allElements: ProfSearch['elements'] = [];
+      let currentPage = 1;
+      
+      while (currentPage <= maxPages) {
+        const pageParams = { ...searchParams, start: ((currentPage - 1) * 10).toString() };
+        const pageResult = await harvestGet<ProfSearch>("/linkedin/profile-search", pageParams);
+        
+        if (!pageResult.elements || pageResult.elements.length === 0) {
+          break; // No more results
+        }
+        
+        allElements.push(...pageResult.elements);
+        console.log(`[Harvest] Page ${currentPage}: found ${pageResult.elements.length} profiles`);
+        
+        // If we got fewer than the limit, we're at the end
+        if (pageResult.elements.length < parseInt(searchParams.limit || '10')) {
+          break;
+        }
+        
+        currentPage++;
+      }
+      
+      return allElements;
+    };
+    
+    let allElements = await getPaginatedProfiles({ search: name, limit: "10" }, 3);
+    let prof = { elements: allElements };
     let wasCompanyFiltered = false;
     
     // If broader search returns too many results (indicating common name), try company filtering as fallback
     if (prof.elements && prof.elements.length >= 25) {
       console.log(`[Harvest] Broader search returned ${prof.elements.length} results - name may be too common. Trying company-filtered search as fallback.`);
       try {
-        const companyFilteredProf = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
-          search: name, 
-          companyId, 
-          limit: "25" 
-        });
+        const companyFilteredElements = await getPaginatedProfiles({ search: name, companyId, limit: "10" }, 3);
         
-        if (companyFilteredProf.elements && companyFilteredProf.elements.length > 0 && companyFilteredProf.elements.length < prof.elements.length) {
-          console.log(`[Harvest] Company-filtered search found ${companyFilteredProf.elements.length} candidates (vs ${prof.elements.length} from broader search). Using company-filtered results.`);
-          prof = companyFilteredProf;
+        if (companyFilteredElements.length > 0 && companyFilteredElements.length < prof.elements.length) {
+          console.log(`[Harvest] Company-filtered search found ${companyFilteredElements.length} candidates (vs ${prof.elements.length} from broader search). Using company-filtered results.`);
+          prof = { elements: companyFilteredElements };
           wasCompanyFiltered = true;
         } else {
-          console.log(`[Harvest] Company-filtered search didn't improve results (${companyFilteredProf.elements?.length || 0} results). Sticking with broader search.`);
+          console.log(`[Harvest] Company-filtered search didn't improve results (${companyFilteredElements.length || 0} results). Sticking with broader search.`);
         }
       } catch (error) {
         console.log(`[Harvest] Company-filtered fallback failed: ${error}. Continuing with broader search.`);
@@ -2311,6 +2333,11 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     }
     
     console.log(`[Harvest] Using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search found ${prof.elements.length} candidates (will verify company matches via LLM)`);
+    
+    // DIAGNOSTIC: Check if we're getting the same limited results regardless of search type
+    const profileIds = prof.elements.map(p => p.linkedinUrl?.split('/').pop() || p.publicIdentifier).filter(Boolean);
+    console.log(`[DIAGNOSTIC] Profile IDs returned: ${profileIds.slice(0, 5).join(', ')}${profileIds.length > 5 ? '...' : ''}`);
+    console.log(`[DIAGNOSTIC] If you see the same profile IDs repeatedly across different searches, the Harvest API may have indexing or caching issues.`);
 
     // 3. Filter out obviously bad matches (no URL, hidden profiles, etc.)
     const validCandidates = prof.elements.filter((profile: ProfSearch['elements'][0]) => 
