@@ -2275,33 +2275,42 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       return { success: false, reason: 'Company not found' };
     }
 
-    // 2. Profile search with company filter first
-    console.log(`[Harvest] Profile search for "${name}" (companyId=${companyId})`);
+    // 2. Profile search - Try broader search first, fallback to company filter for common names
+    console.log(`[Harvest] Starting with broader search for "${name}" to avoid company filtering bugs`);
     let prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
       search: name, 
-      companyId, 
-      limit: "25" 
+      limit: "30" 
     });
-
-    // 2b. Fallback: if company-filtered search returns 0 results, try without company filter
-    let wasCompanyFiltered = true;
-    if (!prof.elements?.length) {
-      console.log(`[Harvest] Company-filtered search returned 0 results. Trying broader search without company filter.`);
-      prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
-        search: name, 
-        limit: "30" // Higher limit for broader search
-      });
-      wasCompanyFiltered = false;
-      
-      if (!prof.elements?.length) {
-        console.log("[Harvest] Even broader search returned 0 results.");
-        return { success: false, reason: 'No profiles found in company-filtered or broader search' };
+    let wasCompanyFiltered = false;
+    
+    // If broader search returns too many results (indicating common name), try company filtering as fallback
+    if (prof.elements && prof.elements.length >= 25) {
+      console.log(`[Harvest] Broader search returned ${prof.elements.length} results - name may be too common. Trying company-filtered search as fallback.`);
+      try {
+        const companyFilteredProf = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
+          search: name, 
+          companyId, 
+          limit: "25" 
+        });
+        
+        if (companyFilteredProf.elements && companyFilteredProf.elements.length > 0 && companyFilteredProf.elements.length < prof.elements.length) {
+          console.log(`[Harvest] Company-filtered search found ${companyFilteredProf.elements.length} candidates (vs ${prof.elements.length} from broader search). Using company-filtered results.`);
+          prof = companyFilteredProf;
+          wasCompanyFiltered = true;
+        } else {
+          console.log(`[Harvest] Company-filtered search didn't improve results (${companyFilteredProf.elements?.length || 0} results). Sticking with broader search.`);
+        }
+      } catch (error) {
+        console.log(`[Harvest] Company-filtered fallback failed: ${error}. Continuing with broader search.`);
       }
-      
-      console.log(`[Harvest] Broader search found ${prof.elements.length} candidates (will verify company matches later)`);
-    } else {
-      console.log(`[Harvest] Company-filtered search found ${prof.elements.length} candidates`);
     }
+      
+    if (!prof.elements?.length) {
+      console.log("[Harvest] Search returned 0 results.");
+      return { success: false, reason: 'No profiles found in search' };
+    }
+    
+    console.log(`[Harvest] Using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search found ${prof.elements.length} candidates (will verify company matches via LLM)`);
 
     // 3. Filter out obviously bad matches (no URL, hidden profiles, etc.)
     const validCandidates = prof.elements.filter((profile: ProfSearch['elements'][0]) => 
@@ -2319,6 +2328,12 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     console.log(`[Harvest] Found ${validCandidates.length} valid candidates using ${wasCompanyFiltered ? 'company-filtered' : 'broader'} search:`, 
       validCandidates.map((c: ProfSearch['elements'][0]) => ({ name: c.name, position: c.position }))
     );
+    
+    // DIAGNOSTIC: Log company filtering bug
+    if (wasCompanyFiltered) {
+      console.log(`[DIAGNOSTIC] WARNING: Company-filtered search for companyId=${companyId} (${org}) returned profiles that may not actually work at this company. This suggests a Harvest API bug.`);
+      console.log(`[DIAGNOSTIC] All ${validCandidates.length} profiles were supposedly filtered by company "${org}" but will be verified by LLM scraping.`);
+    }
 
     // 4. Use LLM to select best candidate(s)
     const openAiClient = getOpenAIClient();
