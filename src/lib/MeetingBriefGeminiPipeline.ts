@@ -2291,12 +2291,13 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       const pageResults = await Promise.all(pagePromises);
       const allElements: ProfSearch['elements'] = [];
       
-      for (const { page, result, error } of pageResults) {
-        if (error) {
-          console.log(`[Harvest] Page ${page}: error - ${error}`);
+      for (const pageResult of pageResults) {
+        if ('error' in pageResult) {
+          console.log(`[Harvest] Page ${pageResult.page}: error - ${pageResult.error}`);
           break; // Stop on first error
         }
         
+        const { page, result } = pageResult;
         if (!result.elements || result.elements.length === 0) {
           console.log(`[Harvest] Page ${page}: no results - stopping pagination`);
           break; // No more results
