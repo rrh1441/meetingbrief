@@ -2262,10 +2262,123 @@ type HarvestPipelineResult = {
   searchMethod?: string; // Can still indicate search method
 };
 
+// Helper function to enrich LinkedIn profiles found via Serper
+const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org: string): Promise<HarvestPipelineResult> => {
+  console.log(`[Harvest] Enriching ${linkedinUrls.length} LinkedIn profiles found via Serper`);
+  
+  const enrichedProfiles: HarvestLinkedInProfileElement[] = [];
+  
+  for (const url of linkedinUrls) {
+    try {
+      // Extract LinkedIn username from URL (e.g., "john-doe" from linkedin.com/in/john-doe)
+      const match = url.match(/linkedin\.com\/in\/([^/?]+)/);
+      if (!match) continue;
+      
+      const username = match[1];
+      console.log(`[Harvest] Enriching profile: ${username}`);
+      
+      const profileData = await harvestGet<{ element: HarvestLinkedInProfileElement }>(`/linkedin/profile/${username}`, {});
+      
+      if (profileData.element) {
+        enrichedProfiles.push(profileData.element);
+        console.log(`[Harvest] Successfully enriched profile: ${profileData.element.firstName} ${profileData.element.lastName}`);
+      }
+    } catch (error) {
+      console.log(`[Harvest] Failed to enrich profile ${url}: ${error}`);
+    }
+  }
+  
+  if (enrichedProfiles.length === 0) {
+    return { success: false, reason: 'Failed to enrich any LinkedIn profiles found via Serper' };
+  }
+  
+  // Use the same company verification logic as before
+  const companyMatchResults = await Promise.all(
+    enrichedProfiles.map(async (profile) => {
+      const profileId = profile.publicIdentifier || profile.id || 'unknown';
+      const companyMatch = await findCompanyMatches([{ element: profile, linkedinUrl: profile.linkedinUrl || '' }], org);
+      return {
+        profile,
+        url: profileId,
+        hasMatch: companyMatch.length > 0 && companyMatch[0].hasMatch,
+        evidence: companyMatch.length > 0 ? companyMatch[0].evidence : [],
+        score: companyMatch.length > 0 ? companyMatch[0].score : 0
+      };
+    })
+  );
+  
+  // Find the best matching profile
+  const bestMatch = companyMatchResults
+    .filter(result => result.hasMatch)
+    .sort((a, b) => b.score - a.score)[0];
+  
+  if (bestMatch) {
+    const jobTimeline = extractJobTimeline(bestMatch.profile);
+    const educationTimeline = extractEducationTimeline(bestMatch.profile);
+    
+    return {
+      success: true,
+      profile: { element: bestMatch.profile },
+      linkedinUrl: bestMatch.profile.linkedinUrl || '',
+      jobTimeline,
+      educationTimeline,
+      companyEvidence: bestMatch.evidence,
+      searchMethod: 'Serper + Harvest enrichment',
+      llmReasoning: `Profile found via Serper search and enriched with Harvest. Company match confidence: ${bestMatch.score}`
+    };
+  }
+  
+  // If no company matches, return the first profile but mark it
+  const firstProfile = enrichedProfiles[0];
+  return {
+    success: false,
+    reason: 'Profiles found via Serper but none match the target company',
+    linkedinUrlAttempted: firstProfile.linkedinUrl,
+    searchMethod: 'Serper + Harvest enrichment (no company match)'
+  };
+};
+
 // Updated Harvest pipeline using LLM selection
 const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<HarvestPipelineResult> => {
   try {
-    // 1. Company search  
+    // 1. Serper pre-search to find LinkedIn profile URLs
+    console.log(`[Harvest] Serper pre-search for "${name}" at "${org}"`);
+    const serperQuery = `"${name}" site:linkedin.com/in ${org}`;
+    
+    try {
+      const serperResponse = await fetch(SERPER_API_URL, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_KEY!,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ q: serperQuery, num: 5 })
+      });
+      
+      if (serperResponse.ok) {
+        const serperData = await serperResponse.json();
+        const linkedinUrls = serperData.organic?.filter((result: any) => 
+          result.link?.includes('linkedin.com/in/') && 
+          result.title?.toLowerCase().includes(name.toLowerCase().split(' ')[0])
+        ).map((result: any) => result.link).slice(0, 3) || [];
+        
+        console.log(`[Harvest] Serper found ${linkedinUrls.length} LinkedIn profile URLs: ${linkedinUrls.join(', ')}`);
+        
+        // If we found LinkedIn URLs, try to enrich them directly with Harvest
+        if (linkedinUrls.length > 0) {
+          return await enrichLinkedInProfiles(linkedinUrls, name, org);
+        }
+      } else {
+        console.log(`[Harvest] Serper pre-search failed: ${serperResponse.status}`);
+      }
+    } catch (serperError) {
+      console.log(`[Harvest] Serper pre-search error: ${serperError}`);
+    }
+    
+    // 2. Fallback to Harvest search if Serper didn't find profiles
+    console.log(`[Harvest] Falling back to Harvest search method`);
+    
+    // Company search for fallback method
     console.log(`[Harvest] Company search for "${org}"`);
     const comp = await harvestGet<CompanySearch>("/linkedin/company-search", { search: org, limit: "3" });
     const companyId = comp.elements?.[0]?.id;
