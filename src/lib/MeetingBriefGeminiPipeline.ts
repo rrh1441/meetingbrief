@@ -2278,28 +2278,37 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     // 2. Profile search with pagination - Try broader search first, fallback to company filter for common names
     console.log(`[Harvest] Starting with broader search for "${name}" to avoid company filtering bugs`);
     
-    // Helper function to get paginated results
+    // Helper function to get paginated results in parallel
     const getPaginatedProfiles = async (searchParams: Record<string, string>, maxPages: number = 3): Promise<ProfSearch['elements']> => {
-      const allElements: ProfSearch['elements'] = [];
-      let currentPage = 1;
+      // Create all page requests in parallel
+      const pagePromises = Array.from({ length: maxPages }, (_, i) => {
+        const pageParams = { ...searchParams, start: (i * 10).toString() };
+        return harvestGet<ProfSearch>("/linkedin/profile-search", pageParams)
+          .then(result => ({ page: i + 1, result }))
+          .catch(error => ({ page: i + 1, error }));
+      });
       
-      while (currentPage <= maxPages) {
-        const pageParams = { ...searchParams, start: ((currentPage - 1) * 10).toString() };
-        const pageResult = await harvestGet<ProfSearch>("/linkedin/profile-search", pageParams);
+      const pageResults = await Promise.all(pagePromises);
+      const allElements: ProfSearch['elements'] = [];
+      
+      for (const { page, result, error } of pageResults) {
+        if (error) {
+          console.log(`[Harvest] Page ${page}: error - ${error}`);
+          break; // Stop on first error
+        }
         
-        if (!pageResult.elements || pageResult.elements.length === 0) {
+        if (!result.elements || result.elements.length === 0) {
+          console.log(`[Harvest] Page ${page}: no results - stopping pagination`);
           break; // No more results
         }
         
-        allElements.push(...pageResult.elements);
-        console.log(`[Harvest] Page ${currentPage}: found ${pageResult.elements.length} profiles`);
+        allElements.push(...result.elements);
+        console.log(`[Harvest] Page ${page}: found ${result.elements.length} profiles`);
         
-        // If we got fewer than the limit, we're at the end
-        if (pageResult.elements.length < parseInt(searchParams.limit || '10')) {
+        // If we got fewer than the limit, this was the last page
+        if (result.elements.length < parseInt(searchParams.limit || '10')) {
           break;
         }
-        
-        currentPage++;
       }
       
       return allElements;
