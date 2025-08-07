@@ -2280,7 +2280,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     let prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
       search: name, 
       companyId, 
-      limit: "10" 
+      limit: "25" 
     });
 
     // 2b. Fallback: if company-filtered search returns 0 results, try without company filter
@@ -2289,7 +2289,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       console.log(`[Harvest] Company-filtered search returned 0 results. Trying broader search without company filter.`);
       prof = await harvestGet<ProfSearch>("/linkedin/profile-search", { 
         search: name, 
-        limit: "15" // Slightly higher limit for broader search
+        limit: "30" // Higher limit for broader search
       });
       wasCompanyFiltered = false;
       
