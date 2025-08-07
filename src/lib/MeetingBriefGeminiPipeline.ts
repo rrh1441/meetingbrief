@@ -2280,7 +2280,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
     
     // Helper function to get paginated results
     const getPaginatedProfiles = async (searchParams: Record<string, string>, maxPages: number = 3): Promise<ProfSearch['elements']> => {
-      let allElements: ProfSearch['elements'] = [];
+      const allElements: ProfSearch['elements'] = [];
       let currentPage = 1;
       
       while (currentPage <= maxPages) {
@@ -2305,7 +2305,7 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       return allElements;
     };
     
-    let allElements = await getPaginatedProfiles({ search: name, limit: "10" }, 3);
+    const allElements = await getPaginatedProfiles({ search: name, limit: "10" }, 3);
     let prof = { elements: allElements };
     let wasCompanyFiltered = false;
     
