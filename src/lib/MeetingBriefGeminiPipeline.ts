@@ -2357,10 +2357,10 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       
       if (serperResponse.ok) {
         const serperData = await serperResponse.json();
-        const linkedinUrls = serperData.organic?.filter((result: any) => 
+        const linkedinUrls = serperData.organic?.filter((result: { link?: string; title?: string }) => 
           result.link?.includes('linkedin.com/in/') && 
           result.title?.toLowerCase().includes(name.toLowerCase().split(' ')[0])
-        ).map((result: any) => result.link).slice(0, 3) || [];
+        ).map((result: { link?: string; title?: string }) => result.link).slice(0, 3) || [];
         
         console.log(`[Harvest] Serper found ${linkedinUrls.length} LinkedIn profile URLs: ${linkedinUrls.join(', ')}`);
         
