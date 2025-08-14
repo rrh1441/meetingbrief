@@ -2293,16 +2293,17 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
   }
   
   // Use the same company verification logic as before
+  const openAiClient = getOpenAIClient();
   const companyMatchResults = await Promise.all(
     enrichedProfiles.map(async (profile) => {
       const profileId = profile.publicIdentifier || profile.id || 'unknown';
-      const companyMatch = await findCompanyMatches([{ element: profile, linkedinUrl: profile.linkedinUrl || '' }], org);
+      const companyMatch = await findCompanyMatches({ element: profile, linkedinUrl: profile.linkedinUrl || '' }, org, openAiClient);
       return {
         profile,
         url: profileId,
-        hasMatch: companyMatch.length > 0 && companyMatch[0].hasMatch,
-        evidence: companyMatch.length > 0 ? companyMatch[0].evidence : [],
-        score: companyMatch.length > 0 ? companyMatch[0].score : 0
+        hasMatch: companyMatch.score > 0,
+        evidence: companyMatch.evidence,
+        score: companyMatch.score
       };
     })
   );
@@ -2358,11 +2359,18 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       if (serperResponse.ok) {
         const serperData = await serperResponse.json();
         const linkedinUrls = serperData.organic?.filter((result: { link?: string; title?: string }) => 
-          result.link?.includes('linkedin.com/in/') && 
-          result.title?.toLowerCase().includes(name.toLowerCase().split(' ')[0])
-        ).map((result: { link?: string; title?: string }) => result.link).slice(0, 3) || [];
+          result.link?.includes('linkedin.com/in/')
+        ).map((result: { link?: string; title?: string }) => result.link).slice(0, 5) || [];
         
         console.log(`[Harvest] Serper found ${linkedinUrls.length} LinkedIn profile URLs: ${linkedinUrls.join(', ')}`);
+        
+        // DIAGNOSTIC: Log all Serper results for debugging
+        if (serperData.organic) {
+          console.log(`[DIAGNOSTIC] All Serper results for debugging:`);
+          serperData.organic.slice(0, 10).forEach((result: { link?: string; title?: string }, i: number) => {
+            console.log(`[DIAGNOSTIC] ${i + 1}. ${result.title} - ${result.link}`);
+          });
+        }
         
         // If we found LinkedIn URLs, try to enrich them directly with Harvest
         if (linkedinUrls.length > 0) {
