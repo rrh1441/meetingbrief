@@ -2381,10 +2381,10 @@ const llmEnhancedHarvestPipeline = async (name: string, org: string): Promise<Ha
       });
       
       if (serperResponse.ok) {
-        const serperData = await serperResponse.json();
+        const serperData = await serperResponse.json() as { organic?: { link?: string; title?: string }[] };
         const linkedinUrls = serperData.organic?.filter((result: { link?: string; title?: string }) => 
           result.link?.includes('linkedin.com/in/')
-        ).map((result: { link?: string; title?: string }) => result.link).slice(0, 5) || [];
+        ).map((result: { link?: string; title?: string }) => result.link).filter((link): link is string => link !== undefined).slice(0, 5) || [];
         
         console.log(`[Harvest] Serper found ${linkedinUrls.length} LinkedIn profile URLs: ${linkedinUrls.join(', ')}`);
         
