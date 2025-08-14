@@ -2300,7 +2300,10 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
       const username = match[1];
       console.log(`[Harvest] Enriching profile: ${username}`);
       
-      const profileData = await harvestGet<{ element: HarvestLinkedInProfileElement }>(`/linkedin/profile/${username}`, {});
+      // Try using the full URL instead of just the username
+      const profileData = await harvestGet<{ element: HarvestLinkedInProfileElement }>("/linkedin/profile", { 
+        url: url 
+      });
       
       if (profileData.element) {
         enrichedProfiles.push({ profile: profileData.element, originalUrl: url });
