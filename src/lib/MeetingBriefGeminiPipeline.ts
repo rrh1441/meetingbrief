@@ -2289,7 +2289,7 @@ const extractEducationTimeline = (profile: HarvestLinkedInProfileElement): strin
 const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org: string): Promise<HarvestPipelineResult> => {
   console.log(`[Harvest] Enriching ${linkedinUrls.length} LinkedIn profiles found via Serper`);
   
-  const enrichedProfiles: HarvestLinkedInProfileElement[] = [];
+  const enrichedProfiles: { profile: HarvestLinkedInProfileElement; originalUrl: string }[] = [];
   
   for (const url of linkedinUrls) {
     try {
@@ -2303,7 +2303,7 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
       const profileData = await harvestGet<{ element: HarvestLinkedInProfileElement }>(`/linkedin/profile/${username}`, {});
       
       if (profileData.element) {
-        enrichedProfiles.push(profileData.element);
+        enrichedProfiles.push({ profile: profileData.element, originalUrl: url });
         console.log(`[Harvest] Successfully enriched profile: ${profileData.element.firstName} ${profileData.element.lastName}`);
       }
     } catch (error) {
@@ -2318,11 +2318,12 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
   // Use the same company verification logic as before
   const openAiClient = getOpenAIClient();
   const companyMatchResults = await Promise.all(
-    enrichedProfiles.map(async (profile) => {
-      const profileId = profile.publicIdentifier || profile.id || 'unknown';
-      const companyMatch = await findCompanyMatches({ element: profile, linkedinUrl: profile.linkedinUrl || '' }, org, openAiClient);
+    enrichedProfiles.map(async (item) => {
+      const profileId = item.profile.publicIdentifier || item.profile.id || 'unknown';
+      const companyMatch = await findCompanyMatches({ element: item.profile, linkedinUrl: item.originalUrl }, org, openAiClient);
       return {
-        profile,
+        profile: item.profile,
+        originalUrl: item.originalUrl,
         url: profileId,
         hasMatch: companyMatch.score > 0,
         evidence: companyMatch.evidence,
@@ -2343,7 +2344,7 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
     return {
       success: true,
       profile: { element: bestMatch.profile },
-      linkedinUrl: bestMatch.profile.linkedinUrl || '',
+      linkedinUrl: bestMatch.originalUrl,
       jobTimeline,
       educationTimeline,
       companyEvidence: bestMatch.evidence,
@@ -2357,7 +2358,7 @@ const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org:
   return {
     success: false,
     reason: 'Profiles found via Serper but none match the target company',
-    linkedinUrlAttempted: firstProfile.linkedinUrl,
+    linkedinUrlAttempted: firstProfile.originalUrl,
     searchMethod: 'Serper + Harvest enrichment (no company match)'
   };
 };
