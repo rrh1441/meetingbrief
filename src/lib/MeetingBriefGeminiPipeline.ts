@@ -2262,6 +2262,29 @@ type HarvestPipelineResult = {
   searchMethod?: string; // Can still indicate search method
 };
 
+// Helper functions to extract timelines from Harvest profile data
+const extractJobTimeline = (profile: HarvestLinkedInProfileElement): string[] => {
+  if (profile.experience && Array.isArray(profile.experience)) {
+    return profile.experience.map((exp) =>
+      `${exp.position || "Role"} — ${exp.companyName || "Company"} (${formatJobSpan(exp.startDate, exp.endDate as YearMonthDay | undefined)})`
+    );
+  }
+  return [];
+};
+
+const extractEducationTimeline = (profile: HarvestLinkedInProfileElement): string[] => {
+  if (profile.education && Array.isArray(profile.education)) {
+    return profile.education.slice(0, 2).map((edu) => {
+      const school = edu.title || edu.schoolName || 'University';
+      const degree = edu.degree || edu.degreeName || 'Degree';
+      const fieldText = edu.fieldOfStudy || '';
+      const yearText = edu.endDate ? `(${edu.endDate.year})` : '';
+      return `${degree}${fieldText ? ` in ${fieldText}` : ''} — ${school} ${yearText}`.trim();
+    });
+  }
+  return [];
+};
+
 // Helper function to enrich LinkedIn profiles found via Serper
 const enrichLinkedInProfiles = async (linkedinUrls: string[], name: string, org: string): Promise<HarvestPipelineResult> => {
   console.log(`[Harvest] Enriching ${linkedinUrls.length} LinkedIn profiles found via Serper`);
