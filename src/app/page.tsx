@@ -134,7 +134,7 @@ export default function Page() {
   const [pdfBusy, setPdfBusy] = useState(false)
 
   const [stepIdx, setStepIdx] = useState(0)
-  const [remaining, setRemaining] = useState(30)
+  const [remaining, setRemaining] = useState(45)
 
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -154,17 +154,17 @@ export default function Page() {
 
   /* stepper effect --------------------------------------------------------- */
   useEffect(() => {
-    if (!loading) { setStepIdx(0); setRemaining(30); return; }
+    if (!loading) { setStepIdx(0); setRemaining(45); return; }
     const t0 = Date.now();
     const id = setInterval(() => {
       const elapsed = Math.floor((Date.now() - t0) / 1000);
-      setRemaining(Math.max(5, 30 - elapsed));
-      // Advance step every 5 seconds for first 5 steps (0-4)
-      if (elapsed < 25 && elapsed % 5 === 0) {
+      setRemaining(Math.max(5, 45 - elapsed));
+      // Advance step roughly every 7 seconds for the first 5 steps (0-4)
+      if (elapsed > 0 && elapsed <= 35 && elapsed % 7 === 0) {
         setStepIdx(i => Math.min(i + 1, STEPS.length - 1));
       }
-      // Last step stays for final 5 seconds
-      if (elapsed >= 30) clearInterval(id);
+      // Last step stays for final 10 seconds
+      if (elapsed >= 45) clearInterval(id);
     }, 1000);
     return () => clearInterval(id);
   }, [loading])
@@ -357,10 +357,10 @@ export default function Page() {
           {/* Hero */}
           <div>
             <h1 className="text-5xl font-bold tracking-tight">
-              AI-Powered Meeting Research Briefs in 30 Seconds
+              No More Flying Blind in Meetings
             </h1>
             <p className="mt-4 text-lg text-slate-600">
-              Arrive at every sales call, interview, or board meeting armed with source-linked intel
+              Save time, skip surprises, and arrive prepared for every conversation.
             </p>
           </div>
 
@@ -540,27 +540,29 @@ export default function Page() {
       <section id="pricing" className="py-24 bg-white">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <h2 className="text-3xl font-semibold text-slate-900 mb-4">
-            Simple, predictable pricing for AI meeting prep
+            Buy research briefs in 50-pack bundles
           </h2>
           <p className="text-lg text-slate-600 mb-12">
-            No contracts. No surprises. Just the meeting research briefs you need, when you need them.
+            No subscriptions or renewals—just one-time purchases you can redeem whenever you need them.
           </p>
           
-          <div className="grid gap-8 sm:grid-cols-1 max-w-md mx-auto">
+          <div className="grid gap-8 sm:grid-cols-1 lg:grid-cols-3 max-w-4xl mx-auto">
             {[
-              { plan: 'Starter', price: '$10', credits: '50 research briefs', ideal: 'Perfect for sales professionals and executives who need automated meeting prep' },
+              { plan: 'Starter Pack', price: '$199', briefs: '50 briefs', note: 'One-time purchase', ideal: 'Great for individual sellers, founders, and consultants.' },
+              { plan: 'Team Bundle', price: '$549', briefs: '150 briefs (3×50)', note: 'One-time purchase', ideal: 'Built for revenue teams running multiple meetings each week.' },
+              { plan: 'Scale Bundle', price: '$999', briefs: '300 briefs (6×50)', note: 'One-time purchase', ideal: 'Best value for enablement, customer success, and recruiting teams.' },
             ].map(pricing => (
               <Card key={pricing.plan} className="shadow-lg relative">
                 <CardHeader>
                   <CardTitle className="text-xl">{pricing.plan}</CardTitle>
                   <div className="text-3xl font-bold text-indigo-600">
-                    {pricing.price}<span className="text-base font-normal text-slate-600">/month</span>
+                    {pricing.price}
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-semibold text-slate-900">{pricing.credits}</div>
-                    <div className="text-sm text-slate-600">per month</div>
+                  <div className="text-center space-y-1">
+                    <div className="text-2xl font-semibold text-slate-900">{pricing.briefs}</div>
+                    <div className="text-sm text-slate-600">{pricing.note}</div>
                   </div>
                   <p className="text-sm text-slate-600">{pricing.ideal}</p>
                   <Button className="w-full" asChild>
@@ -572,7 +574,7 @@ export default function Page() {
           </div>
           
           <p className="mt-8 text-sm text-slate-500">
-            30-day money-back guarantee • Secure checkout • Per research brief pricing
+            One-time checkout • Redeem briefs anytime • No recurring costs
           </p>
         </div>
       </section>

@@ -37,7 +37,7 @@ export function BriefGenerator() {
   const [briefHtml, setBriefHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
-  const [remaining, setRemaining] = useState(30);
+  const [remaining, setRemaining] = useState(45);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [usage, setUsage] = useState<BriefUsage | null>(null);
   
@@ -67,17 +67,17 @@ export function BriefGenerator() {
 
   // Countdown ticker
   useEffect(() => {
-    if (!loading) { setStepIdx(0); setRemaining(30); return; }
+    if (!loading) { setStepIdx(0); setRemaining(45); return; }
     const t0 = Date.now();
     const id = setInterval(() => {
       const elapsed = Math.floor((Date.now() - t0) / 1000);
-      setRemaining(Math.max(5, 30 - elapsed));
-      // Advance step every 5 seconds for first 5 steps (0-4)
-      if (elapsed < 25 && elapsed % 5 === 0) {
+      setRemaining(Math.max(5, 45 - elapsed));
+      // Advance step roughly every 7 seconds for the first 5 steps (0-4)
+      if (elapsed > 0 && elapsed <= 35 && elapsed % 7 === 0) {
         setStepIdx(i => Math.min(i + 1, STEPS.length - 1));
       }
-      // Last step stays for final 5 seconds
-      if (elapsed >= 30) clearInterval(id);
+      // Last step stays for final 10 seconds
+      if (elapsed >= 45) clearInterval(id);
     }, 1_000);
     return () => clearInterval(id);
   }, [loading]);
